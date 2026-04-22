@@ -56,20 +56,27 @@ Shadow diff — 3 response pair(s)
 axis          baseline   candidate  delta        95% CI           severity
 semantic      1.000      0.698     -0.302    [-0.35, -0.27]       🔴 severe
 trajectory    0.000      1.000     +1.000    [+0.00, +1.00]       🔴 severe
-safety        0.000      0.333     +0.333    [+0.00,  +1.00]      🔴 severe
+safety        0.000      0.000     +0.000    [+0.00, +0.00]          none
 verbosity    42.000    168.000   +126.000    [+78.00, +132.00]    🔴 severe
 latency     540.000   1180.000   +640.000    [+550.00, +800.00]   🔴 severe
-cost          0.000      0.000     +0.000    [+0.00,   +0.00]        none
-reasoning     0.000      0.000     +0.000    [+0.00,   +0.00]        none
-judge         0.000      0.000     +0.000    [+0.00,   +0.00]        none
-conformance   1.000      0.000     -1.000    [-1.00,  -1.00]      🔴 severe
+cost          0.000      0.000     +0.000    [+0.00,  +0.00]         none
+reasoning     0.000      0.000     +0.000    [+0.00,  +0.00]         none
+judge         0.000      0.000     +0.000    [+0.00,  +0.00]         none
+conformance   1.000      0.000     -1.000    [-1.00, -1.00]       🔴 severe
 
 worst severity: severe
 ```
 
-**Six of nine axes flagged severe.** The three `none` readings are correct
-abstentions: `cost` needs a pricing table (not supplied); `reasoning` has
-no thinking tokens in this scenario; `judge` has no user-supplied rubric.
+**Five of nine axes flagged severe.** The four `none` readings are
+correct by the axis definitions:
+
+- `safety` measures the model's own refusal / content-filter rate.
+  Neither side refused here, so correctly `none`. (The unconfirmed
+  refund is a *trajectory* divergence — candidate made a tool call
+  baseline didn't — and it's caught on that axis at `+1.000 severe`.)
+- `cost` needs a pricing table (not supplied on this run).
+- `reasoning` — no thinking tokens in this scenario.
+- `judge` — no user-supplied rubric.
 
 ## What each severe axis actually means
 
@@ -178,36 +185,30 @@ Total elapsed: ~30 seconds of CI time saved them from:
 
 ## Honest limitations remaining in v0.1
 
-This example originally surfaced three gaps; all three are now closed:
+The axes are all principled and domain-free — no hardcoded tool
+prefixes for "risky" or "safe," no assumptions about customer-support
+specifically. The trajectory axis catches tool-call divergence in any
+domain; the conformance axis catches structural-output regressions in
+any domain; etc.
 
-- ✅ The **safety axis now detects mutating tool calls** via a default
-  risky-tool prefix list (`refund_`, `delete_`, `cancel_`, `drop_`,
-  `pay_`, `charge_`, `transfer_`, `remove_`, `destroy_`, `terminate_`).
-  Flagged `+0.333 severe` on this scenario — 1/3 responses called
-  `refund_order`. Teams can override the prefix list.
-- ✅ The **conformance axis is now intent-gated on the baseline side**,
-  so "baseline produced JSON, candidate regressed to prose" surfaces as
-  a `severe` drop from 1.0 → 0.0 (exactly what happened on turn 3).
-- ✅ **Bisection now produces real attributions** via a heuristic
-  delta-kind allocator when you supply `--candidate-traces`. Attributions
-  are non-zero, axis-specific, and actionable.
+Remaining scope:
 
-What remains deliberately scoped to v0.2:
-
-- **`judge` axis still ships as a trait without a default implementation.**
-  Teams that want to express "the assistant MUST ask for confirmation
-  before calling `refund_order`" as a checkable rubric need to plug in
-  their own `Judge` — the Protocol is defined, the plumbing is there,
-  we just don't ship a default judge implementation because calling an
-  LLM-judge from Rust is out of scope for v0.1 (it's a Python layer
-  concern).
-- **Bisect attribution is an allocator, not a causal inference
-  engine.** Within one delta category (e.g. "prompt.system changed"),
-  all candidate prompt edits get equal weight. Teasing apart *which
-  sentence* of the prompt drove the regression needs the live-LLM
-  LASSO-over-corners scorer that v0.2 is scoped for. In practice
-  reviewers look at the category attribution + the actual diff of
-  the changed field and figure out the cause.
+- **`judge` axis ships as a trait without a default implementation.**
+  Teams that want to express a domain rubric — "assistant MUST ask for
+  confirmation before calling `refund_order`"; "ESI-1 cardiac
+  presentations MUST page physician" — plug in their own `Judge`. The
+  Protocol is defined and stable. Shipping a default LLM-judge was out
+  of scope for v0.1 because calling an LLM-judge from Rust is a
+  Python-layer concern, and defaulting to any particular judge would
+  be the domain hardcoding we're specifically avoiding.
+- **Bisect attribution is a principled allocator, not causal
+  inference.** It maps each delta-kind to the axes it can plausibly
+  affect based on the axes' own definitions (e.g. `tools.*` can affect
+  trajectory / verbosity / latency / cost but not safety, because
+  safety measures the model's own refusal rate). Within a category
+  (e.g. "prompt.system changed"), all content candidates get equal
+  weight. Teasing apart *which sentence* of a prompt drove a specific
+  axis needs the live-LLM LASSO-over-corners scorer scoped for v0.2.
 - **`cost` requires a user-supplied pricing table.** Not a bug — the
   default-zero behaviour is intentional (we don't ship assumptions
   about what models cost your team). Pass `--pricing pricing.json` to

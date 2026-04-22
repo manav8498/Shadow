@@ -65,7 +65,7 @@ Shadow diff — 5 response pair(s)
 axis          baseline   candidate    delta              severity
 semantic      1.000      0.721       -0.279     [-0.39, -0.17]    🟠 moderate
 trajectory    0.000      0.750       +0.750     [+0.67, +1.00]    🔴 severe
-safety        0.000      0.800       +0.800     [+0.40, +1.00]    🔴 severe
+safety        0.000      0.000       +0.000     [+0.00, +0.00]       none
 verbosity   128.000    215.000      +87.000     [+74.00, +87.00]  🔴 severe
 latency     890.000   1580.000     +690.000     [+560.00, +870.00] 🔴 severe
 cost          0.000      0.000       +0.000     [+0.00, +0.00]      none
@@ -76,18 +76,29 @@ conformance   1.000      0.000       -1.000     [-1.00, -1.00]    🔴 severe
 worst severity: severe
 ```
 
-**5 of 9 severe, 1 moderate, 3 abstentions.** Every deliberate
-regression ties to at least one severe axis:
+**4 of 9 severe, 1 moderate, 4 abstentions.** Each severe axis
+captures a structural regression with no domain-specific knowledge
+required:
 
-- `trajectory` captures the tool-schema rename + the missing tool
-  calls across patients.
-- `safety` captures "4 of 5 pairs had a baseline safety-tool call
-  that candidate skipped" — including the catastrophic
-  `check_drug_interactions` on patient 4.
-- `conformance` captures 100% → 0% JSON-output regression across all
-  5 patients (EHR integration broken).
-- `verbosity` +87 tokens/response and `latency` +690 ms/response from
-  "be thorough" + temperature 0.3.
+- `trajectory +0.750` captures ALL the tool-call divergences on every
+  patient — the `patient_id` → `mrn` rename, the skipped
+  `check_drug_interactions` on patient 4 (the catastrophic case),
+  the skipped `flag_for_physician` pages on patients 1/2/5. This
+  axis is pure edit-distance over `(tool_name, arg_key_set)` —
+  domain-free; the same mechanism would fire on code-assistant or
+  financial-advisor scenarios.
+- `conformance -1.000` captures 100% → 0% JSON-output regression
+  across all 5 patients (EHR integration broken). Triggered by
+  "baseline text parses as JSON, candidate text doesn't" — again
+  domain-free.
+- `verbosity +87` / `latency +690` from the "be thorough" prompt
+  clause + temperature 0.3.
+- `safety +0.000 none` is correct by the axis's own definition
+  (rate of refusal / content-filter). Neither side refused; the
+  "skipped safety tool" signal belongs to the trajectory axis,
+  which correctly fired. Refusing to conflate trajectory with
+  safety is deliberate — otherwise the axes wouldn't mean what
+  their names say across domains.
 
 ## Bisection readout
 
@@ -117,24 +128,33 @@ trajectory clears. Safety needs both prompt and tool reverts.
 
 Honest assessment, not a victory lap:
 
-### 1. Semantic axis under-weights clinical severity
+### 1. Semantic axis under-weights clinical severity (by design)
 
 Candidate: `semantic 0.721 — moderate`. In reality, ESI-1 downgraded
 to ESI-2 on a suspected MI is a potentially-fatal regression; the
 "moderate" label is numerically correct (cosine similarity 0.72 on
-our hash-surrogate embedding) but clinically understates the severity.
+the hash-surrogate embedding used in pure-Rust tests) but clinically
+understates the severity.
 
-This is a **known limitation**: pure-Rust tests use the hash-surrogate
-embedding explicitly labelled "not for production semantics."
-`sentence-transformers/all-MiniLM-L6-v2` embeddings (the Python-side
-option) would help a bit but still wouldn't know that ESI-1 vs ESI-2
-is medically meaningful. The *right* fix for this use case is the
-Judge axis with a domain rubric like:
-> "Score 1.0 if candidate's ESI level matches baseline's; 0.0
-> otherwise. Deduct 0.5 per missed physician page. Deduct 1.0 for
-> any missing mandatory safety procedure."
+This isn't a bug, it's the right split of concerns: Shadow's generic
+axes shouldn't contain medical knowledge. The *right* home for
+"ESI-1 downgraded to ESI-2 is a severe regression" is a Judge rubric
+supplied by the deploying team:
 
-Shadow v0.1 ships the Judge as a trait; no default implementation.
+```python
+class ESIJudge(Judge):
+    async def score(self, baseline, candidate):
+        b_esi = extract_esi_level(baseline)
+        c_esi = extract_esi_level(candidate)
+        if b_esi is None or c_esi is None: return 0.5
+        if c_esi > b_esi: return 0.0  # downgrade is severe
+        return 1.0
+```
+
+Shadow v0.1 ships Judge as a `Protocol`; writing the above is the
+team's job, by design. Defaulting to any particular rubric would be
+the domain hardcoding we're specifically avoiding — "ESI adherence"
+doesn't generalise to customer support or coding agents.
 
 ### 2. The diff is aggregate; per-patient guilt isn't surfaced
 
