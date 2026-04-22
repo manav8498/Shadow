@@ -3,7 +3,7 @@
 > **Status:** Draft. Published with Shadow v0.1.0. Stable on `0.x.y` means
 > no breaking changes within a minor version.
 >
-> **License:** Apache-2.0 (see `LICENSE-SPEC`).
+> **License:** Apache-2.0 (see `docs/SPEC-LICENSE.md`).
 >
 > **Editor:** Shadow contributors.
 >
