@@ -1,0 +1,76 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "shadow"
+version = "0.1.0"
+description = "Git-native behavioral diff and shadow deployment for LLM agents."
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Shadow contributors" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "typer==0.13.0",
+    "pydantic==2.10.3",
+    "httpx==0.28.1",
+    "rich==13.9.4",
+    "scikit-learn==1.6.0",
+    "numpy==2.2.0",
+    "pyyaml==6.0.2",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic==0.40.0"]
+openai = ["openai==1.58.1"]
+embeddings = ["sentence-transformers==3.3.1"]
+dev = [
+    "hypothesis==6.122.1",
+    "mypy==1.14.0",
+    "ruff==0.8.4",
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.0",
+    "pytest-cov==6.0.0",
+    "maturin==1.7.8",
+]
+
+[project.scripts]
+shadow = "shadow.cli.app:main"
+
+[tool.maturin]
+manifest-path = "../crates/shadow-core/Cargo.toml"
+module-name = "shadow._core"
+features = ["extension"]
+python-source = "src"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PT", "SIM", "RUF"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B", "PT"]
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+files = ["src/shadow"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+asyncio_mode = "auto"
+markers = [
+    "network: tests that hit real LLM APIs (gated by SHADOW_RUN_NETWORK_TESTS=1)",
+]
