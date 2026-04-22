@@ -199,6 +199,15 @@ def diff_cmd(
 # ---- bisect ----------------------------------------------------------------
 
 
+class BisectBackend(str, Enum):
+    """Backends available for live-replay corner bisection."""
+
+    none = "none"
+    anthropic = "anthropic"
+    openai = "openai"
+    positional = "positional"
+
+
 @app.command()
 def bisect(
     config_a: Annotated[Path, typer.Argument(help="Baseline config YAML")],
@@ -209,10 +218,28 @@ def bisect(
         typer.Option(
             "--candidate-traces",
             help=(
-                "Candidate .agentlog trace recorded under config_b. When supplied, "
-                "attributions reflect the real baseline-vs-candidate divergence "
-                "instead of zero placeholders."
+                "Candidate .agentlog trace recorded under config_b. Used for "
+                "the heuristic allocator when --backend is none."
             ),
+        ),
+    ] = None,
+    backend: Annotated[
+        BisectBackend,
+        typer.Option(
+            "--backend",
+            help=(
+                "Live backend for LASSO-over-corners scoring. 'anthropic' / "
+                "'openai' require the corresponding extras and an API key. "
+                "'positional' replays from a reference trace. 'none' falls "
+                "back to --candidate-traces heuristic."
+            ),
+        ),
+    ] = BisectBackend.none,
+    reference: Annotated[
+        Path | None,
+        typer.Option(
+            "--reference",
+            help="(positional backend only) reference .agentlog for replay.",
         ),
     ] = None,
     output_json: Annotated[
@@ -229,19 +256,56 @@ def bisect(
             )
         )
         return
+
+    live_backend = None
+    if backend is not BisectBackend.none:
+        from shadow.llm import get_backend
+
+        kwargs: dict[str, Any] = {}
+        if backend is BisectBackend.positional:
+            if reference is None:
+                err_console.print("[red]error[/]: --backend positional requires --reference <path>")
+                raise typer.Exit(code=2)
+            kwargs["reference_path"] = reference
+        try:
+            live_backend = get_backend(backend.value, **kwargs)
+        except ShadowError as e:
+            _fail(e)
+            return
+
     try:
-        result = run_bisect(config_a, config_b, traces, candidate_traces=candidate_traces)
-        text = json.dumps(result, indent=2)
+        result = run_bisect(
+            config_a,
+            config_b,
+            traces,
+            candidate_traces=candidate_traces,
+            backend=live_backend,
+        )
+        text = json.dumps(_json_safe(result), indent=2)
         if output_json is not None:
             output_json.parent.mkdir(parents=True, exist_ok=True)
             output_json.write_text(text)
         else:
-            # Write unstyled JSON to stdout — callers pipe this into `jq` etc.
             sys.stdout.write(text + "\n")
     except ShadowError as e:
         _fail(e)
     except Exception as e:
         _fail(e)
+
+
+def _json_safe(obj: Any) -> Any:
+    """Recursively strip non-JSON values from a dict (e.g. numpy arrays)."""
+    import numpy as np
+
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.integer | np.floating):
+        return obj.item()
+    return obj
 
 
 # ---- report ----------------------------------------------------------------

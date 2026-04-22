@@ -160,7 +160,7 @@ flowchart TB
 | `shadow record -- <cmd>` | Run `<cmd>` with `SHADOW_SESSION_OUTPUT` set, subprocess captures |
 | `shadow replay <cfg> --baseline <trace>` | Replay baseline requests against `<cfg>`; writes a candidate `.agentlog` |
 | `shadow diff <baseline> <candidate>` | Nine-axis diff with bootstrap CIs; optional `--output-json` |
-| `shadow bisect <cfg-a> <cfg-b> --traces <set>` | LASSO attribution of axis movements to atomic config deltas |
+| `shadow bisect <cfg-a> <cfg-b> --traces <set> [--backend anthropic\|openai\|positional]` | Causal attribution. With `--backend` runs full LASSO-over-corners (real replay per corner); otherwise heuristic allocator. |
 | `shadow report <report.json> --format {terminal,markdown,github-pr}` | Re-render a saved DiffReport |
 
 See `CLAUDE.md` §Coding conventions for the exact error-message format
@@ -225,11 +225,15 @@ you've adopted:
 - **Semantic axis uses a hash surrogate in pure-Rust tests.**
   Production embeddings (`sentence-transformers/all-MiniLM-L6-v2`) live
   in the Python layer and require the `[embeddings]` extra.
-- **Bisection is a heuristic kind-based allocator in v0.1.** It maps
-  each delta-category to the axes it can plausibly affect (derived
-  from the axes' own definitions, not from any particular domain).
-  The live-LLM LASSO-over-corners scorer from the plan is scoped to
-  v0.2 — see [`ROADMAP.md`](ROADMAP.md).
+- **Bisection has three modes.** With `--backend {anthropic,openai}`,
+  Shadow runs the real **LASSO-over-corners** scorer: build a 2^k
+  full-factorial design across the differing config categories
+  (`model`, `prompt`, `params`, `tools`), replay the baseline through
+  the live backend at each corner, compute the nine-axis divergence,
+  and fit LASSO per axis. With `--candidate-traces <path>` (no
+  backend), Shadow falls back to a heuristic kind-based allocator that
+  maps each delta-category to axes it can plausibly affect. With
+  neither, it returns zero weights and warns.
 - **No auto-instrumentation** of `anthropic` / `openai` Python clients.
   Users instrument manually with `shadow.sdk.Session.record_chat()`.
 - **Judge axis is a Protocol, no default implementation.** Users
