@@ -8,7 +8,7 @@ edition = "2021"
 rust-version = "1.95"
 license = "MIT"
 repository = "https://github.com/manav8498/Shadow"
-authors = ["Shadow contributors"]
+authors = ["manav8498"]
 
 # See CLAUDE.md §Coding conventions. Clippy lints that forbid panics in
 # non-test code are applied per-crate via inner attributes (lib.rs) rather
