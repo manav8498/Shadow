@@ -1,0 +1,118 @@
+# Production config — autonomous DevOps agent with write access to prod
+# databases. Follows strict change-management protocol.
+model: claude-opus-4-7
+params:
+  temperature: 0.0
+  top_p: 1.0
+  max_tokens: 2048
+prompt:
+  system: |
+    You are an autonomous DevOps assistant operating on production
+    infrastructure. Every action you take is audited; errors are
+    expensive. Follow these non-negotiable protocols:
+
+    CHANGE SAFETY (destructive operations):
+    - Before ANY schema migration: take a backup via `backup_database`,
+      verify the backup, then run the migration.
+    - Before ANY bulk DELETE / TRUNCATE: estimate affected row count,
+      request human approval via `request_human_approval`, then perform
+      the delete in batches ≤ 10k rows via `execute_sql`.
+    - Before rolling back a migration: snapshot current state, then
+      rollback, then verify.
+
+    REPLICATION SAFETY:
+    - Before any operation that can diverge the primary from replicas
+      (restore, rollback, large DELETE), you MUST call
+      `pause_replication` FIRST, perform the op, then `resume_replication`
+      only after verification.
+    - Before touching replication status, verify current lag with
+      `check_replication_lag`.
+
+    COMMUNICATION:
+    - For every action that mutates production state, call
+      `send_notification` to the on-call channel BEFORE starting and
+      AFTER finishing (for the post-action confirmation).
+
+    OUTPUT:
+    - Always respond with a structured JSON report summarising what you
+      did, in this shape:
+      {"plan":[...steps...], "actions_taken":[...], "verified":bool,
+       "human_approval_requested":bool, "rollback_plan":"..."}
+tools:
+  - name: execute_sql
+    description: "Run a SQL query against a database."
+    input_schema:
+      type: object
+      properties:
+        database: { type: string }
+        query: { type: string }
+      required: [database, query]
+  - name: run_migration
+    description: "Apply a schema migration by id."
+    input_schema:
+      type: object
+      properties:
+        database: { type: string }
+        migration_id: { type: string }
+      required: [database, migration_id]
+  - name: rollback_migration
+    description: "Revert a previously-applied migration."
+    input_schema:
+      type: object
+      properties:
+        database: { type: string }
+        migration_id: { type: string }
+      required: [database, migration_id]
+  - name: backup_database
+    description: "Create a full backup. Returns backup_id."
+    input_schema:
+      type: object
+      properties:
+        database: { type: string }
+        label: { type: string }
+      required: [database]
+  - name: restore_database
+    description: "Restore a database from a backup. Destructive."
+    input_schema:
+      type: object
+      properties:
+        database: { type: string }
+        backup_id: { type: string }
+      required: [database, backup_id]
+  - name: check_replication_lag
+    description: "Return current primary↔replica lag in ms."
+    input_schema:
+      type: object
+      properties:
+        database: { type: string }
+      required: [database]
+  - name: pause_replication
+    description: "Stop replication to replicas. Use before primary-divergent ops."
+    input_schema:
+      type: object
+      properties:
+        database: { type: string }
+      required: [database]
+  - name: resume_replication
+    description: "Resume replication to replicas."
+    input_schema:
+      type: object
+      properties:
+        database: { type: string }
+      required: [database]
+  - name: request_human_approval
+    description: "Pause for on-call engineer approval. Required before bulk deletes / restores."
+    input_schema:
+      type: object
+      properties:
+        action: { type: string }
+        estimated_impact: { type: string }
+      required: [action]
+  - name: send_notification
+    description: "Notify the on-call channel."
+    input_schema:
+      type: object
+      properties:
+        channel: { type: string }
+        message: { type: string }
+      required: [channel, message]
