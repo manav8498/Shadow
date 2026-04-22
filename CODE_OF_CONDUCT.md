@@ -35,7 +35,9 @@ Examples of unacceptable behavior:
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the maintainers at `conduct@shadow-dev.example`. All complaints
+reported to the maintainer by opening a private [security advisory](https://github.com/manav8498/Shadow/security/advisories/new)
+(that channel is watched even when it's not an actual security issue) or by
+contacting [@manav8498](https://github.com/manav8498) directly. All complaints
 will be reviewed and investigated promptly and fairly. Maintainers are
 obligated to respect the privacy and security of the reporter.
 

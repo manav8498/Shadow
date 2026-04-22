@@ -1,6 +1,6 @@
 # Shadow
 
-[![ci](https://github.com/shadow-dev/shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/shadow-dev/shadow/actions/workflows/ci.yml)
+[![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
 [![version](https://img.shields.io/badge/version-0.1.0-brightgreen.svg)](CHANGELOG.md)
@@ -50,7 +50,7 @@ that owns you at 3 AM.
 ## Quickstart (60 seconds)
 
 ```bash
-git clone https://github.com/shadow-dev/shadow
+git clone https://github.com/manav8498/Shadow
 cd shadow
 just setup          # user-local rustup if needed, then uv venv, maturin develop
 just demo           # runs examples/demo/demo.sh — MockLLM, no network
@@ -189,7 +189,7 @@ Post a nine-axis PR comment on every PR that touches your prompts or
 configs:
 
 ```yaml
-- uses: shadow-dev/shadow/.github/actions/shadow-action@v0.1.0
+- uses: manav8498/Shadow/.github/actions/shadow-action@v0.1.0
   with:
     baseline: path/to/baseline.agentlog
     candidate: path/to/candidate.agentlog   # produced earlier in the workflow
@@ -262,7 +262,7 @@ in scope.
 
 - Implementation code: **MIT** (see [`LICENSE`](LICENSE)).
 - `SPEC.md` (the `.agentlog` format): **Apache-2.0** (see
-  [`LICENSE-SPEC`](LICENSE-SPEC)).
+  [`docs/SPEC-LICENSE.md`](docs/SPEC-LICENSE.md)).
 
 Dual-licensing is deliberate: anyone can re-implement the `.agentlog`
 format under any license, while the reference implementation stays

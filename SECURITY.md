@@ -16,7 +16,8 @@ format level (see `SPEC.md §13`).
 **Please do not open a public GitHub issue for security problems.** A public
 issue tips off attackers and doesn't give us time to ship a fix.
 
-Instead, email `security@shadow-dev.example` with:
+Instead, please open a [private security advisory](https://github.com/manav8498/Shadow/security/advisories/new)
+on the GitHub repo. Include:
 
 - A brief description of the vulnerability.
 - Steps to reproduce (ideally a minimal repro repo or script).
@@ -66,9 +67,9 @@ you'd prefer anonymity). Once a fix ships, we publish an advisory in
 - Credits to the reporter.
 - Any user-facing remediation steps.
 
-## PGP
+## Encryption
 
-If you prefer to encrypt, our maintainer PGP key is at
-`https://shadow-dev.example/security.asc` (fingerprint pinned in the
-`.well-known/` directory of that site). We accept plaintext email too —
-don't let "I don't have PGP" stop you from reporting.
+GitHub's [private security advisory](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)
+channel is end-to-end between you and the maintainers and is the
+preferred transport. If you need a separate encrypted channel, open
+the advisory with a note asking for one and we'll coordinate.
