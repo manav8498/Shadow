@@ -1,20 +1,137 @@
 name: ci
 
-# Phase-0 stub: matrix + job definitions are expanded in Phase 7.
-# This file exists now so .github/ is populated and so CI will pick up
-# the repo as soon as it's pushed.
-
 on:
   push:
     branches: [main]
   pull_request:
 
+env:
+  CARGO_TERM_COLOR: always
+  # Speed up subsequent runs by caching cargo registry + target.
+  RUSTFLAGS: "-D warnings"
+
 jobs:
-  placeholder:
+  rust:
+    name: cargo test + clippy + fmt + coverage (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.83.0"
+          components: rustfmt, clippy, llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      - name: fmt check
+        run: cargo fmt --all -- --check
+
+      - name: clippy (all features)
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: test
+        run: cargo test --workspace
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov@0.6.14
+
+      - name: Coverage ≥ 85%
+        run: cargo llvm-cov --workspace --fail-under-lines 85 --summary-only
+
+  python:
+    name: pytest + mypy + ruff (${{ matrix.os }}, py${{ matrix.python }})
+    needs: rust  # Rust must compile before maturin develop is meaningful.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.83.0"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Create venv and install shadow (with dev extras)
+        run: |
+          uv venv --python ${{ matrix.python }} .venv
+          uv pip install --python .venv/bin/python -e "python[dev]"
+
+      - name: Build PyO3 extension
+        run: |
+          cd python
+          VIRTUAL_ENV=${{ github.workspace }}/.venv \
+            ../.venv/bin/maturin develop --features extension --release
+
+      - name: ruff check
+        run: .venv/bin/python -m ruff check python/ examples/
+
+      - name: ruff format --check
+        run: .venv/bin/python -m ruff format --check python/ examples/
+
+      - name: mypy --strict
+        run: .venv/bin/python -m mypy --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py
+
+      - name: pytest (coverage gate 85%)
+        run: |
+          .venv/bin/python -m pytest python/tests \
+            --cov=shadow --cov-fail-under=85 \
+            --cov-report=term-missing
+
+  demo:
+    name: end-to-end demo (<10s wall-clock)
+    needs: python
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Note
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.83.0"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Bootstrap
         run: |
-          echo "Shadow v0.1.0 CI stub. Full Ubuntu + macOS matrix lands in Phase 7."
-          echo "See CLAUDE.md §Verification commands and the plan file."
+          uv venv --python 3.11 .venv
+          uv pip install --python .venv/bin/python -e "python[dev]"
+          cd python
+          VIRTUAL_ENV=${{ github.workspace }}/.venv \
+            ../.venv/bin/maturin develop --features extension --release
+
+      - name: Run demo (timeout 30s — demo.sh targets <10s)
+        run: timeout 30 bash examples/demo/demo.sh
