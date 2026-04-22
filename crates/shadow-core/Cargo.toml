@@ -18,7 +18,7 @@ default = []
 # PyO3-facing code in `src/python.rs` compiles. It does NOT activate
 # `extension-module`, which means `cargo test --features python` links
 # libpython normally and runs as a regular test binary.
-python = ["dep:pyo3"]
+python = ["dep:pyo3", "dep:pythonize"]
 # `extension` additionally enables `pyo3/extension-module`, which tells
 # PyO3 to OMIT the libpython link directives — the Python interpreter
 # provides those symbols at import time. This is what maturin builds.
@@ -52,6 +52,7 @@ tracing = "=0.1.41"
 indexmap = "=2.6.0"
 unicode-normalization = "=0.1.24"
 pyo3 = { version = "=0.22.6", features = ["abi3-py311"], optional = true }
+pythonize = { version = "=0.22.0", optional = true }
 
 [dev-dependencies]
 insta = { version = "=1.41.1", features = ["yaml", "json"] }
