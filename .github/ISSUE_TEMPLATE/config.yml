@@ -1,12 +1,12 @@
 blank_issues_enabled: false
 contact_links:
   - name: Question / discussion
-    url: https://github.com/shadow-dev/shadow/discussions
+    url: https://github.com/manav8498/Shadow/discussions
     about: |
       Questions about how to use Shadow, design discussions, show-and-tell.
       Issues are for bugs and concrete feature requests.
   - name: Security vulnerability
-    url: https://github.com/shadow-dev/shadow/blob/main/SECURITY.md
+    url: https://github.com/manav8498/Shadow/blob/main/SECURITY.md
     about: |
       Please do NOT file security issues publicly. See SECURITY.md for
       how to report them privately.
