@@ -1,0 +1,59 @@
+[package]
+name = "shadow-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Core parser, writer, content-addressed store, replay engine, and nine-axis behavioral differ for the Shadow tool."
+
+[lib]
+name = "shadow_core"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+# `python` makes the `pyo3` crate available to shadow-core so the
+# PyO3-facing code in `src/python.rs` compiles. It does NOT activate
+# `extension-module`, which means `cargo test --features python` links
+# libpython normally and runs as a regular test binary.
+python = ["dep:pyo3"]
+# `extension` additionally enables `pyo3/extension-module`, which tells
+# PyO3 to OMIT the libpython link directives — the Python interpreter
+# provides those symbols at import time. This is what maturin builds.
+# Do NOT run `cargo test --features extension` (or `--all-features`)
+# without also overriding linker flags; the resulting binary has
+# unresolved `_Py*` symbols. Use `--features python` for tests.
+extension = ["python", "pyo3/extension-module"]
+
+# Deps use exact (`=x.y.z`) pins per the "pin to exact versions" constraint
+# in CLAUDE.md §9. The constraint applies only to direct dependencies;
+# transitive dep versions are frozen via Cargo.lock (committed).
+#
+# `indexmap` is listed here even though shadow-core does not import it
+# directly, because serde_json (preserve_order feature) pulls it transitively
+# and newer indexmap releases require edition2024 (Rust ≥ 1.85). Pinning
+# a 1.83-compatible version here forces Cargo to resolve to the same version
+# everywhere.
+
+[dependencies]
+serde = { version = "=1.0.215", features = ["derive"] }
+serde_json = { version = "=1.0.133", features = ["preserve_order"] }
+sha2 = "=0.10.8"
+tokio = { version = "=1.41.1", features = ["rt-multi-thread", "macros", "sync", "fs", "io-util"] }
+async-trait = "=0.1.83"
+rusqlite = { version = "=0.32.1", features = ["bundled"] }
+thiserror = "=2.0.4"
+rand = "=0.8.5"
+rand_distr = "=0.4.3"
+statrs = "=0.17.1"
+tracing = "=0.1.41"
+indexmap = "=2.6.0"
+pyo3 = { version = "=0.22.6", features = ["abi3-py311"], optional = true }
+
+[dev-dependencies]
+insta = { version = "=1.41.1", features = ["yaml", "json"] }
+tempfile = "=3.14.0"
+proptest = "=1.6.0"
+tokio = { version = "=1.41.1", features = ["rt-multi-thread", "macros", "test-util", "time"] }
