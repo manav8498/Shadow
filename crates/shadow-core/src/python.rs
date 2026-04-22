@@ -10,6 +10,12 @@
 //! Everything is dict-oriented on the Python side; `pythonize` handles
 //! the serde_json::Value ↔ PyObject conversion. Type hints for Python
 //! callers live in `python/src/shadow/_core.pyi`.
+//
+// clippy::useless_conversion fires on the `?` operator in PyResult chains
+// where `?` does an identity PyErr→PyErr conversion via `From`. That's a
+// standard PyO3 pattern (every PyO3 API returns PyResult); suppressing here
+// keeps PyO3-idiomatic code readable without sprinkling allows everywhere.
+#![allow(clippy::useless_conversion)]
 
 use std::io::Cursor;
 
