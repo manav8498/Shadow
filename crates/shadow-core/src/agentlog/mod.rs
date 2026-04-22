@@ -4,8 +4,10 @@
 
 pub mod canonical;
 pub mod hash;
+pub mod record;
+
+pub use record::{Kind, Record, CURRENT_VERSION};
 
 // Remaining Phase-2 modules land in subsequent commits:
 // pub mod parser;
-// pub mod record;
 // pub mod writer;
