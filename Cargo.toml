@@ -5,7 +5,7 @@ members = ["crates/shadow-core"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.83"
+rust-version = "1.95"
 license = "MIT"
 repository = "https://github.com/shadow-dev/shadow"
 authors = ["Shadow contributors"]
