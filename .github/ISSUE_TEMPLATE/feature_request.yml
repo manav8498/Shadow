@@ -1,0 +1,65 @@
+name: Feature request
+description: Propose something Shadow should do that it doesn't.
+title: "[feat] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! Before filing, check [`ROADMAP.md`](../../ROADMAP.md) —
+        your idea might already be on the list and just need a +1.
+
+        If your idea is "Shadow should detect X-specific-domain-thing by
+        default," the answer is usually "write a `Judge`, see the
+        [Contributing guide](../../CONTRIBUTING.md#the-judge-axis-and-domain-rules)."
+        We deliberately keep the core axes domain-free.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you hitting?
+      description: |
+        The real-world situation that made you want this. Concrete is better
+        than abstract. "We shipped a prompt change that regressed X, and
+        Shadow surfaced Y but not Z."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed
+    attributes:
+      label: What you'd like Shadow to do
+      description: |
+        Your proposed behaviour. A rough interface sketch is ideal (CLI flag?
+        new Python class? new axis?).
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: |
+        Existing workarounds, other tools, Judge implementations, etc. If
+        this problem is solvable with a 20-line Judge, we may point you
+        there rather than absorb it into core.
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Scope
+      options:
+        - "Small (a CLI flag, one new axis method, a doc clarification)"
+        - "Medium (a new axis, a new backend, a rendering format)"
+        - "Large (replaces a v0.1 design decision, breaks `.agentlog`, etc.)"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Are you willing to help?
+      options:
+        - label: I'd like to write the PR myself (with guidance if needed)
+        - label: I can write tests / examples if a maintainer implements
+        - label: I'm just flagging this; someone else can drive
