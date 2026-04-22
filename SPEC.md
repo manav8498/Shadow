@@ -5,7 +5,7 @@
 >
 > **License:** Apache-2.0 (see `docs/SPEC-LICENSE.md`).
 >
-> **Editor:** Shadow contributors.
+> **Editor:** manav8498.
 >
 > **Author-time date:** 2026-04-21.
 
