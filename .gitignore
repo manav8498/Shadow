@@ -21,6 +21,10 @@ wheels/
 .mypy_cache/
 .ruff_cache/
 .hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
 .tox/
 .coverage
 .coverage.*
