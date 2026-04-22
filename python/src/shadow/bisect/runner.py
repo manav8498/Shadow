@@ -44,26 +44,61 @@ from shadow.bisect.deltas import Delta, diff_configs, load_config
 from shadow.bisect.design import full_factorial, plackett_burman
 from shadow.errors import ShadowConfigError
 
-# Which axes a given delta kind can plausibly affect. Keys are the
-# top-level prefix of the delta path (see `Delta.kind`); values are the
-# set of axis names from `AXIS_NAMES`. "*" means "all nine axes".
+# Which axes each delta-kind can plausibly affect, derived strictly from
+# the axes' own definitions (not from any particular domain). The logic
+# for each cell:
+#
+#   prompt.*    The system/user prompt is the text the model conditions on;
+#               it can move semantic content, verbosity (via length
+#               instructions), conformance (format directives), reasoning
+#               (CoT prompting), latency/cost (downstream of verbosity),
+#               and — because prompts often contain explicit refusal
+#               instructions — safety. Prompts CAN instruct tool-calling
+#               behaviour too, so trajectory is eligible.
+#
+#   params.*   Sampling hyperparameters change which token the model
+#              picks (→ semantic drift), how long it stays on-topic
+#              (→ verbosity, reasoning, latency, cost), and can break
+#              structured outputs at high temperature (→ conformance).
+#              They don't train a new safety policy, so safety is out.
+#              Trajectory is out too: the tool-call *decision* is mostly
+#              policy-driven, not sampling-driven, at the usual temps.
+#
+#   tools.*    Tool-schema edits directly drive tool-call shape
+#              (→ trajectory). They also change the input-token count of
+#              every turn (→ verbosity of INPUT tokens, latency, cost).
+#              They do not retrain the model's refusal policy (safety
+#              is out) and they don't alter generated-text semantics
+#              except via trajectory-mediated downstream effects.
+#
+#   model_id   Model swaps can move any axis (different policy, different
+#              length priors, different pricing, different refusal
+#              thresholds). Eligible for all nine.
+#
+# This mapping is LLM-general — it encodes how each class of
+# configuration knob influences each of the nine axes' definitions,
+# with no assumptions about a particular domain (customer support,
+# medical, legal, etc.). Users whose deltas land in a category not
+# listed here (custom yaml keys) get Delta.kind = their top-level key
+# and no allocation until they extend this mapping or use a live-replay
+# scorer (v0.2).
 DELTA_KIND_AFFECTS: dict[str, frozenset[str]] = {
-    # Prompt edits can move everything the model generates, plus latency
-    # and cost because those are downstream of generated token count.
     "prompt": frozenset(
-        {"semantic", "verbosity", "safety", "reasoning", "conformance", "latency", "cost"}
+        {
+            "semantic",
+            "trajectory",
+            "safety",
+            "verbosity",
+            "reasoning",
+            "conformance",
+            "latency",
+            "cost",
+        }
     ),
-    # Model swaps can move every axis (including latency and cost by
-    # construction — different providers, different pricing).
+    "params": frozenset({"semantic", "verbosity", "reasoning", "conformance", "latency", "cost"}),
+    "tools": frozenset({"trajectory", "verbosity", "latency", "cost"}),
     "model": frozenset(AXIS_NAMES),
     "model_id": frozenset(AXIS_NAMES),
-    # Sampling params affect what the model chooses, plus latency/cost
-    # downstream of token count.
-    "params": frozenset({"semantic", "verbosity", "reasoning", "latency", "cost"}),
-    # Tool schemas primarily drive the tool-call trajectory, but also
-    # flow into safety (renaming a gated tool can neutralise a safety
-    # check) and cost/latency (more args = more input tokens).
-    "tools": frozenset({"trajectory", "safety", "latency", "cost"}),
 }
 
 
@@ -127,9 +162,7 @@ def run_bisect(
         )
 
     return {
-        "deltas": [
-            {"path": d.path, "old": d.old_value, "new": d.new_value} for d in deltas
-        ],
+        "deltas": [{"path": d.path, "old": d.old_value, "new": d.new_value} for d in deltas],
         "mode": mode,
         "design_runs": design_runs,
         "traces_path": str(traces),
@@ -179,9 +212,7 @@ def _allocate_divergence(
     result: dict[str, list[tuple[str, float]]] = {}
     for axis in AXIS_NAMES:
         axis_mass = axis_divergence.get(axis, 0.0)
-        eligible = [
-            d for d in deltas if axis in DELTA_KIND_AFFECTS.get(d.kind, frozenset())
-        ]
+        eligible = [d for d in deltas if axis in DELTA_KIND_AFFECTS.get(d.kind, frozenset())]
         if axis_mass < 1e-9 or not eligible:
             # No movement on this axis, or no delta could have caused it.
             result[axis] = [(d.path, 0.0) for d in deltas]
