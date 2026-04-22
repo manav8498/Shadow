@@ -1,0 +1,74 @@
+name: Bug report
+description: Something doesn't work the way the README / SPEC says it should.
+title: "[bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a report. Before you submit,
+        please check that the behaviour isn't already documented as
+        intentional in [`CHANGELOG.md`](../../CHANGELOG.md) or one of the
+        `WALKTHROUGH.md` files under `examples/`.
+
+  - type: input
+    id: version
+    attributes:
+      label: Shadow version
+      description: Output of `shadow version`.
+      placeholder: "shadow 0.1.0 (spec 0.1)"
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: OS + CPU + Rust + Python versions.
+      placeholder: "macOS 15.2 arm64, rustc 1.95.0, Python 3.11.13"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: One paragraph. What did Shadow do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-expected
+    attributes:
+      label: What you expected
+      description: What should it have done, and why (ideally quoting the relevant SPEC/CLAUDE section)?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: |
+        Paste the exact commands and, if possible, a short `.agentlog` or
+        YAML config that triggers the issue. The `examples/edge-cases/probe.py`
+        file is a good template.
+      render: bash
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output / logs
+      description: stdout, stderr, a screenshot of the diff table — whatever helps.
+      render: text
+
+  - type: checkboxes
+    id: sanity
+    attributes:
+      label: Quick sanity checks
+      options:
+        - label: "`just ci` passes on `main` of this repo (so it's not a local env issue)"
+        - label: "I've searched existing issues and this isn't a duplicate"
+        - label: "This isn't a security vulnerability (if it is, see `SECURITY.md`)"
