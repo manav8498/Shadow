@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
 license = { text = "MIT" }
 requires-python = ">=3.11"
-authors = [{ name = "Shadow contributors" }]
+authors = [{ name = "manav8498" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: MIT License",
