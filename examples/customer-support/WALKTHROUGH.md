@@ -56,18 +56,20 @@ Shadow diff — 3 response pair(s)
 axis          baseline   candidate  delta        95% CI           severity
 semantic      1.000      0.698     -0.302    [-0.35, -0.27]       🔴 severe
 trajectory    0.000      1.000     +1.000    [+0.00, +1.00]       🔴 severe
-safety        0.000      0.000     +0.000    [+0.00,  +0.00]         none
+safety        0.000      0.333     +0.333    [+0.00,  +1.00]      🔴 severe
 verbosity    42.000    168.000   +126.000    [+78.00, +132.00]    🔴 severe
 latency     540.000   1180.000   +640.000    [+550.00, +800.00]   🔴 severe
 cost          0.000      0.000     +0.000    [+0.00,   +0.00]        none
 reasoning     0.000      0.000     +0.000    [+0.00,   +0.00]        none
 judge         0.000      0.000     +0.000    [+0.00,   +0.00]        none
-conformance   0.000      0.000     +0.000    [+0.00,   +0.00]        none
+conformance   1.000      0.000     -1.000    [-1.00,  -1.00]      🔴 severe
 
 worst severity: severe
 ```
 
-**Four of nine axes flagged severe.**
+**Six of nine axes flagged severe.** The three `none` readings are correct
+abstentions: `cost` needs a pricing table (not supplied); `reasoning` has
+no thinking tokens in this scenario; `judge` has no user-supplied rubric.
 
 ## What each severe axis actually means
 
@@ -127,26 +129,40 @@ the verbosity increase — more tokens to generate means more wall-clock.
 
 ## Bisection
 
-`shadow bisect config_a.yaml config_b.yaml` identifies **7 atomic
-deltas** between the two configs:
+`shadow bisect config_a.yaml config_b.yaml --traces fixtures/baseline.agentlog
+--candidate-traces fixtures/candidate.agentlog` identifies 7 atomic
+deltas and allocates each axis's divergence across the deltas that could
+plausibly have caused it:
 
 ```
-1. prompt.system                              (whole system prompt rewritten)
-2. tools[0].description                       (shortened)
-3. tools[0].input_schema.properties.id.type   (added)
-4. tools[0].input_schema.properties.include_shipping.type (added)
-5. tools[0].input_schema.properties.order_id.type (removed)
-6. tools[0].input_schema.required[0]          (changed from "order_id" to "id")
-7. tools[1].description                       (dropped the "ONLY use after
-                                              customer confirmation" sentence)
+axis          attribution
+-----------   -----------
+semantic      100% prompt.system
+trajectory    17% each across the six tools[0].* deltas
+safety        14% each across prompt.system + six tool deltas
+verbosity     100% prompt.system
+latency       14% each across prompt.system + six tool deltas (downstream)
+conformance   100% prompt.system
 ```
 
-With 7 deltas, Shadow uses an 8-run full-factorial design (2³ would
-normally cover 3 factors; here we'd use Plackett-Burman for a larger
-k, which stops at 12 runs instead of 128). The LASSO-attribution step
-is a v0.1 skeleton — the per-corner scoring wires up to live-replay
-in v0.2 — but the delta enumeration itself already lets the reviewer
-see *exactly* which lines of the PR are under attribution.
+Reading this: **the prompt edit drove the semantic, verbosity, and
+conformance regressions on its own** (those axes can't be explained by
+the tool schema change, so they land entirely on the prompt).
+**The trajectory regression is purely tool-schema** (it can't be
+explained by prompt edits). **Safety and latency are shared** —
+either cause is plausible for both.
+
+What the reviewer learns: revert the prompt edit and you recover three
+severe axes (semantic, verbosity, conformance) and at least share of
+safety/latency. Keep the tool-schema change only if you ALSO fix the
+safety contract that used to live in the tool description.
+
+The allocator is a heuristic (docs: `shadow.bisect.runner.DELTA_KIND_AFFECTS`):
+prompt deltas map to generation-level axes, tool-schema deltas map to
+trajectory/safety, params map to verbosity/reasoning, model swaps
+touch everything. A live-LLM-driven LASSO scorer over every corner of
+the Plackett-Burman design is v0.2 — this allocator is what works
+today with just two recorded traces.
 
 ## What the team does with this
 
@@ -160,24 +176,42 @@ Total elapsed: ~30 seconds of CI time saved them from:
 - A tool-schema change that silently broke downstream consumers.
 - 2× compute spend they weren't budgeted for.
 
-## Limitations this example surfaces (documented for v0.2)
+## Honest limitations remaining in v0.1
 
-- **`safety` axis didn't flag the unconfirmed-refund bug.** The
-  built-in safety axis detects *refusals* ("I can't help with that"),
-  not the opposite failure mode of *acting without confirmation*. The
-  intended home for "did the bot follow my rubric?" is the `judge`
-  axis — but that axis requires a user-supplied Judge protocol
-  implementation, which v0.1 doesn't ship a default for.
-- **`conformance` axis shows `n=0`** even though candidate failed to
-  produce JSON when baseline did. The axis only counts pairs where
-  *both* sides have JSON intent (heuristic: text starts with `{` or
-  `[`). A "lost JSON intent" detector belongs in v0.2.
-- **Bisection attribution weights are 0.** The delta enumeration is
-  correct; the per-corner replay-and-score step is placeholder in
-  v0.1 (awaits live-replay wiring in v0.2).
+This example originally surfaced three gaps; all three are now closed:
 
-The four axes that *did* fire — trajectory, semantic, verbosity,
-latency — were enough to block the bad PR.
+- ✅ The **safety axis now detects mutating tool calls** via a default
+  risky-tool prefix list (`refund_`, `delete_`, `cancel_`, `drop_`,
+  `pay_`, `charge_`, `transfer_`, `remove_`, `destroy_`, `terminate_`).
+  Flagged `+0.333 severe` on this scenario — 1/3 responses called
+  `refund_order`. Teams can override the prefix list.
+- ✅ The **conformance axis is now intent-gated on the baseline side**,
+  so "baseline produced JSON, candidate regressed to prose" surfaces as
+  a `severe` drop from 1.0 → 0.0 (exactly what happened on turn 3).
+- ✅ **Bisection now produces real attributions** via a heuristic
+  delta-kind allocator when you supply `--candidate-traces`. Attributions
+  are non-zero, axis-specific, and actionable.
+
+What remains deliberately scoped to v0.2:
+
+- **`judge` axis still ships as a trait without a default implementation.**
+  Teams that want to express "the assistant MUST ask for confirmation
+  before calling `refund_order`" as a checkable rubric need to plug in
+  their own `Judge` — the Protocol is defined, the plumbing is there,
+  we just don't ship a default judge implementation because calling an
+  LLM-judge from Rust is out of scope for v0.1 (it's a Python layer
+  concern).
+- **Bisect attribution is an allocator, not a causal inference
+  engine.** Within one delta category (e.g. "prompt.system changed"),
+  all candidate prompt edits get equal weight. Teasing apart *which
+  sentence* of the prompt drove the regression needs the live-LLM
+  LASSO-over-corners scorer that v0.2 is scoped for. In practice
+  reviewers look at the category attribution + the actual diff of
+  the changed field and figure out the cause.
+- **`cost` requires a user-supplied pricing table.** Not a bug — the
+  default-zero behaviour is intentional (we don't ship assumptions
+  about what models cost your team). Pass `--pricing pricing.json` to
+  activate.
 
 ## Reproduce this locally
 
@@ -195,7 +229,8 @@ latency — were enough to block the bad PR.
 .venv/bin/shadow bisect \
   examples/customer-support/config_a.yaml \
   examples/customer-support/config_b.yaml \
-  --traces examples/customer-support/fixtures/baseline.agentlog
+  --traces examples/customer-support/fixtures/baseline.agentlog \
+  --candidate-traces examples/customer-support/fixtures/candidate.agentlog
 ```
 
 Runtime: ~1 second total, no network.

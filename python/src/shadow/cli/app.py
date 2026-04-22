@@ -203,7 +203,18 @@ def diff_cmd(
 def bisect(
     config_a: Annotated[Path, typer.Argument(help="Baseline config YAML")],
     config_b: Annotated[Path, typer.Argument(help="Candidate config YAML")],
-    traces: Annotated[Path, typer.Option("--traces", help=".agentlog trace or dir")],
+    traces: Annotated[Path, typer.Option("--traces", help="Baseline .agentlog trace or dir")],
+    candidate_traces: Annotated[
+        Path | None,
+        typer.Option(
+            "--candidate-traces",
+            help=(
+                "Candidate .agentlog trace recorded under config_b. When supplied, "
+                "attributions reflect the real baseline-vs-candidate divergence "
+                "instead of zero placeholders."
+            ),
+        ),
+    ] = None,
     output_json: Annotated[
         Path | None, typer.Option("--output-json", help="Write attribution JSON here")
     ] = None,
@@ -219,7 +230,7 @@ def bisect(
         )
         return
     try:
-        result = run_bisect(config_a, config_b, traces)
+        result = run_bisect(config_a, config_b, traces, candidate_traces=candidate_traces)
         text = json.dumps(result, indent=2)
         if output_json is not None:
             output_json.parent.mkdir(parents=True, exist_ok=True)
