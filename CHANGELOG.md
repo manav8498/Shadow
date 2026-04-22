@@ -62,7 +62,37 @@ All notable changes to Shadow are documented here. Format follows
 
 ### Phase 1 — SPEC.md
 
-_(in progress)_
+#### Decisions
+
+- **Content-address payload only, not the envelope.** `id = sha256(canonical_json(payload))`
+  so two identical requests dedupe to the same blob. Envelope (`ts`, `parent`) is
+  not hashed. Alternative considered: hash the whole envelope — rejected because
+  it defeats dedup and makes MockLLM replay lookups harder (you'd need to reconstruct
+  the envelope to look up a response).
+- **RFC 8785 (JCS) for canonical JSON**, with one application clarification
+  (§5.4 — no `Decimal`/`NaN`/`Infinity`). Picking an existing RFC instead of
+  inventing our own rules means any JCS library is automatically conformant.
+- **Known-vector hash pinned in §6.2:** `{"hello":"world"}` →
+  `sha256:93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588`.
+  Verified locally with `python3 -c 'import hashlib; print(hashlib.sha256(b"{\"hello\":\"world\"}").hexdigest())'`.
+  Phase 2's `agentlog::hash` test suite pins this vector.
+- **One trace = one file.** Concatenating two `.agentlog` files does NOT
+  produce a valid `.agentlog` — simpler invariant than allowing multi-trace
+  files, and forces the SQLite index to be the "set" abstraction.
+- **First record is always `metadata` with `parent: null`.** A trace is
+  identified by its root's content id, so we don't need a separate trace_id
+  field in the envelope.
+- **Redaction before canonicalization.** The hash reflects redacted content,
+  not raw. Means a post-hoc audit can't trivially reconstruct the original
+  — that's intentional.
+- **Streaming responses = one record** with an optional `stream_timings`
+  array, not a record per token. Per-token records would explode storage
+  and make `shadow diff` much slower. Timing preserved, token stream
+  content aggregated.
+
+#### Dead ends
+
+- _(none yet — spec came together in one pass)_
 
 ### Phase 2+ — not started
 
