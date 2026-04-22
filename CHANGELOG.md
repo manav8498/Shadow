@@ -4,7 +4,27 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
-## [Unreleased] — v0.1.0 in progress
+## [0.1.0] — 2026-04-22
+
+First tagged release. Ships the Rust core, Python SDK + CLI, bisection
+module, GitHub Action, end-to-end demo, and CI — see the per-phase
+sections below for specifics.
+
+### Summary
+
+- 13 commits across 7 phases.
+- **164 tests** total: 125 Rust (`cargo test -p shadow-core`) + 47 Python
+  (`pytest python/tests`).
+- **Rust coverage: 97.63% line / 98.93% function** on `shadow-core`.
+- **Python coverage: 88.07%** across `shadow.*` packages.
+- `cargo clippy --all-targets --all-features -- -D warnings` clean.
+- `cargo fmt --check` clean.
+- `mypy --strict` clean across 26 Python source files.
+- `ruff check` + `ruff format --check` clean.
+- `bash examples/demo/demo.sh` runs in **1.14 s** on an M-series laptop
+  (target ≤ 10 s).
+
+
 
 ### Phase 0 — Scaffold
 
@@ -169,7 +189,117 @@ clippy --all-features -- -D warnings` clean, `cargo fmt --check` clean,
   quoted field name `"\"meta\""` instead. Small lesson: substring
   assertions on JSON are fragile; prefer explicit field-level checks.
 
-### Phase 3+ — not started
+### Phase 3 — Python SDK + CLI
+
+#### Decisions
+
+- **PyO3 bindings take/return dicts, not typed pyclass wrappers.** Simpler
+  surface for Python users and no second type system to maintain. The
+  serde_json::Value ↔ PyObject conversion goes through the `pythonize`
+  crate (pinned `=0.22.0` to match `pyo3=0.22.6`).
+- **Type stubs shipped in `python/src/shadow/_core.pyi`.** mypy --strict
+  users see the PyO3 surface without importing the compiled extension.
+- **Session is a manual recorder in v0.1.** Monkey-patch-based
+  auto-instrumentation of `anthropic` / `openai` Python clients is
+  deferred to v0.2 — their streaming surfaces are too divergent to
+  unify cleanly in a first cut, and forcing users into
+  `record_chat(req, resp)` is a small enough overhead that it's not
+  blocking adoption.
+- **Python-side `run_replay`.** The Rust replay engine exists but isn't
+  exposed through PyO3 — the `LlmBackend` trait is async and calling
+  back into Python from a Rust trait object needs PyO3 ceremony that
+  wasn't worth the code for v0.1. The Python replay mirrors SPEC §10
+  semantics exactly.
+- **CLI uses typer.** Every subcommand has an end-to-end integration
+  test via `typer.testing.CliRunner`. Machine-consumed JSON outputs go
+  through `sys.stdout.write` (unstyled) to avoid Rich's ANSI escapes
+  breaking `jq` pipelines.
+- **`PositionalMockLLM` added** alongside `MockLLM`. Positional replay
+  is the only sensible demo backend when baseline and reference traces
+  were recorded with different configs (different request payloads →
+  different content ids → MockLLM strict would miss every request).
+  Clearly labelled as "for demos and integration tests, not production."
+
+#### Dead ends
+
+- First pass at `cargo test --features python` failed to link on
+  macOS because the `extension-module` pyo3 feature omits libpython
+  link directives. Resolved by splitting the feature into `python`
+  (abi3-py311 only, links libpython) and `extension` (adds
+  extension-module, used by maturin). `cargo test` takes neither by
+  default — PyO3 bindings are tested from Python after `maturin
+  develop` builds the `.so`.
+- Initial pass at the `meta` omission test used a substring check
+  against `"meta"` which accidentally matched `"metadata"` (the kind
+  name). Fix: check for the quoted field name `"\"meta\""`.
+
+### Phase 4 — Bisection (LASSO + Plackett-Burman)
+
+#### Decisions
+
+- **Per-axis LASSO with `alpha=0.01`.** scikit-learn handles the coord
+  descent. Normalization: `|coef| / sum(|coef|)` so each axis's
+  attributions sum to 1 (or 0 when the axis is invariant across
+  corners).
+- **Hadamard/Paley PB matrices tabulated** for runs ∈ {8, 12, 16, 20,
+  24}. Runs > 24 error out in v0.1 (k ≤ 23). Full factorial capped at
+  k=6 (64 runs). `choose_design` picks the right one automatically.
+- **v0.1 runner emits placeholder-zero divergence.** Real per-corner
+  replay scoring lands in v0.2 with live-LLM support. The plumbing
+  (delta extraction, design, LASSO, attribution ranking) is correct
+  and tested against a synthetic ground-truth recovery case
+  (≥0.9 attribution to delta #2 on the trajectory axis; ≤0.05 on
+  every other delta; zero attribution on every other axis since there
+  is no signal).
+
+### Phase 5 — GitHub Action
+
+#### Decisions
+
+- **Composite action, not a JavaScript action.** No Node build
+  pipeline; the logic lives in `action.yml` shell steps plus a
+  stdlib-only `comment.py`.
+- **Hidden HTML marker** lets subsequent runs update the existing PR
+  comment in place. One comment per PR, not a running log.
+- **Step-summary write** means even fork PRs (where posting a comment
+  is blocked) still surface the diff in the GitHub Actions log view.
+
+### Phase 6 — Demo + README
+
+#### Decisions
+
+- **Demo fixtures are committed.** `examples/demo/fixtures/{baseline,
+  candidate}.agentlog` are deterministic outputs of
+  `generate_fixtures.py` (also committed). A fresh clone runs
+  `just demo` in ≈1 s without touching a network. Regenerating the
+  fixtures is reproducible.
+- **`PositionalMockLLM` is the demo backend.** `MockLLM` (content-id
+  lookup) wouldn't work because baseline/candidate differ in
+  system-prompt wording — their request payloads have different ids.
+- **README opens with "Why?"** (per review), then a four-column
+  competitive-landscape table (Langfuse / Braintrust / LangSmith /
+  Shadow). Gives readers a reason to keep scrolling before they hit
+  install instructions.
+
+### Phase 7 — CI + release
+
+#### Decisions
+
+- **Matrix: Ubuntu + macOS × Python 3.11 + 3.12.** Windows deferred
+  (SDK is POSIX-path biased; `.venv/bin/python` assumptions are
+  Windows-unfriendly without more plumbing than the v0.1 budget
+  allows).
+- **`taiki-e/install-action` for `cargo-llvm-cov`** so CI doesn't pay
+  the ~45 s compile-from-source cost on every run.
+- **Rust cache via `Swatinem/rust-cache`** shaves ~5 min off matrix
+  legs.
+- **Python tests gate at 85% coverage** (`--cov-fail-under=85`).
+  Current: 88.07%.
+- **Three jobs**: `rust` (fmt/clippy/test/coverage), `python` (ruff,
+  mypy, pytest+coverage), `demo` (end-to-end). `python` depends on
+  `rust`, `demo` on `python`.
+
+
 
 ---
 
