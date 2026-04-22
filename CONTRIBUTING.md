@@ -24,7 +24,7 @@ better to ask than to guess.
 ## Setup
 
 ```bash
-git clone https://github.com/shadow-dev/shadow
+git clone https://github.com/manav8498/Shadow
 cd shadow
 just setup        # installs user-local rustup if missing, creates .venv,
                   # installs pinned deps, builds the PyO3 extension
@@ -139,5 +139,5 @@ Touching `SPEC.md` is a bigger deal than touching code. Rules:
 
 ## Questions?
 
-Open a [GitHub Discussion](https://github.com/shadow-dev/shadow/discussions) or
+Open a [GitHub Discussion](https://github.com/manav8498/Shadow/discussions) or
 a draft PR. For security issues, see [`SECURITY.md`](SECURITY.md).

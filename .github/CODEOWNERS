@@ -1,23 +1,9 @@
 # CODEOWNERS — auto-request reviews based on touched paths.
 # Syntax: <path pattern>  <@owner1> <@owner2> ...
-# Replace placeholders below with real GitHub handles when maintainers
-# are ratified.
+#
+# Currently a single owner. Once a maintainer team exists on this
+# account/org, swap @manav8498 for the team handle
+# (e.g. @<org>/maintainers, @<org>/rust-maintainers, etc.) and split
+# paths as needed.
 
-# Default owner for everything not otherwise matched.
-*                             @shadow-dev/maintainers
-
-# Spec changes need a spec maintainer's sign-off.
-/SPEC.md                      @shadow-dev/spec-maintainers
-
-# Rust core
-/crates/shadow-core/          @shadow-dev/rust-maintainers
-
-# Python SDK / CLI
-/python/                      @shadow-dev/python-maintainers
-
-# GitHub Action + CI workflow
-/.github/                     @shadow-dev/maintainers
-
-# Release notes / roadmap
-/CHANGELOG.md                 @shadow-dev/maintainers
-/ROADMAP.md                   @shadow-dev/maintainers
+*                             @manav8498
