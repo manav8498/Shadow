@@ -205,7 +205,7 @@ just ci           # lint + test + llvm-cov ≥85% + pytest-cov ≥85% + demo
 
 1. **No cloud dependencies in v0.1.** Everything runs locally. No telemetry.
 2. **MIT license on all code.** Apache-2.0 on `SPEC.md` only (see
-   `LICENSE-SPEC`).
+   `docs/SPEC-LICENSE.md`).
 3. **Pin all deps to exact versions.** No `^` or `~` ranges in `Cargo.toml`
    or `pyproject.toml`. `uv` manages the Python dep graph; `cargo` manages
    Rust.
