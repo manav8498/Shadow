@@ -1,5 +1,10 @@
 # Shadow
 
+[![ci](https://github.com/shadow-dev/shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/shadow-dev/shadow/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](#license)
+[![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
+[![version](https://img.shields.io/badge/version-0.1.0-brightgreen.svg)](CHANGELOG.md)
+
 > **Git-native behavioral diff and shadow deployment for LLM agents.**
 > Codecov for AI agents — replay production traces against a proposed
 > config change, get a nine-axis behavioral diff in your PR, and
@@ -10,7 +15,8 @@
 ![demo — TODO: record and embed](.github/assets/demo.gif)
 
 *(Demo GIF placeholder — the `just demo` command reproduces the terminal
-output shown below. See `examples/demo/` for the exact script.)*
+output shown below. See [`examples/demo/`](examples/demo/) for the exact
+script.)*
 
 ## Why Shadow?
 
@@ -192,6 +198,22 @@ configs:
 
 Sample PR comment in [`docs/sample-pr-comment.md`](docs/sample-pr-comment.md).
 
+## Worked examples
+
+Five scenarios, all runnable offline from committed fixtures:
+
+| Directory | What it shows |
+|---|---|
+| [`examples/demo/`](examples/demo/) | `just demo` — the 1-second smoke test. |
+| [`examples/customer-support/`](examples/customer-support/) | Acme refund bot; PR drops confirm-before-refund. |
+| [`examples/er-triage/`](examples/er-triage/) | Clinical triage (5 patients); high-stakes. |
+| [`examples/devops-agent/`](examples/devops-agent/) | Prod-DB agent (10 tools); tests tool-ORDER reversal. |
+| [`examples/edge-cases/`](examples/edge-cases/) | 20-case adversarial probe — permanent regression guard. |
+
+Each has its own `WALKTHROUGH.md` narrating what it demonstrates and,
+honestly, what Shadow doesn't catch. See [`examples/README.md`](examples/README.md)
+for the full tour.
+
 ## Limitations (v0.1)
 
 Deliberate scope cuts — honesty up front beats discovering them after
@@ -203,29 +225,38 @@ you've adopted:
 - **Semantic axis uses a hash surrogate in pure-Rust tests.**
   Production embeddings (`sentence-transformers/all-MiniLM-L6-v2`) live
   in the Python layer and require the `[embeddings]` extra.
-- **Bisection divergence is a placeholder in v0.1.** The delta-detection
-  and LASSO-attribution plumbing are correct and tested against a
-  synthetic ground-truth recovery case (≥0.9 attribution to the true
-  driver); but the per-corner replay scorer — the step that turns
-  "here are the corners" into "here's how much each corner diverged" —
-  defaults to zeros until the v0.2 live-replay wiring lands.
+- **Bisection is a heuristic kind-based allocator in v0.1.** It maps
+  each delta-category to the axes it can plausibly affect (derived
+  from the axes' own definitions, not from any particular domain).
+  The live-LLM LASSO-over-corners scorer from the plan is scoped to
+  v0.2 — see [`ROADMAP.md`](ROADMAP.md).
 - **No auto-instrumentation** of `anthropic` / `openai` Python clients.
   Users instrument manually with `shadow.sdk.Session.record_chat()`.
-  The two SDKs' streaming surfaces are too divergent to unify cleanly
-  in a first cut.
-- **Judge axis is a trait.** Shadow doesn't ship a default Judge; users
-  plug in their own LLM-judge via the `Judge` protocol.
+- **Judge axis is a Protocol, no default implementation.** Users
+  supply their own rubric. This is deliberate: defaulting to any
+  particular rubric would be domain hardcoding.
 - **CI: Ubuntu + macOS only.** Windows isn't tested in v0.1.
-- **Redaction is record-boundary, not token-level.** See SPEC §1.2.
+- **Redaction is record-boundary, not token-level** (SPEC §1.2).
 
 ## Contributing
 
-1. `just setup` to bootstrap.
-2. `just ci` must pass locally before pushing.
-3. All changes follow [Conventional Commits](https://www.conventionalcommits.org/)
-   (`type(scope): subject`).
-4. Every behavioural change lands with a test; strict TDD is preferred.
-5. CLAUDE.md §Workflow is the source of truth for process conventions.
+- New contributor? Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) —
+  setup, inner loop, how a PR gets reviewed.
+- Proposing a new diff axis or a domain-specific detector? Read
+  [`CONTRIBUTING.md §The Judge axis and domain rules`](CONTRIBUTING.md#the-judge-axis-and-domain-rules)
+  first; the answer is often "this belongs in a Judge, not the core."
+- [`CLAUDE.md`](CLAUDE.md) is the architecture + conventions
+  source-of-truth for maintainers and deeper contributors.
+- [`ROADMAP.md`](ROADMAP.md) is where v0.2+ plans live; pick an item
+  and open a PR or issue.
+
+We follow the [Contributor Covenant v2.1](CODE_OF_CONDUCT.md).
+
+## Security
+
+Please do NOT file security issues publicly — see
+[`SECURITY.md`](SECURITY.md) for the private reporting channel and what's
+in scope.
 
 ## License
 
