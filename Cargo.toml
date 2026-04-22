@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = ["crates/shadow-core"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83"
+license = "MIT"
+repository = "https://github.com/shadow-dev/shadow"
+authors = ["Shadow contributors"]
+
+# See CLAUDE.md §Coding conventions. Clippy lints that forbid panics in
+# non-test code are applied per-crate via inner attributes (lib.rs) rather
+# than workspace-wide, because tests are allowed to panic.
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

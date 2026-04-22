@@ -1,0 +1,20 @@
+name: ci
+
+# Phase-0 stub: matrix + job definitions are expanded in Phase 7.
+# This file exists now so .github/ is populated and so CI will pick up
+# the repo as soon as it's pushed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Note
+        run: |
+          echo "Shadow v0.1.0 CI stub. Full Ubuntu + macOS matrix lands in Phase 7."
+          echo "See CLAUDE.md §Verification commands and the plan file."
