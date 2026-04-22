@@ -66,7 +66,7 @@ def test_run_bisect_without_candidate_traces_falls_back_to_zero_scorer(tmp_path:
 
     result = run_bisect(cfg_a, cfg_b, baseline)
     assert result["mode"] == "lasso_placeholder_zero"
-    assert any("no --candidate-traces" in w for w in result["warnings"])
+    assert any("no --backend or --candidate-traces" in w for w in result["warnings"])
 
 
 def test_run_bisect_errors_on_identical_configs(tmp_path: Path) -> None:
