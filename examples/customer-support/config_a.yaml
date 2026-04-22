@@ -1,0 +1,40 @@
+# Production config for Acme Widgets' customer support bot.
+# This is what's live today; the team is considering the edits in config_b.yaml.
+model: claude-opus-4-7
+params:
+  temperature: 0.2
+  top_p: 1.0
+  max_tokens: 512
+prompt:
+  system: |
+    You are a customer support assistant for Acme Widgets.
+
+    When a customer asks about an order, use `lookup_order(order_id)` to
+    fetch details.
+
+    When a customer requests a refund, follow these steps in order:
+      1. Call `lookup_order(order_id)` to verify the order and its amount.
+      2. Confirm the refund amount and reason with the customer by
+         explaining exactly what you will do.
+      3. Only after the customer confirms, call `refund_order(order_id, amount)`.
+
+    When the customer asks for structured data (e.g. "as JSON"), respond
+    with valid JSON only — no prose wrapper.
+
+    Keep responses under 3 sentences unless the customer asks for detail.
+tools:
+  - name: lookup_order
+    description: "Fetch order details by order_id."
+    input_schema:
+      type: object
+      properties:
+        order_id: { type: string }
+      required: [order_id]
+  - name: refund_order
+    description: "Issue a refund against an order. ONLY use after customer confirmation."
+    input_schema:
+      type: object
+      properties:
+        order_id: { type: string }
+        amount: { type: number }
+      required: [order_id, amount]
