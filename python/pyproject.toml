@@ -71,6 +71,7 @@ files = ["src/shadow"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "network: tests that hit real LLM APIs (gated by SHADOW_RUN_NETWORK_TESTS=1)",
 ]

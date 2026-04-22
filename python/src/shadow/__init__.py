@@ -1,10 +1,26 @@
-"""Shadow — Git-native behavioral diff and shadow deployment for LLM agents.
-
-Phase-0 surface: just the version string. Phases 2+ populate the submodules.
-"""
+"""Shadow — Git-native behavioral diff and shadow deployment for LLM agents."""
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+from shadow import _core
+from shadow.errors import (
+    ShadowBackendError,
+    ShadowConfigError,
+    ShadowError,
+    ShadowParseError,
+    ShadowRedactionError,
+)
 
-__all__ = ["__version__"]
+__version__ = "0.1.0"
+SPEC_VERSION: str = _core.SPEC_VERSION
+
+__all__ = [
+    "SPEC_VERSION",
+    "ShadowBackendError",
+    "ShadowConfigError",
+    "ShadowError",
+    "ShadowParseError",
+    "ShadowRedactionError",
+    "__version__",
+    "_core",
+]
