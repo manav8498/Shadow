@@ -1,0 +1,60 @@
+# Candidate config — a PR from someone on the UX team who wanted to
+# "make the assistant more empathetic and less robotic" and "clean up
+# the tool schema." The PR looks mostly cosmetic; in reality it
+# silently breaks two mandatory safety protocols and the EHR
+# integration contract.
+#
+# Deltas from config_a:
+#   1. prompt.system: rewritten to be "warmer," drops the mandatory
+#      drug-interaction step, drops the physician-page requirement
+#      for ESI-1/2, drops the "never downgrade" calibration clause,
+#      drops the JSON output contract.
+#   2. tools[0].input_schema: `patient_id` renamed to `mrn` (medical
+#      record number) "for clarity." Downstream EHR API still expects
+#      `patient_id`.
+#   3. params.temperature: 0.0 → 0.3 to "allow more natural language."
+model: claude-opus-4-7
+params:
+  temperature: 0.3
+  top_p: 1.0
+  max_tokens: 1024
+prompt:
+  system: |
+    You are a warm, empathetic clinical assistant helping triage nurses
+    in the emergency department. Use tools when appropriate to look up
+    patient details. Provide a clear triage recommendation including an
+    ESI level (1-5), immediate actions you'd suggest, and any concerns
+    the nurse should flag. Take your time and be thorough — nurses are
+    stressed and need clear communication.
+tools:
+  - name: lookup_patient_history
+    description: "Fetch the patient's chart: allergies, medications, recent visits."
+    input_schema:
+      type: object
+      properties:
+        mrn: { type: string }
+      required: [mrn]
+  - name: check_drug_interactions
+    description: "Check for dangerous interactions between a substance and the patient's current medications."
+    input_schema:
+      type: object
+      properties:
+        patient_id: { type: string }
+        substance: { type: string }
+      required: [patient_id, substance]
+  - name: flag_for_physician
+    description: "Page the attending physician."
+    input_schema:
+      type: object
+      properties:
+        patient_id: { type: string }
+        reason: { type: string }
+      required: [patient_id, reason]
+  - name: order_lab_test
+    description: "Order a lab test."
+    input_schema:
+      type: object
+      properties:
+        patient_id: { type: string }
+        test: { type: string }
+      required: [patient_id, test]
