@@ -140,7 +140,7 @@ mod tests {
     #[test]
     fn parses_a_single_record() {
         let r = make_record(Kind::ChatRequest, json!({"model": "a"}));
-        let wire = to_jsonl(&[r.clone()]);
+        let wire = to_jsonl(std::slice::from_ref(&r));
         let parsed: Vec<Record> = parse_all(Cursor::new(wire)).unwrap();
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].id, r.id);
