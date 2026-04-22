@@ -41,8 +41,14 @@ class Delta:
 
     @property
     def kind(self) -> str:
-        """Top-level category used by the attribution report."""
-        return self.path.split(".", 1)[0]
+        """Top-level category used by the attribution report.
+
+        Strips array-index brackets so e.g. `tools[0].description`
+        categorises as `tools`, not `tools[0]`.
+        """
+        head = self.path.split(".", 1)[0]
+        bracket = head.find("[")
+        return head[:bracket] if bracket >= 0 else head
 
 
 def _walk(value: Any, prefix: str = "") -> list[tuple[str, Any]]:
