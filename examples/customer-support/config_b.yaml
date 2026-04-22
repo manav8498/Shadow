@@ -1,0 +1,36 @@
+# Candidate config — a well-meaning "improvement" PR. Looks harmless at a
+# glance, but introduces three real regressions the team hasn't noticed:
+#   1. Drops the explicit "confirm before refunding" step.
+#   2. Renames the lookup_order parameter from `order_id` to `id` and adds
+#      a new `include_shipping` flag (to "make it more flexible").
+#   3. Removes the "JSON only" formatting directive.
+#   4. Adds "be thorough in explanations" which bloats responses.
+#
+# This is the kind of PR that should get caught by Shadow *before* merge.
+model: claude-opus-4-7
+params:
+  temperature: 0.2
+  top_p: 1.0
+  max_tokens: 512
+prompt:
+  system: |
+    You are Acme Widgets' customer support assistant. Be helpful and
+    efficient. Use tools when appropriate and be thorough in your
+    explanations so customers feel heard.
+tools:
+  - name: lookup_order
+    description: "Fetch order details."
+    input_schema:
+      type: object
+      properties:
+        id: { type: string }
+        include_shipping: { type: boolean }
+      required: [id]
+  - name: refund_order
+    description: "Issue a refund."
+    input_schema:
+      type: object
+      properties:
+        order_id: { type: string }
+        amount: { type: number }
+      required: [order_id, amount]
