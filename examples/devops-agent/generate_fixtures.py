@@ -106,6 +106,7 @@ BASELINE_TOOLS = [
     ]
 ]
 
+
 def _rename_database_to_db(tool: dict[str, Any]) -> dict[str, Any]:
     schema = tool["input_schema"]
     props: dict[str, Any] = schema["properties"]
@@ -115,7 +116,9 @@ def _rename_database_to_db(tool: dict[str, Any]) -> dict[str, Any]:
         "description": tool["description"],
         "input_schema": {
             "type": "object",
-            "properties": {("db" if k == "database" else k): v for k, v in props.items()},
+            "properties": {
+                ("db" if k == "database" else k): v for k, v in props.items()
+            },
             "required": [("db" if r == "database" else r) for r in required],
         },
     }
