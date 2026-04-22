@@ -69,9 +69,16 @@ All notable changes to Shadow are documented here. Format follows
   not hashed. Alternative considered: hash the whole envelope — rejected because
   it defeats dedup and makes MockLLM replay lookups harder (you'd need to reconstruct
   the envelope to look up a response).
-- **RFC 8785 (JCS) for canonical JSON**, with one application clarification
-  (§5.4 — no `Decimal`/`NaN`/`Infinity`). Picking an existing RFC instead of
-  inventing our own rules means any JCS library is automatically conformant.
+- **RFC 8785 (JCS) for canonical JSON**, with two application clarifications
+  (§5.2 — Unicode NFC normalization on strings and keys; §5.4 — no
+  `Decimal`/`NaN`/`Infinity`). Picking an existing RFC instead of inventing
+  our own rules means any JCS library is most of the way there; the NFC
+  addition covers a gap in JCS where visually-identical strings encoded
+  differently would hash differently.
+- **Known-vector lives in §5.6 as a "Conformance test case"** (moved on
+  review from §6.2, which now points back to §5.6). The vector covers both
+  canonicalization bytes and the resulting content id, so a fresh
+  implementer can verify both at once.
 - **Known-vector hash pinned in §6.2:** `{"hello":"world"}` →
   `sha256:93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588`.
   Verified locally with `python3 -c 'import hashlib; print(hashlib.sha256(b"{\"hello\":\"world\"}").hexdigest())'`.
