@@ -348,11 +348,19 @@ rules below are equivalent to JCS with one clarification (§5.4).
 
 ### §5.2 Strings
 
+- **Unicode normalization: NFC.** Before emitting any string (including
+  object keys), implementations MUST apply Unicode Normalization Form C
+  (NFC). Without this, visually-identical strings encoded differently
+  (e.g. precomposed `"é"` U+00E9 vs decomposed `"é"` U+0065 +
+  U+0301) would produce different hashes, breaking dedup across
+  producers. NFC is also applied to keys before the lexicographic sort
+  in §5.1.
 - UTF-8 encoded. String value is quoted with `"`.
 - Mandatory escapes: `"` → `\"`, `\` → `\\`, and control characters
   (U+0000 through U+001F) as `\u00XX` (lowercase hex).
 - All other characters MUST be emitted as literal UTF-8. In particular,
-  do **not** emit `\uXXXX` for non-ASCII characters.
+  do **not** emit `\uXXXX` for non-ASCII characters already representable
+  in UTF-8.
 - Strings MUST be valid Unicode. Lone surrogates are illegal.
 
 ### §5.3 Numbers
@@ -401,6 +409,37 @@ Canonical output:
 {"price":1,"ratio":0.1}
 ```
 
+Unicode normalization (NFC) applied to both keys and values:
+
+```json
+{"café": "éclair"}
+```
+
+Canonical output (NFC-normalized to precomposed form, then emitted as
+literal UTF-8 bytes; `é` is U+00E9 "é"):
+
+```
+{"café":"éclair"}
+```
+
+### §5.6 Conformance test case
+
+Every conforming implementation MUST reproduce the following
+byte-for-byte. This is the single normative vector for both canonical
+serialization (§5) and content addressing (§6).
+
+| Step | Value |
+|---|---|
+| Input payload (JSON) | `{"hello":"world"}` |
+| Canonical bytes (UTF-8) | `{"hello":"world"}` (17 bytes, no sort needed — one key) |
+| SHA-256 digest (hex) | `93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588` |
+| Content id | `sha256:93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588` |
+
+Shadow's Rust core pins this vector in
+`crates/shadow-core/tests/canonical_vectors.rs` (Phase 2). Other
+implementations SHOULD pin the same vector so a round-trip can be
+verified byte-for-byte across implementations.
+
 ## §6 Content addressing
 
 The record's `id` field is computed as:
@@ -428,17 +467,16 @@ blob + 500 envelope references.
 
 ### §6.2 Known-vector test
 
-Given `payload = {"hello":"world"}` (already canonical):
+The single normative cross-implementation test vector lives in §5.6 —
+see the "Conformance test case" table. Summary:
 
 ```
-canonical_bytes = b'{"hello":"world"}'
-sha256(canonical_bytes) = 93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588
-id = "sha256:93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588"
+payload         = {"hello":"world"}
+canonical_bytes = b'{"hello":"world"}'    # 17 bytes, already sorted
+content_id      = sha256:93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588
 ```
 
-Conforming implementations MUST produce exactly this id for this
-payload. `shadow-core`'s test suite pins this vector in
-`crates/shadow-core/tests/canonical_vectors.rs`.
+Producing any other `id` for this payload is a conformance failure.
 
 ### §6.3 Collision handling
 
@@ -734,7 +772,8 @@ safety filter.
 
 Implementations claiming conformance MUST pass:
 
-1. **Known-vector hash test** (§6.2): `{"hello":"world"}` hashes to
+1. **Known-vector hash test** (§5.6): `{"hello":"world"}` canonicalizes
+   to `b'{"hello":"world"}'` and hashes to
    `sha256:93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588`.
 2. **Canonical round-trip**: parse any record, re-serialize its
    payload canonically, recompute the id — the result equals the
