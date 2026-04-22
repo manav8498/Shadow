@@ -105,6 +105,31 @@ impl Severity {
         }
     }
 
+    /// Classify a rate-like axis (values bounded in `[0, 1]`) by absolute
+    /// magnitude of the delta. Used by [`crate::diff::safety`] and
+    /// [`crate::diff::conformance`], where a shift from 0.0 → 0.33 is
+    /// "1/3 of traffic flipped" — real, not noise.
+    ///
+    /// Thresholds:
+    /// - CI crosses zero AND `|delta| < 1e-9` → None
+    /// - `|delta| < 0.05` → Minor
+    /// - `|delta| < 0.15` → Moderate
+    /// - else → Severe
+    pub fn classify_rate(delta: f64, ci95_low: f64, ci95_high: f64) -> Severity {
+        let abs = delta.abs();
+        let ci_crosses_zero = ci95_low <= 0.0 && ci95_high >= 0.0;
+        if abs < 1e-9 && ci_crosses_zero {
+            return Severity::None;
+        }
+        if abs < 0.05 {
+            Severity::Minor
+        } else if abs < 0.15 {
+            Severity::Moderate
+        } else {
+            Severity::Severe
+        }
+    }
+
     /// Short string for reports: "none" / "minor" / "moderate" / "severe".
     pub fn label(&self) -> &'static str {
         match self {
