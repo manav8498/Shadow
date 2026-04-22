@@ -58,15 +58,19 @@ sections below for specifics.
 
 - **Rust toolchain install** — `cargo` / `rustc` were absent; user-local
   rustup curl install authorized post-Phase-1 per `<interaction_policy>`
-  checkpoint 1. Installed: Rust 1.83.0 + clippy + rustfmt + llvm-tools-preview
-  into `~/.cargo` / `~/.rustup` (no sudo, no brew, no system-wide changes).
-- **Ecosystem compatibility** — Rust 1.83.0 predates several recent deps
-  that require Cargo's `edition2024` feature (stabilized in 1.85). Resolved
-  by (a) tightening every direct dep in `crates/shadow-core/Cargo.toml` to
-  exact `=x.y.z` pins per the user's "pin to exact versions" constraint,
-  and (b) adding `indexmap = "=2.6.0"` as a direct dep so `serde_json`'s
-  transitive `indexmap` can't resolve to the edition2024-requiring 2.14.0.
-  Cargo.lock committed for reproducibility.
+  checkpoint 1, installed into `~/.cargo` / `~/.rustup` (no sudo, no brew,
+  no system-wide changes).
+- **Rust toolchain version** — initially pinned to `1.83.0` (stable at
+  original-plan time, late 2024); the release drop to `v0.1.0` then
+  bumped to **Rust 1.95.0** (stable 2026-04-14) because the ecosystem had
+  already moved past 1.83 — `indexmap 2.14+`, `proptest 1.11`, latest
+  `just` / `maturin` all require edition2024 (Rust ≥ 1.85). The interim
+  1.83 workaround (direct-pin `indexmap = "=2.6.0"` so `serde_json`'s
+  transitive dep couldn't resolve to edition2024) was removed on the
+  bump; Cargo.lock regenerated; all direct deps updated to the versions
+  Cargo picks cleanly on 1.95.
+- **Companion tool versions** — `just 1.50.0`, `maturin 1.13.1`,
+  `cargo-llvm-cov 0.8.5`. All installed via `cargo install --locked`.
 - **PyO3 feature split** — The original single `python` feature used
   `pyo3/extension-module`, which omits libpython link directives. That is
   correct for a maturin-built `.so` but makes `cargo test --features python`
@@ -75,10 +79,12 @@ sections below for specifics.
   used only by maturin). `cargo test --workspace` runs pure-Rust tests
   without pulling pyo3 at all; the PyO3 bindings are tested from Python
   via pytest after `maturin develop`.
-- **Companion tool versions** — `just 1.46.0` and `maturin 1.10.2` (installed
-  via `cargo install --version`). Latest upstream versions (`just 1.50`,
-  `maturin 1.13`) require Rust 1.85 / 1.88 respectively; the older versions
-  are the newest compatible with our pinned 1.83 toolchain.
+- **Rust 1.95 clippy tightening** — the toolchain bump surfaced three new
+  lints: `doc_overindented_list_items` (fixed by de-indenting continuation
+  lines in the replay engine's doc comment), `useless_conversion` firing
+  on PyO3's idiomatic `?`-in-`PyResult` patterns (addressed with a
+  module-level `#![allow]` in `src/python.rs` with a comment explaining
+  why), and a `clone`→`slice::from_ref` suggestion in a parser test.
 
 ### Phase 1 — SPEC.md
 

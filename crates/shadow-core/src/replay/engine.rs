@@ -68,13 +68,13 @@ impl Clock for FixedClock {
 ///    `meta.baseline_of = baseline_root_id`.
 /// 2. For each baseline record in file order:
 ///    - `chat_request`: re-emit with a fresh ts and parent = previous
-///       output record id; then call `backend.complete(request.payload)`
-///       and emit a `chat_response` whose parent = the re-emitted request.
+///      output record id; then call `backend.complete(request.payload)`
+///      and emit a `chat_response` whose parent = the re-emitted request.
 ///    - `tool_call`, `tool_result`, `error`: copy-through with fresh ts
-///       and relinked parent.
+///      and relinked parent.
 ///    - `chat_response`, `metadata`, `replay_summary`: skipped (the
-///       backend produces responses; replay_summary is added at the end;
-///       a baseline can only have one metadata record and it's the root).
+///      backend produces responses; replay_summary is added at the end;
+///      a baseline can only have one metadata record and it's the root).
 /// 3. Emit a `replay_summary` at the end.
 pub async fn run_replay<B: LlmBackend + ?Sized>(
     baseline: &[Record],

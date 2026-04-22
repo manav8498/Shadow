@@ -245,11 +245,17 @@ Otherwise: autonomous execution, per the user's Auto mode directive.
 These are the dep versions used in v0.1.0. Bump them deliberately, never
 casually; bumps belong in their own commits with a CHANGELOG entry.
 
-**Rust (in `crates/shadow-core/Cargo.toml`):** `serde 1.0.215`,
-`serde_json 1.0.133`, `sha2 0.10.8`, `tokio 1.41`, `async-trait 0.1.83`,
-`rusqlite 0.32.1` (bundled), `thiserror 2.0.4`, `rand 0.8.5`,
-`rand_distr 0.4.3`, `statrs 0.17.1`, `tracing 0.1.41`, `pyo3 0.22.6`
-(feature-gated on `python`, with `abi3-py311`).
+**Rust toolchain:** `1.95.0` (rust-toolchain.toml).
+
+**Rust deps (in `crates/shadow-core/Cargo.toml`):** `serde 1.0.228`,
+`serde_json 1.0.133`, `sha2 0.10.9`, `tokio 1.41.1`, `async-trait 0.1.89`,
+`rusqlite 0.32.1` (bundled), `thiserror 2.0.18`, `rand 0.8.6`,
+`rand_distr 0.4.3`, `statrs 0.17.1`, `tracing 0.1.41`,
+`unicode-normalization 0.1.24`, `pyo3 0.22.6` (feature-gated on `python`,
+with `abi3-py311`), `pythonize 0.22.0`.
+
+**Rust companion tools (cargo-installed):** `just 1.50`, `maturin 1.13.1`,
+`cargo-llvm-cov 0.8.5`.
 
 **Python (in `python/pyproject.toml`):** `typer 0.13.0`, `pydantic 2.10.3`,
 `httpx 0.28.1`, `rich 13.9.4`, `scikit-learn 1.6.0`, `numpy 2.2.0`,
