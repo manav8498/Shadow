@@ -1,1 +1,5 @@
-"""shadow.sdk — Phase-0 stub; populated in later phases per the plan."""
+"""SDK for recording LLM agent traces into `.agentlog` files."""
+
+from shadow.sdk.session import Session, output_path_from_env
+
+__all__ = ["Session", "output_path_from_env"]

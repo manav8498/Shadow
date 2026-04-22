@@ -39,6 +39,7 @@ dev = [
     "pytest-asyncio==0.25.0",
     "pytest-cov==6.0.0",
     "maturin==1.7.8",
+    "types-PyYAML==6.0.12.20240917",
 ]
 
 [project.scripts]
