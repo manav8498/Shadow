@@ -101,7 +101,75 @@ All notable changes to Shadow are documented here. Format follows
 
 - _(none yet — spec came together in one pass)_
 
-### Phase 2+ — not started
+### Phase 2 — shadow-core (Rust)
+
+Nine commits land the full Rust core. Final tree: 125 unit tests, `cargo
+clippy --all-features -- -D warnings` clean, `cargo fmt --check` clean,
+**97.63% line coverage** on `shadow-core` (target ≥85%) measured via
+`cargo llvm-cov --workspace` (98.93% function coverage).
+
+#### Decisions
+
+- **Payload-only hashing (SPEC §6.1).** Record envelope (`ts`, `parent`)
+  is not in the hash; only `canonical_json(payload)`. Two identical
+  requests dedupe to the same id.
+- **Records hold payloads as `serde_json::Value`, not typed structs.**
+  Typed payload structs come later alongside the consumers that need
+  them (Python SDK). Keeps the core storage path provider-agnostic.
+- **Atomic writes for the FS store** via write-tmp + rename. A crash
+  mid-write leaves a `.tmp` orphan, not a corrupt real trace.
+- **`include_str!` SQLite schema.** Schema lives in `store/schema.sql`;
+  bundled into the binary so there's no runtime file resolution and the
+  schema can be versioned alongside the code that consumes it.
+- **`PyO3` feature split: `python` vs `extension`.** The base `python`
+  feature pulls pyo3 with `abi3-py311` but NOT `extension-module`, so
+  `cargo test --features python` links libpython normally. `extension`
+  adds `extension-module` for maturin. This avoids the "cargo test
+  link-fails because libpython isn't linked" footgun.
+- **`cargo test --workspace` runs NO features by default.** PyO3
+  bindings are tested from Python after `maturin develop`. Keeps the
+  Rust test loop zero-config (no need for python3.11 on PATH).
+- **Backend trait takes `&Value`, returns `Value`.** Envelope ownership
+  stays with the engine; backends are tiny adapters (a live Anthropic
+  backend is ~30 lines). Matches SPEC §10's replay algorithm cleanly.
+- **Replay errors → `Error` records, not engine panics.** A baseline
+  with some-missing responses still produces a complete candidate
+  trace, with error counts in the `replay_summary`.
+- **Clock abstraction** in `replay::engine` so tests can pin
+  timestamps. Ships a `FixedClock` for fixtures; production uses the
+  system clock (Phase 3).
+- **Semantic axis: hash-surrogate embedding in Rust.** Clearly labelled
+  test-only in the module docstring. The production embedding
+  (`sentence-transformers/all-MiniLM-L6-v2`) is plugged in by the
+  Python layer per CLAUDE.md D5. This kept an ML dep out of the Rust
+  crate.
+- **Axis nodes take `pairs: &[(&Record, &Record)]`.** Pair extraction
+  lives in `diff/mod.rs::extract_response_pairs`. Uneven counts (e.g.
+  candidate missed some) truncate to the shorter side; callers that
+  want to flag count-mismatch consult the replay_summary directly.
+- **Severity thresholds (CLAUDE.md §4):** `None` (CI crosses zero and
+  delta is tiny), `Minor` (<10% relative), `Moderate` (<30%), `Severe`
+  (≥30% or CI clearly excludes zero with large magnitude).
+- **Bootstrap defaults to 1000 iterations** with seeded RNG for
+  reproducibility; callers can override both.
+- **Test-only `assert_eq!` / `unwrap()`** allowed; clippy's
+  unwrap_used/panic lints are denied only in non-test code via
+  `#![cfg_attr(not(test), ...)]`.
+
+#### Dead ends
+
+- Attempted to write `assert_eq!` in `paired_ci` for length-mismatch
+  precondition — tripped clippy's `panic` lint which applies to
+  `panic!()` expansions of `assert!` macros. Resolved with a narrow
+  `#[allow(clippy::panic)]` block around an explicit `panic!()` —
+  cleaner than restructuring to return a Result for a programmer-error
+  guard.
+- First pass at the `meta` omit-when-None test used `!wire.contains("meta")`,
+  which accidentally matched the kind string `"metadata"`. Fix: match the
+  quoted field name `"\"meta\""` instead. Small lesson: substring
+  assertions on JSON are fragile; prefer explicit field-level checks.
+
+### Phase 3+ — not started
 
 ---
 
