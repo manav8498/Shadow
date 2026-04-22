@@ -23,10 +23,13 @@ use crate::diff::{compute_report, cost::Pricing};
 
 /// Parse a `.agentlog` byte blob into a list of record dicts.
 #[pyfunction]
-fn parse_agentlog<'py>(py: Python<'py>, data: &Bound<'py, PyBytes>) -> PyResult<Bound<'py, PyList>> {
+fn parse_agentlog<'py>(
+    py: Python<'py>,
+    data: &Bound<'py, PyBytes>,
+) -> PyResult<Bound<'py, PyList>> {
     let bytes = data.as_bytes();
-    let records = parser::parse_all(Cursor::new(bytes))
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let records =
+        parser::parse_all(Cursor::new(bytes)).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let out = PyList::empty_bound(py);
     for r in records {
         let v = serde_json::to_value(&r).map_err(|e| PyValueError::new_err(e.to_string()))?;
