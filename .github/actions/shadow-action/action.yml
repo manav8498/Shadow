@@ -1,0 +1,78 @@
+name: 'Shadow behavioral diff'
+description: 'Post a nine-axis behavioral diff of LLM agent traces on every PR.'
+
+inputs:
+  baseline:
+    description: 'Path to the baseline .agentlog file (committed to the repo).'
+    required: true
+  candidate:
+    description: 'Path to the candidate .agentlog file (produced in CI, or another committed fixture).'
+    required: true
+  pricing:
+    description: 'Path to a JSON pricing table (dict of model → [input, output] USD/token). Optional.'
+    required: false
+    default: ''
+  python-version:
+    description: 'Python version to install for running shadow.'
+    required: false
+    default: '3.11'
+  github-token:
+    description: 'GitHub token for posting the PR comment. Defaults to ${{ github.token }}.'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install shadow
+      shell: bash
+      run: |
+        set -euxo pipefail
+        python -m pip install --upgrade pip
+        # Action consumers install shadow from PyPI once published; for
+        # testing inside this repo, users can replace with `pip install -e .`
+        # against a checkout.
+        python -m pip install shadow==0.1.0 || \
+          (echo "shadow==0.1.0 not on PyPI yet; installing from source" && \
+           cd ${{ github.action_path }}/../../.. && \
+           python -m pip install -e python/)
+
+    - name: Compute diff
+      shell: bash
+      run: |
+        set -euxo pipefail
+        PRICING_ARG=""
+        if [[ -n "${{ inputs.pricing }}" ]]; then
+          PRICING_ARG="--pricing ${{ inputs.pricing }}"
+        fi
+        mkdir -p .shadow-action
+        shadow diff "${{ inputs.baseline }}" "${{ inputs.candidate }}" \
+          $PRICING_ARG \
+          --output-json .shadow-action/report.json
+
+    - name: Render markdown for PR comment
+      shell: bash
+      run: |
+        set -euxo pipefail
+        shadow report .shadow-action/report.json --format github-pr \
+          > .shadow-action/comment.md
+        # Also write to the step summary so logs-only runs still see it.
+        cat .shadow-action/comment.md >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Post or update PR comment
+      if: github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euxo pipefail
+        python ${{ github.action_path }}/comment.py \
+          --repo "${{ github.repository }}" \
+          --pr "${{ github.event.number }}" \
+          --body-file .shadow-action/comment.md \
+          --marker "shadow-behavioral-diff"
