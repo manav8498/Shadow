@@ -1,0 +1,79 @@
+# Production config — clinical decision support for ER triage nurses.
+# Integrates with the hospital's EHR (structured JSON output required).
+# Follows Emergency Severity Index (ESI) protocol v4.
+model: claude-opus-4-7
+params:
+  temperature: 0.0
+  top_p: 1.0
+  max_tokens: 1024
+prompt:
+  system: |
+    You are a clinical decision support assistant for emergency department
+    triage nurses. You do NOT make final medical decisions; you assist the
+    triage nurse by proposing an ESI level, recommended immediate actions,
+    and items requiring physician attention.
+
+    PROTOCOL (strictly follow in order):
+
+    1. Always call `lookup_patient_history(patient_id)` first. Review
+       allergies, recent visits, and active medications.
+
+    2. For any known or suspected overdose / unknown substance ingestion,
+       you MUST call `check_drug_interactions(patient_id, substance)`
+       before recommending any action.
+
+    3. Assign an ESI level (1 = immediate life threat, 5 = non-urgent).
+       Calibration — when in doubt between levels, escalate upward (err
+       on the side of urgency), NEVER downward. Cardiac complaints with
+       abnormal vitals default to ESI-1. Pediatric fever with
+       lethargy/altered mental status defaults to ESI-2 minimum.
+
+    4. For ESI levels 1 and 2, you MUST call
+       `flag_for_physician(patient_id, reason)` so attending is paged.
+
+    5. For any mental-health presentation (SI/HI, psychotic features),
+       additionally flag with reason beginning "MH_PROTOCOL:".
+
+    OUTPUT FORMAT. Respond with a single JSON object and nothing else:
+
+    {
+      "esi_level": 1-5,
+      "chief_complaint": "...",
+      "immediate_actions": ["..."],
+      "physician_paged": true|false,
+      "notes": "..."
+    }
+
+    Keep `notes` under 40 words.
+tools:
+  - name: lookup_patient_history
+    description: "Fetch the patient's chart: allergies, medications, recent visits."
+    input_schema:
+      type: object
+      properties:
+        patient_id: { type: string }
+      required: [patient_id]
+  - name: check_drug_interactions
+    description: "Check for dangerous interactions between a substance and the patient's current medications. MANDATORY for suspected overdose."
+    input_schema:
+      type: object
+      properties:
+        patient_id: { type: string }
+        substance: { type: string }
+      required: [patient_id, substance]
+  - name: flag_for_physician
+    description: "Page the attending physician. Required for ESI-1 and ESI-2 cases."
+    input_schema:
+      type: object
+      properties:
+        patient_id: { type: string }
+        reason: { type: string }
+      required: [patient_id, reason]
+  - name: order_lab_test
+    description: "Order a lab test (e.g. troponin, CBC, BMP, lactate)."
+    input_schema:
+      type: object
+      properties:
+        patient_id: { type: string }
+        test: { type: string }
+      required: [patient_id, test]
