@@ -4,6 +4,43 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Live LLM backends.** `shadow.llm.AnthropicLLM` (wraps
+  `anthropic.AsyncAnthropic`) and `shadow.llm.OpenAILLM` (wraps
+  `openai.AsyncOpenAI`). Both implement the `LlmBackend` Protocol; both
+  lazy-import their SDK so `shadow` still runs without the extras.
+  `shadow.llm.get_backend(name, **kwargs)` factory dispatches by name.
+- **LASSO-over-corners bisection scorer**
+  (`shadow.bisect.corner_scorer`). Given a live `LlmBackend`, builds a
+  2^k full-factorial over the differing config categories
+  (`{model, prompt, params, tools}`), replays the baseline through the
+  backend at each corner, computes the nine-axis divergence per corner,
+  and fits LASSO per axis. Returns per-axis attribution weights that
+  sum to 1 across the active categories. Ground-truth test recovers
+  `latency → model` and `verbosity → prompt` with > 70 % weight.
+- **CLI `shadow bisect --backend {anthropic,openai,positional}`** wires
+  the live-replay scorer through the CLI. Without `--backend`, falls
+  back to the heuristic kind-based allocator when `--candidate-traces`
+  is supplied, or zero-placeholder otherwise.
+- **`run_bisect` three-mode dispatch**:
+  `lasso_over_corners` (best, with backend) → `heuristic_kind_allocator`
+  (when only a candidate trace is available) → `lasso_placeholder_zero`
+  (neither). The `mode` field in the output names which ran.
+- **11 new tests** covering the backends (fake SDK stubs installed in
+  `sys.modules` — no network) and the corner scorer (deterministic
+  `FakeBackend` whose response metrics depend on which categories are
+  active, letting LASSO recover ground-truth attributions).
+
+### Changed
+
+- README Limitations section updated — bisection is no longer
+  described as "heuristic-only in v0.1". The heuristic remains as a
+  no-credentials fallback, with the live-backend LASSO scorer as the
+  primary path.
+
 ## [0.1.0] — 2026-04-22
 
 First tagged release. Ships the Rust core, Python SDK + CLI, bisection

@@ -107,29 +107,46 @@ def run_bisect(
     config_b: Path | str,
     traces: Path | str,
     candidate_traces: Path | str | None = None,
+    backend: Any | None = None,
     alpha: float = 0.01,
 ) -> dict[str, Any]:
     """High-level entry point for `shadow bisect`.
+
+    Three modes, chosen in priority order:
+
+    1. `lasso_over_corners` (best, real causal attribution) — selected
+       when a live `backend` is supplied. Runs the full LASSO-over-corners
+       scorer: for each of the 2**k corners of the category-level design
+       matrix, replays the baseline against the intermediate config and
+       measures per-axis divergence, then fits LASSO per axis. See
+       `shadow.bisect.corner_scorer`.
+    2. `heuristic_kind_allocator` — selected when `candidate_traces` is
+       supplied (and no `backend`). Computes the real
+       baseline-vs-candidate divergence and allocates it heuristically
+       across the delta categories that could plausibly have caused
+       movement on each axis. Fast, offline, no LLM calls.
+    3. `lasso_placeholder_zero` — ultimate fallback when neither
+       `backend` nor `candidate_traces` is available. Returns the right
+       shape with zero weights and a warning.
 
     Parameters
     ----------
     config_a, config_b:
         YAML configs to diff.
     traces:
-        Path to the baseline `.agentlog` file (or a directory glob —
-        first file wins for v0.1).
+        Path to the baseline `.agentlog` file.
     candidate_traces:
         Optional path to a candidate `.agentlog` file recorded under
-        `config_b`. When supplied, attributions are weighted by the
-        actual observed divergence between `traces` and
-        `candidate_traces`. When omitted, attributions default to zero
-        (v0.1 placeholder behaviour) — a warning is included in the
-        output.
+        `config_b`. Used when `backend` is not supplied.
+    backend:
+        Optional `shadow.llm.LlmBackend`. When supplied, triggers
+        live-replay corner scoring (mode 1 above).
     alpha:
-        LASSO regularisation strength. Currently unused by the
-        heuristic allocator but kept for forward-compatibility with the
-        v0.2 LASSO-over-corners scorer.
+        LASSO regularisation strength for modes 1 and 3.
     """
+    from shadow.bisect.apply import active_categories
+    from shadow.bisect.corner_scorer import run_sync as corner_run
+
     a = load_config(config_a)
     b = load_config(config_b)
     deltas = diff_configs(a, b)
@@ -141,32 +158,54 @@ def run_bisect(
     labels = [d.path for d in deltas]
 
     warnings: list[str] = []
+
+    if backend is not None:
+        baseline_records = _core.parse_agentlog(Path(traces).read_bytes())
+        result = corner_run(baseline_records, a, b, backend, alpha=alpha)
+        return {
+            "deltas": [{"path": d.path, "old": d.old_value, "new": d.new_value} for d in deltas],
+            "mode": "lasso_over_corners",
+            "design_runs": int(result["design"].shape[0]),
+            "traces_path": str(traces),
+            "backend_id": backend.id,
+            "active_categories": result["categories"],
+            "warnings": warnings,
+            "attributions": result["attributions"],
+        }
+
     if candidate_traces is not None:
         axis_divergence, note = _observed_divergence(traces, candidate_traces)
         if note:
             warnings.append(note)
         attributions = _allocate_divergence(deltas, axis_divergence)
-        design_runs = 1  # single observed pair, not a design-matrix sweep
-        mode = "heuristic_kind_allocator"
-    else:
-        # Fall back to the original zero-scorer path. Retained so the CLI
-        # still produces SOMETHING when only one trace file is available.
-        design = choose_design(len(deltas))
-        divergence = np.zeros((design.shape[0], len(AXIS_NAMES)), dtype=float)
-        attributions = rank_attributions(design, divergence, labels, alpha=alpha)
-        design_runs = int(design.shape[0])
-        mode = "lasso_placeholder_zero"
-        warnings.append(
-            "no --candidate-traces supplied; attributions are zero. "
-            "Provide a candidate .agentlog to get real attributions."
-        )
+        return {
+            "deltas": [{"path": d.path, "old": d.old_value, "new": d.new_value} for d in deltas],
+            "mode": "heuristic_kind_allocator",
+            "design_runs": 1,
+            "traces_path": str(traces),
+            "candidate_traces_path": str(candidate_traces),
+            "active_categories": active_categories(a, b),
+            "warnings": warnings,
+            "attributions": {
+                axis: [{"delta": lbl, "weight": float(w)} for lbl, w in ranked]
+                for axis, ranked in attributions.items()
+            },
+        }
 
+    # Placeholder-zero fallback. Both --backend and --candidate-traces
+    # were omitted.
+    design = choose_design(len(deltas))
+    divergence = np.zeros((design.shape[0], len(AXIS_NAMES)), dtype=float)
+    attributions = rank_attributions(design, divergence, labels, alpha=alpha)
+    warnings.append(
+        "no --backend or --candidate-traces supplied; attributions are zero. "
+        "Supply one of them to get real attributions."
+    )
     return {
         "deltas": [{"path": d.path, "old": d.old_value, "new": d.new_value} for d in deltas],
-        "mode": mode,
-        "design_runs": design_runs,
+        "mode": "lasso_placeholder_zero",
+        "design_runs": int(design.shape[0]),
         "traces_path": str(traces),
-        "candidate_traces_path": str(candidate_traces) if candidate_traces else None,
         "warnings": warnings,
         "attributions": {
             axis: [{"delta": lbl, "weight": float(w)} for lbl, w in ranked]
