@@ -56,7 +56,7 @@ serde_json = { version = "=1.0.133", features = ["preserve_order"] }
 sha2 = "=0.10.9"
 tokio = { version = "=1.41.1", features = ["rt-multi-thread", "macros", "sync", "fs", "io-util"] }
 async-trait = "=0.1.89"
-rusqlite = { version = "=0.32.1", features = ["bundled"] }
+rusqlite = { version = "=0.39.0", features = ["bundled"] }
 thiserror = "=2.0.18"
 rand = "=0.8.6"
 rand_distr = "=0.4.3"
