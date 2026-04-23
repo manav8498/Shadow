@@ -5,7 +5,7 @@
 //! whose `type == "thinking"`. We sum these per response.
 
 use crate::agentlog::Record;
-use crate::diff::axes::{Axis, AxisStat, Severity};
+use crate::diff::axes::{Axis, AxisStat};
 use crate::diff::bootstrap::{median, paired_ci};
 
 fn reasoning_score(r: &Record) -> Option<f64> {
@@ -45,16 +45,7 @@ pub fn compute(pairs: &[(&Record, &Record)], seed: Option<u64>) -> AxisStat {
     let cm = median(&c);
     let delta = cm - bm;
     let ci = paired_ci(&b, &c, |bs, cs| median(cs) - median(bs), 0, seed);
-    AxisStat {
-        axis: Axis::Reasoning,
-        baseline_median: bm,
-        candidate_median: cm,
-        delta,
-        ci95_low: ci.low,
-        ci95_high: ci.high,
-        severity: Severity::classify(delta, bm, ci.low, ci.high),
-        n: b.len(),
-    }
+    AxisStat::new_value(Axis::Reasoning, bm, cm, delta, ci.low, ci.high, b.len())
 }
 
 #[cfg(test)]

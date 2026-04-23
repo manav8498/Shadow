@@ -1,0 +1,59 @@
+{
+  "name": "@shadow/sdk",
+  "version": "0.1.0",
+  "description": "Shadow — Git-native behavioral diff for LLM agents (TypeScript SDK)",
+  "license": "MIT",
+  "repository": "github:manav8498/Shadow",
+  "homepage": "https://github.com/manav8498/Shadow",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src test",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "keywords": [
+    "llm",
+    "agent",
+    "observability",
+    "diff",
+    "regression",
+    "openai",
+    "anthropic"
+  ],
+  "peerDependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
+    "openai": "^6.34.0"
+  },
+  "peerDependenciesMeta": {
+    "openai": {
+      "optional": true
+    },
+    "@anthropic-ai/sdk": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

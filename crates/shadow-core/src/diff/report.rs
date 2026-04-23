@@ -42,18 +42,27 @@ impl DiffReport {
         .ok();
         writeln!(
             out,
-            "| axis | baseline | candidate | delta | 95% CI | severity |"
+            "| axis | baseline | candidate | delta | 95% CI | severity | flags |"
         )
         .ok();
         writeln!(
             out,
-            "|------|---------:|----------:|------:|--------|----------|"
+            "|------|---------:|----------:|------:|--------|----------|-------|"
         )
         .ok();
         for row in &self.rows {
+            let flags = if row.flags.is_empty() {
+                String::new()
+            } else {
+                row.flags
+                    .iter()
+                    .map(|f| f.label())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            };
             writeln!(
                 out,
-                "| {axis} | {bm:.3} | {cm:.3} | {d:+.3} | [{lo:+.3}, {hi:+.3}] | {sev} |",
+                "| {axis} | {bm:.3} | {cm:.3} | {d:+.3} | [{lo:+.3}, {hi:+.3}] | {sev} | {flags} |",
                 axis = row.axis.label(),
                 bm = row.baseline_median,
                 cm = row.candidate_median,
@@ -84,15 +93,24 @@ impl DiffReport {
         writeln!(out).ok();
         writeln!(
             out,
-            "{:<22} {:>10} {:>10} {:>10} {:>20} {:>10}",
+            "{:<22} {:>10} {:>10} {:>10} {:>20} {:>10}  flags",
             "axis", "baseline", "candidate", "delta", "95% CI", "severity"
         )
         .ok();
-        writeln!(out, "{}", "-".repeat(88)).ok();
+        writeln!(out, "{}", "-".repeat(100)).ok();
         for row in &self.rows {
+            let flags = if row.flags.is_empty() {
+                String::new()
+            } else {
+                row.flags
+                    .iter()
+                    .map(|f| f.label())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            };
             writeln!(
                 out,
-                "{axis:<22} {bm:>10.3} {cm:>10.3} {d:>+10.3} {ci:>20} {sev:>10}",
+                "{axis:<22} {bm:>10.3} {cm:>10.3} {d:>+10.3} {ci:>20} {sev:>10}  {flags}",
                 axis = row.axis.label(),
                 bm = row.baseline_median,
                 cm = row.candidate_median,
@@ -132,6 +150,7 @@ mod tests {
                 ci95_high: 0.15,
                 severity: Severity::Minor,
                 n: 10,
+                flags: Vec::new(),
             })
             .collect();
         DiffReport {

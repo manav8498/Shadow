@@ -46,7 +46,7 @@ from shadow.bisect.apply import (
     apply_config_to_request,
     build_intermediate_config,
 )
-from shadow.bisect.attribution import AXIS_NAMES, rank_attributions
+from shadow.bisect.attribution import AXIS_NAMES, rank_attributions_with_ci
 from shadow.bisect.design import full_factorial
 from shadow.errors import ShadowBackendError, ShadowConfigError
 from shadow.llm.base import LlmBackend
@@ -150,7 +150,16 @@ def _divergence_vector(
     vec = np.zeros(len(AXIS_NAMES), dtype=float)
     rows_by_axis = {row["axis"]: row for row in report["rows"]}
     for i, axis in enumerate(AXIS_NAMES):
-        vec[i] = abs(float(rows_by_axis[axis]["delta"]))
+        # Defense-in-depth: the Rust differ always returns 9 rows, but a
+        # malformed or future schema change shouldn't crash the scorer.
+        row = rows_by_axis.get(axis)
+        if row is None:
+            continue
+        delta = row.get("delta", 0.0)
+        try:
+            vec[i] = abs(float(delta))
+        except (TypeError, ValueError):
+            vec[i] = 0.0
     return vec
 
 
@@ -184,15 +193,37 @@ async def score_corners(
         candidate = await replay_with_config(baseline_records, intermediate, backend)
         divergence[run_idx] = _divergence_vector(baseline_records, candidate, seed)
 
-    attributions = rank_attributions(design, divergence, categories, alpha=alpha)
+    attributions_ci = rank_attributions_with_ci(
+        design, divergence, categories, alpha=alpha, seed=seed
+    )
+    # Unified schema across all bisect modes (heuristic / placeholder / live):
+    # every attribution row has the same keys. The `delta` key names the
+    # attributed field (may be a delta.path or a coalesced category label —
+    # same conceptual thing from the caller's POV). `category` is kept as
+    # an alias for backward compatibility with the v0.1 live-mode API but
+    # marked deprecated in the docstring.
+    unified_rows = {
+        axis: [
+            {
+                "delta": row["delta"],
+                "category": row["delta"],  # deprecated alias
+                "weight": float(row["weight"]),
+                "ci95_low": float(row["ci95_low"]),
+                "ci95_high": float(row["ci95_high"]),
+                "significant": bool(row["significant"]),
+                "selection_frequency": float(row.get("selection_frequency", 0.0)),
+            }
+            for row in ranked
+        ]
+        for axis, ranked in attributions_ci.items()
+    }
     return {
         "categories": categories,
         "design": design,
         "divergence": divergence,
-        "attributions": {
-            axis: [{"category": cat, "weight": float(w)} for cat, w in ranked]
-            for axis, ranked in attributions.items()
-        },
+        "attributions": unified_rows,
+        # Legacy key — kept for v0.1 callers that used it. Same content.
+        "attributions_ci": unified_rows,
     }
 
 

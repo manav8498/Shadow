@@ -1,26 +1,154 @@
 //! Axis 6: cost (input+output tokens × per-model pricing).
 //!
-//! Pricing is a user-editable `HashMap<String, (input_per_token, output_per_token)>`
-//! keyed on `chat_response.payload.model`. Unknown models contribute 0 cost —
-//! we'd rather surface "0" than burn the report with phantom infinities.
+//! Pricing is richer than just (input, output). Modern frontier models
+//! bill differently for:
+//!
+//! - **Cached input tokens**: Anthropic prompt caching, OpenAI prompt
+//!   caching — typically 10% of the uncached rate.
+//! - **Reasoning tokens**: GPT-5+ reasoning / o1-style thinking tokens
+//!   exposed via `usage.completion_tokens_details.reasoning_tokens` —
+//!   usually billed at the output rate.
+//! - **Batch API**: OpenAI and Anthropic batch APIs are ~50% off.
+//!
+//! Unknown models still contribute 0 cost rather than phantom infinities.
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::agentlog::Record;
-use crate::diff::axes::{Axis, AxisStat, Severity};
+use crate::diff::axes::{Axis, AxisStat};
 use crate::diff::bootstrap::{median, paired_ci};
 
-/// Price per token in USD: `(input, output)`. USD so callers can plug
-/// their own currency without a type change.
-pub type Pricing = HashMap<String, (f64, f64)>;
+/// Per-model pricing in USD per token.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ModelPricing {
+    /// USD per uncached input token.
+    pub input: f64,
+    /// USD per output token.
+    pub output: f64,
+    /// USD per cached input READ token (cache hit). For Anthropic this is
+    /// ~10% of `input`; for OpenAI ~50%. If 0.0, cached reads are billed
+    /// at the full input rate.
+    #[serde(default)]
+    pub cached_input: f64,
+    /// USD per cached input WRITE token, 5-minute TTL tier. Anthropic
+    /// charges ~1.25× input for 5m-ephemeral cache creation. If 0.0,
+    /// cache writes are billed at the uncached input rate.
+    #[serde(default)]
+    pub cached_write_5m: f64,
+    /// USD per cached input WRITE token, 1-hour TTL tier. Anthropic
+    /// charges ~2.0× input for 1h-ephemeral cache creation.
+    #[serde(default)]
+    pub cached_write_1h: f64,
+    /// USD per reasoning / thinking token. If 0.0, reasoning tokens
+    /// are billed at the `output` rate.
+    #[serde(default)]
+    pub reasoning: f64,
+    /// Multiplier applied to the final per-call cost when
+    /// `meta.batch == true` — e.g. 0.5 for a 50% batch discount.
+    /// 1.0 (or 0.0 as a sentinel) means no discount.
+    #[serde(default)]
+    pub batch_discount: f64,
+}
+
+impl ModelPricing {
+    /// Simple constructor that assumes no caching, no reasoning, no batch.
+    pub fn simple(input: f64, output: f64) -> Self {
+        Self {
+            input,
+            output,
+            cached_input: 0.0,
+            cached_write_5m: 0.0,
+            cached_write_1h: 0.0,
+            reasoning: 0.0,
+            batch_discount: 0.0,
+        }
+    }
+}
+
+/// Pricing table keyed by `chat_response.payload.model`.
+pub type Pricing = HashMap<String, ModelPricing>;
 
 fn cost_of(r: &Record, pricing: &Pricing) -> Option<f64> {
     let model = r.payload.get("model")?.as_str()?;
     let usage = r.payload.get("usage")?;
     let input = usage.get("input_tokens")?.as_f64()?;
     let output = usage.get("output_tokens")?.as_f64()?;
-    let (pi, po) = pricing.get(model).copied().unwrap_or((0.0, 0.0));
-    Some(input * pi + output * po)
+    let cached_input = usage
+        .get("cached_input_tokens")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let cached_write_5m = usage
+        .get("cached_write_5m_tokens")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let cached_write_1h = usage
+        .get("cached_write_1h_tokens")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let thinking = usage
+        .get("thinking_tokens")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    // NaN-guard every token count. Malformed trace data must not produce
+    // phantom costs that poison the diff report (NaN propagates through
+    // the whole bootstrap and would silently land on the cost axis).
+    if !(input.is_finite()
+        && output.is_finite()
+        && cached_input.is_finite()
+        && cached_write_5m.is_finite()
+        && cached_write_1h.is_finite()
+        && thinking.is_finite())
+    {
+        return Some(0.0);
+    }
+    let Some(p) = pricing.get(model) else {
+        return Some(0.0);
+    };
+    let cached_rate = if p.cached_input > 0.0 {
+        p.cached_input
+    } else {
+        p.input
+    };
+    let reasoning_rate = if p.reasoning > 0.0 {
+        p.reasoning
+    } else {
+        p.output
+    };
+    // Cache-write rates fall back to input rate if not set.
+    let write_5m_rate = if p.cached_write_5m > 0.0 {
+        p.cached_write_5m
+    } else {
+        p.input
+    };
+    let write_1h_rate = if p.cached_write_1h > 0.0 {
+        p.cached_write_1h
+    } else {
+        p.input
+    };
+    // input_tokens in the envelope is assumed to mean "uncached input".
+    // If the provider emits a combined count, callers should split by
+    // populating `cached_input_tokens` / `cached_write_5m_tokens` /
+    // `cached_write_1h_tokens` separately.
+    let mut cost = input * p.input
+        + cached_input * cached_rate
+        + cached_write_5m * write_5m_rate
+        + cached_write_1h * write_1h_rate
+        + output * p.output
+        + thinking * reasoning_rate;
+    // Batch API flag lives at the envelope-meta level, but to avoid
+    // coupling the cost axis to the Envelope type we also honor a
+    // `payload.meta_batch` convention. (Default: no discount.)
+    let batch = r
+        .payload
+        .get("batch")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if batch && p.batch_discount > 0.0 {
+        cost *= p.batch_discount;
+    }
+    Some(cost)
 }
 
 /// Compute the cost axis.
@@ -40,22 +168,14 @@ pub fn compute(pairs: &[(&Record, &Record)], pricing: &Pricing, seed: Option<u64
     let cm = median(&c);
     let delta = cm - bm;
     let ci = paired_ci(&b, &c, |bs, cs| median(cs) - median(bs), 0, seed);
-    AxisStat {
-        axis: Axis::Cost,
-        baseline_median: bm,
-        candidate_median: cm,
-        delta,
-        ci95_low: ci.low,
-        ci95_high: ci.high,
-        severity: Severity::classify(delta, bm, ci.low, ci.high),
-        n: b.len(),
-    }
+    AxisStat::new_value(Axis::Cost, bm, cm, delta, ci.low, ci.high, b.len())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::agentlog::Kind;
+    use crate::diff::axes::Severity;
     use serde_json::json;
 
     fn response(model: &str, input: u64, output: u64) -> Record {
@@ -73,13 +193,30 @@ mod tests {
         )
     }
 
+    fn response_with_usage(model: &str, usage: serde_json::Value) -> Record {
+        Record::new(
+            Kind::ChatResponse,
+            json!({
+                "model": model,
+                "content": [],
+                "stop_reason": "end_turn",
+                "latency_ms": 0,
+                "usage": usage,
+            }),
+            "2026-04-21T10:00:00Z",
+            None,
+        )
+    }
+
     #[test]
     fn pricing_lookup_drives_cost() {
         let mut pricing = Pricing::new();
-        pricing.insert("opus".to_string(), (0.000015, 0.000075));
-        pricing.insert("haiku".to_string(), (0.0000008, 0.000004));
+        pricing.insert("opus".to_string(), ModelPricing::simple(0.000015, 0.000075));
+        pricing.insert(
+            "haiku".to_string(),
+            ModelPricing::simple(0.0000008, 0.000004),
+        );
         let baseline: Vec<Record> = (0..10).map(|_| response("opus", 1000, 500)).collect();
-        // Candidate switches to haiku — should be much cheaper.
         let candidate: Vec<Record> = (0..10).map(|_| response("haiku", 1000, 500)).collect();
         let pairs: Vec<(&Record, &Record)> = baseline.iter().zip(candidate.iter()).collect();
         let stat = compute(&pairs, &pricing, Some(1));
@@ -94,5 +231,180 @@ mod tests {
         let pairs = [(&r, &r)];
         let stat = compute(&pairs, &pricing, Some(1));
         assert_eq!(stat.baseline_median, 0.0);
+    }
+
+    #[test]
+    fn cached_input_tokens_billed_at_cheaper_rate() {
+        // 1000 uncached input @ $15/Mtok + 1000 cached @ $1.50/Mtok + 500 out @ $75/Mtok
+        let mut pricing = Pricing::new();
+        pricing.insert(
+            "opus".to_string(),
+            ModelPricing {
+                input: 0.000015,
+                output: 0.000075,
+                cached_input: 0.0000015, // 10% of input
+                cached_write_5m: 0.0,
+                cached_write_1h: 0.0,
+                reasoning: 0.0,
+                batch_discount: 0.0,
+            },
+        );
+        let r = response_with_usage(
+            "opus",
+            json!({
+                "input_tokens": 1000,
+                "output_tokens": 500,
+                "thinking_tokens": 0,
+                "cached_input_tokens": 1000,
+            }),
+        );
+        let pairs = [(&r, &r)];
+        let stat = compute(&pairs, &pricing, Some(1));
+        // 1000*0.000015 + 1000*0.0000015 + 500*0.000075 = 0.015 + 0.0015 + 0.0375 = 0.054
+        assert!((stat.baseline_median - 0.054).abs() < 1e-9);
+    }
+
+    #[test]
+    fn reasoning_tokens_billed_at_reasoning_rate() {
+        let mut pricing = Pricing::new();
+        pricing.insert(
+            "gpt-5".to_string(),
+            ModelPricing {
+                input: 0.000010,
+                output: 0.000040,
+                cached_input: 0.0,
+                cached_write_5m: 0.0,
+                cached_write_1h: 0.0,
+                reasoning: 0.000060, // reasoning costs more than output
+                batch_discount: 0.0,
+            },
+        );
+        let r = response_with_usage(
+            "gpt-5",
+            json!({
+                "input_tokens": 100,
+                "output_tokens": 100,
+                "thinking_tokens": 500,
+            }),
+        );
+        let pairs = [(&r, &r)];
+        let stat = compute(&pairs, &pricing, Some(1));
+        // 100*10e-6 + 100*40e-6 + 500*60e-6 = 0.001 + 0.004 + 0.030 = 0.035
+        assert!((stat.baseline_median - 0.035).abs() < 1e-6);
+    }
+
+    #[test]
+    fn anthropic_cache_write_tiers_are_billed_separately() {
+        // Opus: input=$15/Mtok, 5m-write=$18.75/Mtok (1.25x), 1h-write=$30/Mtok (2x)
+        let mut pricing = Pricing::new();
+        pricing.insert(
+            "opus".to_string(),
+            ModelPricing {
+                input: 0.000015,
+                output: 0.000075,
+                cached_input: 0.0000015,
+                cached_write_5m: 0.00001875,
+                cached_write_1h: 0.00003,
+                reasoning: 0.0,
+                batch_discount: 0.0,
+            },
+        );
+        let r = Record::new(
+            Kind::ChatResponse,
+            json!({
+                "model": "opus",
+                "content": [],
+                "stop_reason": "end_turn",
+                "latency_ms": 0,
+                "usage": {
+                    "input_tokens": 1000,
+                    "output_tokens": 200,
+                    "thinking_tokens": 0,
+                    "cached_input_tokens": 500,
+                    "cached_write_5m_tokens": 200,
+                    "cached_write_1h_tokens": 100,
+                },
+            }),
+            "2026-04-21T10:00:00Z",
+            None,
+        );
+        let pairs = [(&r, &r)];
+        let stat = compute(&pairs, &pricing, Some(1));
+        // True cost:
+        //   uncached input: 1000 * 15e-6    = 0.015
+        //   cached read:    500  * 1.5e-6   = 0.00075
+        //   5m write:       200  * 18.75e-6 = 0.00375
+        //   1h write:       100  * 30e-6    = 0.003
+        //   output:         200  * 75e-6    = 0.015
+        // Total: 0.0375
+        assert!(
+            (stat.baseline_median - 0.0375).abs() < 1e-6,
+            "got {}",
+            stat.baseline_median
+        );
+    }
+
+    #[test]
+    fn nan_usage_values_produce_zero_cost_not_phantom_inf() {
+        let mut pricing = Pricing::new();
+        pricing.insert("m".to_string(), ModelPricing::simple(0.001, 0.002));
+        let r = Record::new(
+            Kind::ChatResponse,
+            json!({
+                "model": "m",
+                "content": [],
+                "stop_reason": "end_turn",
+                "latency_ms": 0,
+                "usage": {
+                    "input_tokens": 100.0,
+                    "output_tokens": 100.0,
+                    "thinking_tokens": 0,
+                    "cached_input_tokens": f64::NAN,
+                },
+            }),
+            "2026-04-21T10:00:00Z",
+            None,
+        );
+        let pairs = [(&r, &r)];
+        let stat = compute(&pairs, &pricing, Some(1));
+        // Cost must be finite (0.0 by our NaN-guard policy), not NaN.
+        assert!(stat.baseline_median.is_finite());
+        assert_eq!(stat.severity, Severity::None);
+    }
+
+    #[test]
+    fn batch_flag_applies_discount() {
+        let mut pricing = Pricing::new();
+        pricing.insert(
+            "opus".to_string(),
+            ModelPricing {
+                input: 0.000015,
+                output: 0.000075,
+                cached_input: 0.0,
+                cached_write_5m: 0.0,
+                cached_write_1h: 0.0,
+                reasoning: 0.0,
+                batch_discount: 0.5, // 50% off for batch API
+            },
+        );
+        let batched = Record::new(
+            Kind::ChatResponse,
+            json!({
+                "model": "opus",
+                "content": [],
+                "stop_reason": "end_turn",
+                "latency_ms": 0,
+                "batch": true,
+                "usage": {"input_tokens": 1000, "output_tokens": 500, "thinking_tokens": 0},
+            }),
+            "2026-04-21T10:00:00Z",
+            None,
+        );
+        let non_batched = response("opus", 1000, 500);
+        let pairs_batched = [(&batched, &batched)];
+        let pairs_normal = [(&non_batched, &non_batched)];
+        let stat_b = compute(&pairs_batched, &pricing, Some(1));
+        let stat_n = compute(&pairs_normal, &pricing, Some(1));
+        assert!((stat_b.baseline_median - stat_n.baseline_median * 0.5).abs() < 1e-9);
     }
 }

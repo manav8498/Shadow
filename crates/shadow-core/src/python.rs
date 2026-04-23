@@ -25,7 +25,10 @@ use pyo3::types::{PyBytes, PyDict, PyList};
 use pythonize::{depythonize, pythonize};
 
 use crate::agentlog::{hash, parser, writer, Record};
-use crate::diff::{compute_report, cost::Pricing};
+use crate::diff::{
+    compute_report,
+    cost::{ModelPricing, Pricing},
+};
 
 /// Parse a `.agentlog` byte blob into a list of record dicts.
 #[pyfunction]
@@ -108,10 +111,17 @@ fn compute_diff_report<'py>(
             let key: String = k
                 .extract()
                 .map_err(|e| PyValueError::new_err(format!("pricing key: {e}")))?;
-            let pair: (f64, f64) = v
-                .extract()
-                .map_err(|e| PyValueError::new_err(format!("pricing value: {e}")))?;
-            price_map.insert(key, pair);
+            // Accept either (input, output) tuple (legacy) or a dict
+            // {input, output, cached_input?, reasoning?, batch_discount?}.
+            let mp = if let Ok(pair) = v.extract::<(f64, f64)>() {
+                ModelPricing::simple(pair.0, pair.1)
+            } else {
+                let v_json: serde_json::Value = depythonize(&v)
+                    .map_err(|e| PyValueError::new_err(format!("pricing value: {e}")))?;
+                serde_json::from_value(v_json)
+                    .map_err(|e| PyValueError::new_err(format!("pricing value: {e}")))?
+            };
+            price_map.insert(key, mp);
         }
     }
 
