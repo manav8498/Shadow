@@ -333,7 +333,25 @@ fn align(baseline: &[&Record], candidate: &[&Record]) -> Alignment {
 fn pair_cost(a: &Record, b: &Record) -> f64 {
     let tool_shape_a = tool_shape(a);
     let tool_shape_b = tool_shape(b);
-    let structural = 1.0 - jaccard(&tool_shape_a, &tool_shape_b);
+    // Structural component: set Jaccard on tool shapes, BUT also penalise
+    // count mismatches. Without the count check, duplicate tool calls
+    // ("candidate called `lookup_order` twice where baseline called it
+    // once") are invisible because sets collapse duplicates.
+    let shape_dist = 1.0 - jaccard(&tool_shape_a, &tool_shape_b);
+    let count_a = count_tool_use(a);
+    let count_b = count_tool_use(b);
+    let count_dist = if count_a == count_b {
+        0.0
+    } else {
+        let diff = (count_a as f64 - count_b as f64).abs();
+        let denom = count_a.max(count_b) as f64;
+        if denom == 0.0 {
+            0.0
+        } else {
+            (diff / denom).min(1.0)
+        }
+    };
+    let structural = shape_dist.max(count_dist);
 
     let text_a = response_text(a);
     let text_b = response_text(b);
@@ -383,6 +401,19 @@ fn tool_shape(r: &Record) -> BTreeSet<String> {
         out.insert(format!("{name}({})", keys.join(",")));
     }
     out
+}
+
+/// Count the number of tool_use blocks in a response. Useful as a
+/// structural signal in addition to the set-based tool_shape, because
+/// a set collapses duplicates — calling `lookup_order` twice looks
+/// identical to calling it once if we only compare shapes.
+fn count_tool_use(r: &Record) -> usize {
+    let Some(arr) = r.payload.get("content").and_then(|c| c.as_array()) else {
+        return 0;
+    };
+    arr.iter()
+        .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("tool_use"))
+        .count()
 }
 
 fn response_text(r: &Record) -> String {
@@ -608,6 +639,31 @@ fn classify(b: &Record, c: &Record, cost: f64) -> (DivergenceKind, Axis, String)
     // Structural: tool shapes differ (name or arg-key set).
     if shape_b != shape_c {
         let explanation = describe_tool_diff(&shape_b, &shape_c);
+        return (DivergenceKind::Structural, Axis::Trajectory, explanation);
+    }
+    // Structural: same tool shapes but different COUNTS (duplicated calls).
+    // Shape is a set so `{lookup_order(id)}` matches itself regardless of
+    // call count; we detect duplicates via an explicit count comparison.
+    let count_b = count_tool_use(b);
+    let count_c = count_tool_use(c);
+    if count_b != count_c {
+        let tool_names: Vec<&String> = shape_b.iter().collect();
+        let tools_summary = if tool_names.len() == 1 {
+            format!("`{}`", tool_names[0])
+        } else {
+            format!("{} tool(s)", tool_names.len())
+        };
+        let explanation = if count_c > count_b {
+            format!(
+                "candidate called {tools_summary} {count_c} time(s) vs baseline's {count_b} \
+                — duplicate tool invocation"
+            )
+        } else {
+            format!(
+                "candidate called {tools_summary} {count_c} time(s) vs baseline's {count_b} \
+                — dropped one or more repeat invocations"
+            )
+        };
         return (DivergenceKind::Structural, Axis::Trajectory, explanation);
     }
 
