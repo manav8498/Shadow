@@ -64,10 +64,17 @@ cost            0.000      0.000    +0.000     none
 reasoning       0.000      0.000    +0.000     none
 judge           0.000      0.000    +0.000     none
 conformance     1.000      0.000    -1.000     severe
+
+first divergence: baseline turn #0 ↔ candidate turn #0
+  kind: structural  ·  axis: trajectory  ·  confidence: 56%
+  tool set changed: removed `search_files(query)`,
+                    added `search_files(limit,query)`
 ```
 
 Each row is one behavioural dimension. The severity column makes it
-obvious where to look.
+obvious where to look — and the **first-divergence line** names the
+exact change responsible: the candidate's `search_files` tool schema
+gained a `limit` parameter. One-line root cause, no dashboard needed.
 
 ## Instrument your own agent
 

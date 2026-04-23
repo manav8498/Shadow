@@ -16,6 +16,7 @@
 
 use crate::agentlog::{Kind, Record};
 
+pub mod alignment;
 pub mod axes;
 pub mod bootstrap;
 pub mod conformance;
@@ -29,6 +30,7 @@ pub mod semantic;
 pub mod trajectory;
 pub mod verbosity;
 
+pub use alignment::{DivergenceKind, FirstDivergence};
 pub use axes::{Axis, AxisStat, Severity};
 pub use bootstrap::{paired_ci, CiResult};
 pub use report::DiffReport;
@@ -76,11 +78,13 @@ pub fn compute_report(
         AxisStat::empty(Axis::Judge),
         conformance::compute(&pairs, seed),
     ];
+    let first_divergence = alignment::detect(baseline, candidate);
     DiffReport {
         rows,
         baseline_trace_id: baseline.first().map(|r| r.id.clone()).unwrap_or_default(),
         candidate_trace_id: candidate.first().map(|r| r.id.clone()).unwrap_or_default(),
         pair_count: pairs.len(),
+        first_divergence,
     }
 }
 

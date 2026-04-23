@@ -39,18 +39,49 @@ class AxisStat(TypedDict):
     n: int
     flags: list[str]
 
+class FirstDivergence(TypedDict):
+    """First turn at which the candidate meaningfully diverged from
+    the baseline.
+
+    `kind` ∈ {`style_drift`, `decision_drift`, `structural_drift`}:
+      - `style_drift`: cosmetic wording only (semantic similarity ≥ 0.9,
+        same tool shape, same stop reason).
+      - `decision_drift`: same structure, different decision (different
+        arg values, refusal flipped, meaningful semantic shift).
+      - `structural_drift`: tool sequence differs (insertion, deletion,
+        reorder, or tool-name mismatch at the same position).
+
+    `primary_axis` names which of the nine diff axes carries the
+    strongest signal for this divergence (semantic / trajectory /
+    safety / conformance).
+
+    `confidence` is 0..1; callers can gate display on >= 0.5.
+    """
+
+    baseline_turn: int
+    candidate_turn: int
+    kind: str
+    primary_axis: str
+    explanation: str
+    confidence: float
+
 class DiffReport(TypedDict):
     """Shape of the dict returned by `compute_diff_report`.
 
     Documentation only — the runtime return value is a plain
     `dict[str, Any]`. Consumers may cast to this TypedDict for static
     access if they want.
+
+    `first_divergence` is `None` when the two traces agree end-to-end,
+    otherwise a `FirstDivergence` describing the first meaningful
+    behavioural delta.
     """
 
     rows: list[AxisStat]
     baseline_trace_id: str
     candidate_trace_id: str
     pair_count: int
+    first_divergence: FirstDivergence | None
 
 def parse_agentlog(data: bytes) -> list[dict[str, Any]]:
     """Parse a `.agentlog` byte blob into a list of record dicts.
