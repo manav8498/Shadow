@@ -48,7 +48,7 @@ class _CollectingHandler(BaseHTTPRequestHandler):
 
     received: typing.ClassVar[list[tuple[dict[str, str], bytes]]] = []
 
-    def do_POST(self) -> None:
+    def do_POST(self) -> None:  # noqa: N802  # stdlib BaseHTTPRequestHandler hook name
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length)
         _CollectingHandler.received.append((dict(self.headers), body))
