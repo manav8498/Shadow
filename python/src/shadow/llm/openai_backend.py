@@ -34,7 +34,7 @@ class OpenAILLM:
         backend_id: str = "openai",
     ) -> None:
         try:
-            import openai  # type: ignore[import-not-found]
+            import openai  # type: ignore[import-not-found, unused-ignore]
         except ImportError as e:
             raise ShadowBackendError(
                 "openai SDK not installed\n"
@@ -44,6 +44,8 @@ class OpenAILLM:
         kwargs: dict[str, Any] = {}
         if api_key is not None:
             kwargs["api_key"] = api_key
+        # Explicit timeout — see AnthropicLLM for rationale.
+        kwargs.setdefault("timeout", 60.0)
         self._client = openai.AsyncOpenAI(**kwargs)
         self._model_override = model_override
         self._id = backend_id
@@ -156,8 +158,21 @@ class OpenAILLM:
         choice = response.choices[0]
         message = choice.message
         content: list[dict[str, Any]] = []
-        if getattr(message, "content", None):
-            content.append({"type": "text", "text": message.content})
+        msg_content = getattr(message, "content", None)
+        if isinstance(msg_content, str) and msg_content:
+            content.append({"type": "text", "text": msg_content})
+        elif isinstance(msg_content, list):
+            # Newer OpenAI APIs (vision, structured output) return an array
+            # of content parts. Preserve text parts; keep the rest as-is.
+            for part in msg_content:
+                if isinstance(part, dict):
+                    content.append(dict(part))
+        # `message.refusal` (gpt-4o+) carries the model's refusal text when it
+        # declines to answer. Preserve it so safety/conformance axes can see
+        # the refusal instead of treating the response as empty.
+        refusal = getattr(message, "refusal", None)
+        if isinstance(refusal, str) and refusal:
+            content.append({"type": "refusal", "text": refusal})
         for tc in getattr(message, "tool_calls", None) or []:
             fn = tc.function
             content.append(
@@ -170,10 +185,19 @@ class OpenAILLM:
             )
         usage = getattr(response, "usage", None)
         thinking_tokens = 0
+        cached_input_tokens = 0
         if usage is not None:
-            details = getattr(usage, "completion_tokens_details", None)
-            if details is not None:
-                thinking_tokens = getattr(details, "reasoning_tokens", 0) or 0
+            comp_details = getattr(usage, "completion_tokens_details", None)
+            if comp_details is not None:
+                thinking_tokens = getattr(comp_details, "reasoning_tokens", 0) or 0
+            # OpenAI's automatic prompt caching (gpt-4o+, prompts >1024 tok)
+            # reports cache hits in prompt_tokens_details.cached_tokens.
+            # Without routing this to cached_input_tokens, the cost axis
+            # bills every cached call at the full uncached rate — same class
+            # of bug Anthropic just had.
+            prompt_details = getattr(usage, "prompt_tokens_details", None)
+            if prompt_details is not None:
+                cached_input_tokens = getattr(prompt_details, "cached_tokens", 0) or 0
         stop_reason_raw = getattr(choice, "finish_reason", "stop")
         stop_reason = {
             "stop": "end_turn",
@@ -181,16 +205,19 @@ class OpenAILLM:
             "tool_calls": "tool_use",
             "content_filter": "content_filter",
         }.get(stop_reason_raw, stop_reason_raw)
+        usage_out: dict[str, Any] = {
+            "input_tokens": getattr(usage, "prompt_tokens", 0) if usage else 0,
+            "output_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
+            "thinking_tokens": thinking_tokens,
+        }
+        if cached_input_tokens:
+            usage_out["cached_input_tokens"] = cached_input_tokens
         return {
             "model": getattr(response, "model", ""),
             "content": content,
             "stop_reason": stop_reason,
             "latency_ms": latency_ms,
-            "usage": {
-                "input_tokens": getattr(usage, "prompt_tokens", 0) if usage else 0,
-                "output_tokens": getattr(usage, "completion_tokens", 0) if usage else 0,
-                "thinking_tokens": thinking_tokens,
-            },
+            "usage": usage_out,
         }
 
 

@@ -23,6 +23,7 @@ def render_terminal(report: dict[str, Any], console: Console | None = None) -> N
         ("delta", "right"),
         ("95% CI", "right"),
         ("severity", "left"),
+        ("flags", "left"),
         ("n", "right"),
     ):
         table.add_column(col, justify=justify)  # type: ignore[arg-type]
@@ -31,6 +32,8 @@ def render_terminal(report: dict[str, Any], console: Console | None = None) -> N
         sev = row.get("severity", "none")
         if _sev_rank(sev) > _sev_rank(worst):
             worst = sev
+        flags = row.get("flags", []) or []
+        flags_str = ",".join(flags) if flags else ""
         table.add_row(
             str(row.get("axis", "")),
             f"{row.get('baseline_median', 0.0):.3f}",
@@ -38,6 +41,7 @@ def render_terminal(report: dict[str, Any], console: Console | None = None) -> N
             f"{row.get('delta', 0.0):+.3f}",
             f"[{row.get('ci95_low', 0.0):+.2f}, {row.get('ci95_high', 0.0):+.2f}]",
             f"[{_sev_style(sev)}]{sev}[/]",
+            f"[dim]{flags_str}[/]" if flags_str else "",
             str(row.get("n", 0)),
         )
     con.print(table)

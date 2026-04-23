@@ -7,7 +7,7 @@
 //! is in [0, 1] — per-response divergence score.
 
 use crate::agentlog::Record;
-use crate::diff::axes::{Axis, AxisStat, Severity};
+use crate::diff::axes::{Axis, AxisStat};
 use crate::diff::bootstrap::{median, paired_ci};
 
 fn tool_shape(r: &Record) -> Vec<String> {
@@ -85,16 +85,20 @@ pub fn compute(pairs: &[(&Record, &Record)], seed: Option<u64>) -> AxisStat {
         0,
         seed,
     );
-    AxisStat {
-        axis: Axis::Trajectory,
-        baseline_median: bm,
-        candidate_median: cm,
+    // Trajectory is a rate in [0, 1] measured *from* zero (identical
+    // sequences → 0 divergence). The relative-delta severity used by
+    // `new_value` divides by baseline_median=0.0 and always returns
+    // Minor, regardless of magnitude. `new_rate` uses absolute-delta
+    // thresholds, which is the honest classification for this axis.
+    AxisStat::new_rate(
+        Axis::Trajectory,
+        bm,
+        cm,
         delta,
-        ci95_low: ci.low,
-        ci95_high: ci.high,
-        severity: Severity::classify(delta, 1.0, ci.low, ci.high),
-        n: pairs.len(),
-    }
+        ci.low,
+        ci.high,
+        pairs.len(),
+    )
 }
 
 #[cfg(test)]
