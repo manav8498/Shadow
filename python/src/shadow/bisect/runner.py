@@ -168,7 +168,7 @@ def run_bisect(
     if backend is not None:
         baseline_records = _core.parse_agentlog(Path(traces).read_bytes())
         result = corner_run(baseline_records, a, b, backend, alpha=alpha)
-        return {
+        out: dict[str, Any] = {
             "deltas": [{"path": d.path, "old": d.old_value, "new": d.new_value} for d in deltas],
             "mode": "lasso_over_corners",
             "design_runs": int(result["design"].shape[0]),
@@ -179,6 +179,12 @@ def run_bisect(
             "attributions": result["attributions"],
             "attributions_ci": result.get("attributions_ci", {}),
         }
+        # Hardened interaction-aware attribution: only present when the
+        # corner-scorer computed it (default on in live mode). Wrapped
+        # in an .get() so older corner_scorer outputs round-trip cleanly.
+        if "attributions_with_interactions" in result:
+            out["attributions_with_interactions"] = result["attributions_with_interactions"]
+        return out
 
     if candidate_traces is not None:
         axis_divergence, note = _observed_divergence(traces, candidate_traces)

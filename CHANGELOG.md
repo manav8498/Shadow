@@ -8,6 +8,45 @@ All notable changes to Shadow are documented here. Format follows
 
 ### Added
 
+- **Hardened causal bisection** — new
+  `shadow.bisect.attribution.rank_attributions_with_interactions`.
+  Fits **pairwise interaction effects** (delta A x delta B) in addition
+  to main effects, and emits honest **bootstrap 95% confidence
+  intervals** on every attribution weight. Example output on a
+  realistic 4-delta config PR:
+
+  ```
+  semantic:
+    prompt.system            74.9% [71.0%, 89.2%]  sel_freq=1.00  ✓
+    model_id x prompt.system 13.8% [3.8%, 17.5%]   sel_freq=0.89  ✓
+
+  latency:
+    model_id          61.3% [59.2%, 68.0%]  sel_freq=1.00  ✓
+    tools             19.7% [15.3%, 22.4%]  sel_freq=0.94  ✓
+    model_id x tools  16.6% [12.0%, 19.4%]  sel_freq=0.96  ✓
+  ```
+
+  Implementation follows the research brief's explicit guidance:
+  `PolynomialFeatures(interaction_only=True)` for the augmented
+  design; **residual bootstrap** (Chatterjee & Lahiri 2011) instead
+  of pairs bootstrap to avoid LASSO's point-mass-at-zero pathology;
+  `alpha` fixed via outer `LassoCV` once on the original data (not
+  re-tuned per resample — Efron 2014 shows that inflates CI width);
+  per-resample normalisation **before** percentile (not normalise-
+  then-bootstrap, which breaks CI independence); and a strong-
+  hierarchy post-filter that drops A x B interactions where neither
+  main effect survived stability selection (Lim & Hastie 2015
+  *glinternet*).
+
+  The `significant` flag is now a conjunction — selection frequency
+  ≥ 0.6 AND CI excludes zero — which is honestly framed as
+  screening + magnitude, not a multiplicity-adjusted p-value. Lex-
+  sorted interaction pair labels eliminate the `(A,B)` vs `(B,A)`
+  ambiguity. Output available via `run_bisect(... backend=...)`
+  under the new `attributions_with_interactions` key. 7 new Rust/
+  Python ground-truth tests plus a real-world validation harness
+  (8/8 passing) in `benchmarks/alignment/validate_hardened_bisect.py`.
+
 - **Prescriptive fix recommendations** (`shadow.diff.recommendations`).
   Transforms the divergence list from "what changed" into "what to do
   about it": a ranked list of specific, imperative actions a PR
