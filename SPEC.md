@@ -3,7 +3,7 @@
 > **Status:** Draft. Published with Shadow v0.1.0. Stable on `0.x.y` means
 > no breaking changes within a minor version.
 >
-> **License:** Apache-2.0 (see `docs/SPEC-LICENSE.md`).
+> **License:** Apache-2.0 (see `LICENSE-SPEC`).
 >
 > **Editor:** manav8498.
 >
@@ -565,7 +565,7 @@ resulting file would have two `metadata` records, which violates §3.3.
 
 A trace set (§2) is a directory (or glob pattern) listing multiple
 `.agentlog` files. Shadow's SQLite index (`.shadow/index.sqlite`)
-catalogs trace sets with user-defined tags; see `CLAUDE.md` §Storage
+catalogs trace sets with user-defined tags; see `CONTRIBUTING.md` §Storage
 layout.
 
 ## §9 Redaction
@@ -763,7 +763,7 @@ A `chat_request` that was rate-limited, with a recorded `error` record.
 ```
 
 The replay engine records errors as first-class events; the nine-axis
-differ (§3 of `CLAUDE.md`) treats `error.code` as part of the
+differ (SPEC.md §3) treats `error.code` as part of the
 refusal/safety axis when `source == "llm"` and the code indicates a
 safety filter.
 

@@ -47,7 +47,7 @@ python = ["dep:pyo3", "dep:pythonize"]
 extension = ["python", "pyo3/extension-module"]
 
 # Direct deps use exact (`=x.y.z`) pins per the "pin to exact versions"
-# constraint in CLAUDE.md §9. Transitive dep versions are frozen via
+# constraint in CONTRIBUTING.md. Transitive dep versions are frozen via
 # Cargo.lock (committed).
 
 [dependencies]

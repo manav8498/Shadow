@@ -1,6 +1,6 @@
 //! Nine-axis behavioral differ, bootstrap CI, and report renderers.
 //!
-//! See CLAUDE.md §Nine axes for the list and SPEC §Replay for what
+//! See README.md "The nine axes" for the list and SPEC §Replay for what
 //! "diverges" means in this context.
 //!
 //! Usage:

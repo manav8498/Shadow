@@ -1,4 +1,4 @@
-//! SQLite index over stored traces (CLAUDE.md §5).
+//! SQLite index over stored traces (SPEC.md §8).
 //!
 //! The filesystem store ([`super::fs::Store`]) is the authoritative source of
 //! truth for trace content; this index just lets `shadow` answer questions

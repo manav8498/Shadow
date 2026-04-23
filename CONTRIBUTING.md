@@ -11,7 +11,7 @@ better to ask than to guess.
    — `feat(scope):`, `fix(scope):`, `docs:`, `test:`, `chore:`, `refactor:`,
    `spec:` (for `SPEC.md` changes).
 3. **TDD preferred.** Write the failing test first, commit; implement, commit.
-   `CLAUDE.md` §Workflow has the full protocol. Exception: typo fixes, docs-only
+   `CONTRIBUTING.md` §Workflow has the full protocol. Exception: typo fixes, docs-only
    changes, and trivial refactors can skip TDD.
 4. **No behavior change without a test.** Every bug fix lands with a regression
    test that fails before the fix and passes after.
@@ -19,7 +19,7 @@ better to ask than to guess.
    clippy lints inside `lib.rs`. Same rule for `# type: ignore` in Python —
    don't use it unless a `# TODO(v0.x):` comment explains why.
 6. **Pin every new direct dependency exactly** (`=x.y.z`), update
-   `CLAUDE.md` §Dependency policy, and justify in the PR description.
+   `CONTRIBUTING.md` §Dependency policy, and justify in the PR description.
 
 ## Setup
 
@@ -86,7 +86,7 @@ python examples/edge-cases/probe.py           # 20-case adversarial probe
 3. Wire it into `diff/mod.rs::compute_report`.
 4. Ship a test that exercises a realistic regression on this axis and asserts
    severity matches expectations.
-5. Update `CLAUDE.md` §Nine axes (now ten) and `SPEC.md` if the axis exposes a
+5. Update `CONTRIBUTING.md` §Nine axes (now ten) and `SPEC.md` if the axis exposes a
    new field to records.
 
 ## The `Judge` axis and domain rules
@@ -125,7 +125,7 @@ Touching `SPEC.md` is a bigger deal than touching code. Rules:
   it, note it in `CHANGELOG.md` under "Dead ends" so the next contributor
   doesn't hit the same wall.
 - **Docstring drift.** If you changed the public surface, your doc comments and
-  `CLAUDE.md` should say what the code now does.
+  `CONTRIBUTING.md` should say what the code now does.
 - **No new domain hardcoding.** See "The Judge axis" above.
 
 ## Releasing (maintainers only)

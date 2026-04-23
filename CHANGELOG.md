@@ -8,91 +8,82 @@ All notable changes to Shadow are documented here. Format follows
 
 ### Added
 
-- **Live LLM backends.** `shadow.llm.AnthropicLLM` (wraps
-  `anthropic.AsyncAnthropic`) and `shadow.llm.OpenAILLM` (wraps
-  `openai.AsyncOpenAI`). Both implement the `LlmBackend` Protocol; both
+- Live LLM backends: `shadow.llm.AnthropicLLM` wraps
+  `anthropic.AsyncAnthropic`, `shadow.llm.OpenAILLM` wraps
+  `openai.AsyncOpenAI`. Both implement the `LlmBackend` Protocol and
   lazy-import their SDK so `shadow` still runs without the extras.
   `shadow.llm.get_backend(name, **kwargs)` factory dispatches by name.
-- **LASSO-over-corners bisection scorer**
-  (`shadow.bisect.corner_scorer`). Given a live `LlmBackend`, builds a
-  2^k full-factorial over the differing config categories
-  (`{model, prompt, params, tools}`), replays the baseline through the
-  backend at each corner, computes the nine-axis divergence per corner,
-  and fits LASSO per axis. Returns per-axis attribution weights that
-  sum to 1 across the active categories. Ground-truth test recovers
-  `latency → model` and `verbosity → prompt` with > 70 % weight.
-- **CLI `shadow bisect --backend {anthropic,openai,positional}`** wires
-  the live-replay scorer through the CLI. Without `--backend`, falls
-  back to the heuristic kind-based allocator when `--candidate-traces`
-  is supplied, or zero-placeholder otherwise.
-- **`run_bisect` three-mode dispatch**:
-  `lasso_over_corners` (best, with backend) → `heuristic_kind_allocator`
-  (when only a candidate trace is available) → `lasso_placeholder_zero`
-  (neither). The `mode` field in the output names which ran.
-- **11 new tests** covering the backends (fake SDK stubs installed in
-  `sys.modules` — no network) and the corner scorer (deterministic
-  `FakeBackend` whose response metrics depend on which categories are
-  active, letting LASSO recover ground-truth attributions).
+- LASSO-over-corners bisection scorer (`shadow.bisect.corner_scorer`).
+  Given a live `LlmBackend`, builds a 2^k full-factorial over the
+  differing config categories (`{model, prompt, params, tools}`),
+  replays the baseline through the backend at each corner, computes
+  the nine-axis divergence per corner, and fits LASSO per axis.
+  Ground-truth test recovers `latency → model` and `verbosity → prompt`
+  with > 70% weight.
+- CLI: `shadow bisect --backend {anthropic,openai,positional}` wires
+  the live-replay scorer. Without `--backend`, falls back to the
+  heuristic kind-based allocator when `--candidate-traces` is supplied,
+  or zero-placeholder otherwise.
+- `run_bisect` three-mode dispatch: `lasso_over_corners` (with backend)
+  → `heuristic_kind_allocator` (only a candidate trace) →
+  `lasso_placeholder_zero` (neither). The `mode` field names which ran.
+- 11 new tests covering the backends (fake SDK stubs, no network) and
+  the corner scorer (deterministic `FakeBackend`).
+- OSS governance / community files: `SUPPORT.md`, `GOVERNANCE.md`,
+  `MAINTAINERS.md`, `TRADEMARK.md`, `CITATION.cff`,
+  `.github/FUNDING.yml`, `.github/dependabot.yml`.
+- `AxisStat` and `DiffReport` `TypedDict`s in `shadow/_core.pyi` so
+  downstream Python consumers get real types for the Rust-extension
+  return shapes.
 
 ### Changed
 
-- README Limitations section updated — bisection is no longer
-  described as "heuristic-only in v0.1". The heuristic remains as a
-  no-credentials fallback, with the live-backend LASSO scorer as the
-  primary path.
-- **README rewritten in plain English**, ~200 lines, one quickstart,
-  no jargon before it's introduced. Matches the actual `just demo`
-  output verbatim.
-- **License**: migrated to dual **MIT OR Apache-2.0** (Rust-community
-  standard). `LICENSE-MIT`, `LICENSE-APACHE` added; `LICENSE` is now
-  the meta-pointer. `SPEC.md` keeps a separate Apache-2.0-only
-  `LICENSE-SPEC` so re-implementers have an explicit patent grant.
+- Dual-license the implementation under **MIT OR Apache-2.0** (Rust
+  community default). `SPEC.md` stays Apache-2.0 only so re-implementers
+  get an explicit patent grant for the format.
+- README rewritten in plain English (~200 lines), one quickstart,
+  sample output matches real `just demo` output.
+- Project metadata on `Cargo.toml` and `pyproject.toml`:
+  keywords, categories, URLs, `Typing :: Typed`, explicit `include`
+  allowlist for the Rust crate.
+- `.gitignore` hardened: added `node_modules/`, JS tool caches,
+  `.env.*.local` variants, agent-state dirs, `*.tsbuildinfo`,
+  Jupyter checkpoints, SBOM outputs.
+- `shadow/__init__.py` wraps the abi3-mismatch ImportError with a
+  "requires Python 3.11+" hint. `AnthropicLLM.__init__` fails fast
+  with a branded error if no API key is set, instead of deferring to
+  the opaque HTTP-layer error from the SDK.
+- Removed the `CLAUDE.md` internal coding-agent instruction file from
+  the repository (not appropriate in a public OSS project).
 
 ### Fixed
 
-- **Severity classifier false negative on rate-bounded axes** — a
-  CI like `[0.0, 1.0]` was treated as straddling zero and downgraded
-  the severity to `Minor`. Now `ci_straddles_zero` is strict
-  (`ci_low < -epsilon && ci_high > +epsilon`) and a boundary-touching
-  CI does not trigger the downgrade. A unanimous `+1.0` trajectory
-  delta is now correctly classified `Severe`.
-- **Conformance axis dead on tool-use-only agents** — agents whose
-  final answer is a `tool_use` block (the common pattern) got `n=0`
-  and the axis was effectively disabled. The axis now also fires on
-  tool-use intent and scores by top-level key-set match.
-- **Delta-extractor "50-delta explosion" on any non-trivial tool
-  edit** — a typical PR touching a tool schema produced dozens of
-  atomic leaf deltas, swamping LASSO. `diff_configs(coalesce=True)`
-  (default) now collapses each tool to a single delta keyed by tool
-  name. Legacy leaf-level output still available via `coalesce=False`.
-- **Attribution schema inconsistency across bisect modes** —
-  heuristic, placeholder, and live-replay modes emitted different
-  row shapes; downstream consumers could `KeyError` depending on
-  which mode triggered. All three modes now emit the same keys
-  (`delta`, `weight`, `ci95_low`, `ci95_high`, `significant`,
-  `selection_frequency`).
-- **Rust `DELTA_KIND_AFFECTS`** — `tools` was missing from the
-  `conformance` axis set despite tool schema changes being an
-  obvious conformance driver. Added.
+- Severity classifier false negative on rate-bounded axes: a CI like
+  `[0.0, 1.0]` was treated as straddling zero and downgraded Severe to
+  Minor. Now `ci_straddles_zero` is strict (`ci_low < -epsilon &&
+  ci_high > +epsilon`). A unanimous `+1.0` trajectory delta now
+  correctly classifies as Severe.
+- Conformance axis was dead for tool-use-only agents (`n=0`). It now
+  also fires on `tool_use`-intent and scores by top-level key-set match.
+- Delta extractor exploded a single tool-schema edit into dozens of
+  leaf-level deltas, which over-determined the LASSO fit. Default
+  `diff_configs(coalesce=True)` collapses each tool to a single delta
+  keyed by tool name. Legacy leaf-level output still available via
+  `coalesce=False`.
+- Attribution row schema was inconsistent across bisect modes. All
+  three modes now emit the same six keys (`delta`, `weight`,
+  `ci95_low`, `ci95_high`, `significant`, `selection_frequency`).
+- `DELTA_KIND_AFFECTS["tools"]` was missing `conformance` — added, so
+  tool-schema edits can be attributed to the conformance axis.
+- 11 pre-existing `ruff` lints (all pattern/idiom nits such as
+  `class X(str, Enum)` → `class X(StrEnum)` for Python 3.11+).
 
-### Added (OSS-readiness)
+### Notes
 
-- `SUPPORT.md`, `GOVERNANCE.md`, `MAINTAINERS.md`, `TRADEMARK.md`,
-  `CITATION.cff` (Meinshausen-Bühlmann ref included).
-- `.github/FUNDING.yml`, `.github/dependabot.yml` (weekly grouped
-  updates across Cargo, pip, npm, GitHub Actions).
-- `AxisStat` + `DiffReport` `TypedDict`s in `shadow/_core.pyi` so
-  downstream Python consumers get real types.
-- `shadow/__init__.py` wraps abi3-mismatch ImportError with a
-  "requires Python 3.11+" hint. `AnthropicLLM.__init__` fails fast
-  with a branded error if no API key is present.
-- Crate metadata: `keywords`, `categories`, `homepage`,
-  `documentation`, explicit `include` allowlist. PyPI metadata: 7
-  keywords, 8 `project.urls`, 15 trove classifiers, `Typing :: Typed`
-  backed by `py.typed`.
-- Cleanup: deleted duplicated `docs/SPEC-LICENSE.md`, dev caches.
-  Fixed 11 pre-existing `ruff` lints (converted `class X(str, Enum)`
-  → `class X(StrEnum)`, removed unused import, minor cleanups).
+- This release has **no production users yet**. All "real-world"
+  validation references the project's own example scenarios, not
+  external deployments. Claims about behaviour should be read as
+  "what the code does," not "what teams have confirmed in prod."
 
 ## [0.1.0] — 2026-04-22
 
@@ -257,13 +248,13 @@ clippy --all-features -- -D warnings` clean, `cargo fmt --check` clean,
 - **Semantic axis: hash-surrogate embedding in Rust.** Clearly labelled
   test-only in the module docstring. The production embedding
   (`sentence-transformers/all-MiniLM-L6-v2`) is plugged in by the
-  Python layer per CLAUDE.md D5. This kept an ML dep out of the Rust
+  Python layer per CONTRIBUTING.md. This kept an ML dep out of the Rust
   crate.
 - **Axis nodes take `pairs: &[(&Record, &Record)]`.** Pair extraction
   lives in `diff/mod.rs::extract_response_pairs`. Uneven counts (e.g.
   candidate missed some) truncate to the shorter side; callers that
   want to flag count-mismatch consult the replay_summary directly.
-- **Severity thresholds (CLAUDE.md §4):** `None` (CI crosses zero and
+- **Severity thresholds:** `None` (CI crosses zero and
   delta is tiny), `Minor` (<10% relative), `Moderate` (<30%), `Severe`
   (≥30% or CI clearly excludes zero with large magnitude).
 - **Bootstrap defaults to 1000 iterations** with seeded RNG for

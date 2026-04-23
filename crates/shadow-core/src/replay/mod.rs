@@ -1,6 +1,6 @@
 //! Replay engine and the `LlmBackend` trait.
 //!
-//! See CLAUDE.md §Replay for the lifecycle and SPEC §10 for the algorithm.
+//! See SPEC.md §10 for the lifecycle and SPEC §10 for the algorithm.
 
 pub mod backend;
 pub mod engine;
