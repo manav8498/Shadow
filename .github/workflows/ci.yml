@@ -102,7 +102,7 @@ jobs:
       - name: pytest (coverage gate 85%)
         run: |
           .venv/bin/python -m pytest python/tests \
-            --cov=shadow --cov-fail-under=85 \
+            --cov=shadow --cov-config=python/pyproject.toml --cov-fail-under=85 \
             --cov-report=term-missing
 
   demo:
