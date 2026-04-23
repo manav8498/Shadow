@@ -8,6 +8,40 @@ All notable changes to Shadow are documented here. Format follows
 
 ### Added
 
+- **Prescriptive fix recommendations** (`shadow.diff.recommendations`).
+  Transforms the divergence list from "what changed" into "what to do
+  about it": a ranked list of specific, imperative actions a PR
+  reviewer can act on in under 30 seconds. Examples from the real-
+  world 10-turn scenario:
+
+  - `[error]   RESTORE`  turn 9 — *"Restore `send_confirmation_email`
+    at turn 9."*
+  - `[error]   REMOVE`   turn 8 — *"Remove duplicate invocation of
+    `lookup_order(order_id)` at turn 8."*
+  - `[error]   REVIEW`   turn 4 — *"Review refusal behaviour at
+    turn 4: candidate may be over-refusing."*
+  - `[warning] REVERT`   turn 6 — *"Revert `refund(amount)` at turn 6
+    to the baseline value."*
+
+  Three-tier severity (Error / Warning / Info) matching ESLint /
+  SonarQube / Rustc conventions. Five action kinds (Restore / Remove
+  / Revert / Review / Verify) covering the expected regression
+  patterns. Pure deterministic rule engine — no LLM dependency;
+  LLM-enriched recommendations can layer on later.
+
+  Each recommendation carries `severity`, `action`, `turn`, a one-line
+  `message`, a `rationale` line citing the signal that triggered it,
+  and the primary `axis`. Sorted by severity × confidence, capped at
+  8 entries so PR comments don't bloat.
+
+  Exposed on `DiffReport` as the new `recommendations` field
+  (documented by the `Recommendation` TypedDict in `_core.pyi`).
+  Rendered in all three report formats: markdown / github-pr
+  (bulleted `### Recommendations` section with severity icons),
+  terminal (colour-coded by severity). 14 new Rust unit tests + 8
+  new Python renderer tests; real-world benchmark harness passes
+  18/18 including action-correctness assertions.
+
 - **Top-K divergence ranking** on top of first-divergence detection.
   The diff report now carries a `divergences` list (up to
   `DEFAULT_K=5` entries) in addition to the backward-compatible
