@@ -97,7 +97,7 @@ jobs:
         run: .venv/bin/python -m ruff format --check python/ examples/
 
       - name: mypy --strict
-        run: .venv/bin/python -m mypy --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py
+        run: .venv/bin/python -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py
 
       - name: pytest (coverage gate 85%)
         run: |

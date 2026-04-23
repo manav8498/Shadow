@@ -122,9 +122,7 @@ def _coalesce_tools_deltas(a_tools: Any, b_tools: Any) -> list[Delta]:
     return out
 
 
-def diff_configs(
-    a: dict[str, Any], b: dict[str, Any], coalesce: bool = True
-) -> list[Delta]:
+def diff_configs(a: dict[str, Any], b: dict[str, Any], coalesce: bool = True) -> list[Delta]:
     """Return a list of Deltas for meaningful differences between a and b.
 
     Parameters

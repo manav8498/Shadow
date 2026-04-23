@@ -13,7 +13,6 @@ For local/CI tests, point `DD_ENDPOINT` at a mock (see test_push.py).
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path

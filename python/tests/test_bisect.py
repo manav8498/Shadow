@@ -126,17 +126,19 @@ def test_bisect_attribution_schema_is_uniform_across_modes(tmp_path) -> None:
     (tmp_path / "b.yaml").write_text(yaml.safe_dump(b_cfg))
 
     # Empty agentlog files (just metadata) for both traces.
-    empty = _core.write_agentlog([
-        {
-            "version": _core.SPEC_VERSION,
-            "id": _core.content_id({"sdk": {"name": "shadow"}}),
-            "kind": "metadata",
-            "ts": "2026-04-23T00:00:00Z",
-            "parent": None,
-            "payload": {"sdk": {"name": "shadow"}},
-            "meta": {"trace_id": "t"},
-        }
-    ])
+    empty = _core.write_agentlog(
+        [
+            {
+                "version": _core.SPEC_VERSION,
+                "id": _core.content_id({"sdk": {"name": "shadow"}}),
+                "kind": "metadata",
+                "ts": "2026-04-23T00:00:00Z",
+                "parent": None,
+                "payload": {"sdk": {"name": "shadow"}},
+                "meta": {"trace_id": "t"},
+            }
+        ]
+    )
     (tmp_path / "a.agentlog").write_bytes(empty)
     (tmp_path / "b.agentlog").write_bytes(empty)
 
@@ -150,9 +152,9 @@ def test_bisect_attribution_schema_is_uniform_across_modes(tmp_path) -> None:
     assert heu["mode"] == "heuristic_kind_allocator"
     for axis_rows in heu["attributions"].values():
         for row in axis_rows:
-            assert expected_keys <= set(row.keys()), (
-                f"heuristic row missing keys: {expected_keys - set(row.keys())}"
-            )
+            assert expected_keys <= set(
+                row.keys()
+            ), f"heuristic row missing keys: {expected_keys - set(row.keys())}"
 
     # Placeholder-zero mode (neither backend nor candidate_traces).
     plc = run_bisect(
@@ -163,9 +165,9 @@ def test_bisect_attribution_schema_is_uniform_across_modes(tmp_path) -> None:
     assert plc["mode"] == "lasso_placeholder_zero"
     for axis_rows in plc["attributions"].values():
         for row in axis_rows:
-            assert expected_keys <= set(row.keys()), (
-                f"placeholder row missing keys: {expected_keys - set(row.keys())}"
-            )
+            assert expected_keys <= set(
+                row.keys()
+            ), f"placeholder row missing keys: {expected_keys - set(row.keys())}"
 
 
 def test_full_factorial_k2_matches_manual_table() -> None:

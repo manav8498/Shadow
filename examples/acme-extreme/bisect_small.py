@@ -51,7 +51,14 @@ def main() -> int:
 
     print(f"{'axis':<12} {'category':<10} {'weight':>8}  {'CI (95%)':<22} sig")
     print("-" * 62)
-    for axis in ("trajectory", "conformance", "verbosity", "latency", "safety", "semantic"):
+    for axis in (
+        "trajectory",
+        "conformance",
+        "verbosity",
+        "latency",
+        "safety",
+        "semantic",
+    ):
         rows = ci_attr.get(axis, [])
         for i, r in enumerate(rows):
             star = "*" if r["significant"] else ""
