@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::diff::alignment::FirstDivergence;
 use crate::diff::axes::{AxisStat, Severity};
+use crate::diff::recommendations::Recommendation;
 
 /// Top-level diff result.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -35,6 +36,13 @@ pub struct DiffReport {
     /// a collapsible details section.
     #[serde(default)]
     pub divergences: Vec<FirstDivergence>,
+    /// Prescriptive fix recommendations derived from the divergence
+    /// set and the axis rows. Sorted by severity (Error > Warning >
+    /// Info), capped at 8 entries. Every recommendation names a
+    /// specific action (Restore / Remove / Revert / Review / Verify)
+    /// and the turn it targets. Empty when nothing is actionable.
+    #[serde(default)]
+    pub recommendations: Vec<Recommendation>,
 }
 
 impl DiffReport {
@@ -211,6 +219,7 @@ mod tests {
             pair_count: 10,
             first_divergence: None,
             divergences: Vec::new(),
+            recommendations: Vec::new(),
         }
     }
 

@@ -62,7 +62,34 @@ def render_markdown(report: dict[str, Any]) -> str:
             for idx, dv in enumerate(divergences[inline_count:], start=inline_count):
                 lines.append(_render_divergence_markdown(dv, idx + 1, total))
             lines.append("</details>")
+    recommendations = report.get("recommendations") or []
+    if recommendations:
+        lines.append("")
+        lines.append("### Recommendations")
+        lines.append("")
+        for rec in recommendations:
+            lines.append(_render_recommendation_markdown(rec))
     return "\n".join(lines) + "\n"
+
+
+_REC_SEVERITY_ICON = {
+    "error": "🔴",
+    "warning": "🟡",
+    "info": "🔵",
+}
+
+
+def _render_recommendation_markdown(rec: dict[str, Any]) -> str:
+    """One recommendation as a markdown bullet with severity icon."""
+    sev = rec.get("severity", "info")
+    action = rec.get("action", "").upper()
+    message = rec.get("message", "")
+    rationale = rec.get("rationale", "")
+    icon = _REC_SEVERITY_ICON.get(sev, "")
+    parts = [f"- {icon} **`{sev}`** — **{action}** — {message}"]
+    if rationale:
+        parts.append(f"  - _{rationale}_")
+    return "\n".join(parts)
 
 
 def _render_divergence_markdown(dv: dict[str, Any], rank: int, total: int) -> str:

@@ -486,8 +486,77 @@ def main() -> int:
             print(f"      detail: {detail}")
             failures += 1
 
+    # -------- Recommendations on scenario 1 --------
+    print("\n" + "━" * 76)
+    print(" Recommendations on the 10-turn scenario (prescriptive fix layer)")
+    print("━" * 76)
+    baseline, candidate = build_scenario_10_turn()
+    report = _core.compute_diff_report(baseline, candidate)
+    recs = report.get("recommendations") or []
+    print(f"\n Generated {len(recs)} recommendations:\n")
+    for i, r in enumerate(recs, start=1):
+        print(
+            f"   #{i}  [{r['severity']:<7}] {r['action'].upper():<7} "
+            f"turn {r['turn']}"
+        )
+        print(f"       {r['message']}")
+
+    # Expected: restore for dropped email, review for refusal flip,
+    # remove for duplicate, revert for wrong amount.
+    actions_by_turn = {r["turn"]: r["action"] for r in recs}
+    severities_by_turn = {r["turn"]: r["severity"] for r in recs}
+    messages_joined = " ".join(r["message"].lower() for r in recs)
+
+    recs_checks = [
+        (
+            "restore recommendation for dropped email at turn 9",
+            actions_by_turn.get(9) == "restore",
+            f"got action={actions_by_turn.get(9)}",
+        ),
+        (
+            "restore severity is error",
+            severities_by_turn.get(9) == "error",
+            f"got severity={severities_by_turn.get(9)}",
+        ),
+        (
+            "review recommendation for refusal flip at turn 4",
+            actions_by_turn.get(4) == "review",
+            f"got action={actions_by_turn.get(4)}",
+        ),
+        (
+            "refusal severity escalated to error (content_filter pathway)",
+            severities_by_turn.get(4) == "error",
+            f"got severity={severities_by_turn.get(4)}",
+        ),
+        (
+            "remove recommendation for duplicate tool at turn 8",
+            actions_by_turn.get(8) == "remove",
+            f"got action={actions_by_turn.get(8)}",
+        ),
+        (
+            "revert recommendation for wrong arg at turn 6",
+            actions_by_turn.get(6) == "revert",
+            f"got action={actions_by_turn.get(6)}",
+        ),
+        (
+            "restore message mentions the dropped tool by name",
+            "send_confirmation_email" in messages_joined,
+            "tool name missing from messages",
+        ),
+        (
+            "revert message mentions the specific arg by name",
+            "refund" in messages_joined,
+            "arg reference missing from revert message",
+        ),
+    ]
+    for desc, ok, detail in recs_checks:
+        print(f"   {'✅' if ok else '❌'} {desc}")
+        if not ok:
+            print(f"      detail: {detail}")
+            failures += 1
+
     # -------- Summary --------
-    total = len(checks) + len(checks2)
+    total = len(checks) + len(checks2) + len(recs_checks)
     passed = total - failures
     print("\n" + "=" * 76)
     print(f" VERDICT: {passed}/{total} real-world checks passed")

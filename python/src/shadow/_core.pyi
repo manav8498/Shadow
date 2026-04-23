@@ -79,6 +79,11 @@ class DiffReport(TypedDict):
     `divergences` is the top-K ranked list of divergences, sorted by
     importance (Structural > Decision > Style, then by confidence).
     Empty when the two traces agree. Capped at `DEFAULT_K=5` entries.
+
+    `recommendations` is the list of prescriptive fix suggestions
+    derived from the divergences and axis rows. Sorted by severity
+    (Error > Warning > Info), capped at 8. Empty when no action is
+    warranted.
     """
 
     rows: list[AxisStat]
@@ -87,6 +92,40 @@ class DiffReport(TypedDict):
     pair_count: int
     first_divergence: FirstDivergence | None
     divergences: list[FirstDivergence]
+    recommendations: list[Recommendation]
+
+class Recommendation(TypedDict):
+    """A prescriptive fix recommendation derived from a divergence.
+
+    `severity` ∈ {`error`, `warning`, `info`}:
+      - `error`: likely a real regression that should block merge
+        (structural drift, refusal flip to `content_filter`, trace-
+        wide severe axis shift).
+      - `warning`: decision drift worth reviewing before merge
+        (arg value change, semantic shift).
+      - `info`: style drift or low-confidence signal; FYI only.
+
+    `action` ∈ {`restore`, `remove`, `revert`, `review`, `verify`}:
+      - `restore`: bring back something the candidate dropped.
+      - `remove`: remove something the candidate added without
+        justification (e.g. duplicate tool call).
+      - `revert`: change a value back to the baseline.
+      - `review`: human judgement required; candidate change may be
+        intentional.
+      - `verify`: low-signal event that might be noise; confirm before
+        acting.
+
+    `message` is a one-line imperative action ("Restore X at turn N.").
+    `rationale` is a one-line explanation of the triggering signal.
+    """
+
+    severity: str
+    action: str
+    turn: int
+    message: str
+    rationale: str
+    axis: str
+    confidence: float
 
 def parse_agentlog(data: bytes) -> list[dict[str, Any]]:
     """Parse a `.agentlog` byte blob into a list of record dicts.
