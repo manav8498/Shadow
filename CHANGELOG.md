@@ -8,6 +8,37 @@ All notable changes to Shadow are documented here. Format follows
 
 ### Added
 
+- **`shadow schema-watch`** — proactive tool-schema change detection
+  that runs *before* replay. Classifies each change between two
+  configs into one of four severity tiers (breaking / risky /
+  additive / neutral) across eleven change kinds (tool added/removed,
+  param added/removed/renamed, type changed, required flipped,
+  enum narrowed/broadened, description edited). Rename detection
+  pairs a removed and added param on the same tool by matching type
+  and required-status, catching the most common breaking tool-schema
+  edit in practice (see the `devops-agent` example where every tool
+  silently renames `database` to `db`).
+
+  Exposed as a new CLI command with three output formats — terminal
+  (rich markup), markdown (GitHub table + expandable rationale), and
+  json — and a `--fail-on` flag that controls exit-code behaviour in
+  CI. Example output on the committed `customer-support` fixture:
+
+  ```
+  ✖ BREAKING  lookup_order: parameter renamed `order_id` → `id`
+  ! RISKY     refund_order: description rewritten — imperative verbs removed
+  + ADDITIVE  lookup_order: parameter `include_shipping` added (optional)
+  · NEUTRAL   lookup_order: description rewritten
+  ```
+
+  Intended to run first in CI so PRs get a fast schema-breakage
+  signal before the full nine-axis diff runs. 24 ground-truth unit
+  tests plus a real-world validation harness
+  (`benchmarks/alignment/validate_schema_watch.py`) that passes
+  14/14 assertions against the `devops-agent` (8-tool database→db
+  rename) and `customer-support` (order_id→id rename + optional
+  param + risky description edit) fixtures.
+
 - **Hardened causal bisection** — new
   `shadow.bisect.attribution.rank_attributions_with_interactions`.
   Fits **pairwise interaction effects** (delta A x delta B) in addition
