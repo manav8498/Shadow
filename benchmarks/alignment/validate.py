@@ -12,11 +12,9 @@ Run from repo root with the in-repo venv active:
 
 from __future__ import annotations
 
-import json
 import sys
 import time
 from pathlib import Path
-from typing import Any
 
 sys.path.insert(0, "python/src")
 
@@ -477,13 +475,143 @@ def part_c() -> dict[str, int]:
     return {"passed": passed, "failed": failed}
 
 
+# ---------------------------------------------------------------------------
+# Part D — top-K ranking and multi-divergence coverage
+# ---------------------------------------------------------------------------
+
+
+def part_d() -> dict[str, int]:
+    print("\n" + "=" * 75)
+    print(" PART D — Top-K divergence ranking and multi-fork coverage")
+    print("=" * 75)
+    passed = 0
+    failed = 0
+
+    def top_k(baseline, candidate):
+        d = _core.compute_diff_report(baseline, candidate)
+        return d.get("divergences") or []
+
+    # 1. Three divergences: structural + decision + style → ranked correctly
+    b = [
+        mk_resp("hello, here is a detailed explanation of the topic"),
+        mk_resp("the answer is 42"),
+        mk_resp(tool_name="search", tool_input={"q": "x"}, stop="tool_use"),
+    ]
+    c = [
+        mk_resp(
+            "hello, here is a detailed explanation of the topic."
+        ),  # style (added period)
+        mk_resp("I cannot answer that.", stop="content_filter"),  # decision (refusal)
+        mk_resp(
+            tool_name="lookup", tool_input={"q": "x"}, stop="tool_use"
+        ),  # structural
+    ]
+    ranked = top_k(_wrap(b), _wrap(c))
+    if (
+        len(ranked) >= 2
+        and ranked[0]["kind"] == "structural_drift"
+        and ranked[1]["kind"] == "decision_drift"
+    ):
+        print("\n  ✅ Three kinds in one trace → ranked Structural > Decision > Style")
+        for i, r in enumerate(ranked):
+            print(
+                f"     #{i+1}  kind={r['kind']:<18} axis={r['primary_axis']:<12} conf={r['confidence']:.2f}"
+            )
+        passed += 1
+    else:
+        print(
+            f"\n  ❌ Expected Structural#1, Decision#2; got {[(r['kind'], r['confidence']) for r in ranked]}"
+        )
+        failed += 1
+
+    # 2. Empty divergence list when traces agree
+    r = mk_resp("same")
+    if top_k(_wrap([r, r, r]), _wrap([r, r, r])) == []:
+        print("\n  ✅ Identical traces → empty divergence list")
+        passed += 1
+    else:
+        print("\n  ❌ Identical should produce empty")
+        failed += 1
+
+    # 3. Five Structural divergences — cap at DEFAULT_K=5
+    tools = ["a", "b", "c", "d", "e", "f", "g"]
+    baseline = [mk_resp(tool_name=t, tool_input={}, stop="tool_use") for t in tools]
+    candidate = [
+        mk_resp(tool_name=t.upper(), tool_input={}, stop="tool_use") for t in tools
+    ]
+    ranked = top_k(_wrap(baseline), _wrap(candidate))
+    if len(ranked) == 5:
+        print(f"\n  ✅ 7 divergences capped at DEFAULT_K=5 (got {len(ranked)})")
+        passed += 1
+    else:
+        print(f"\n  ❌ Expected 5 (cap); got {len(ranked)}")
+        failed += 1
+
+    # 4. Walk-order tiebreaker when kinds + confidence tied
+    baseline = [
+        mk_resp(tool_name=t, tool_input={}, stop="tool_use") for t in ("a", "b", "c")
+    ]
+    candidate = [
+        mk_resp(tool_name=t.upper(), tool_input={}, stop="tool_use")
+        for t in ("a", "b", "c")
+    ]
+    ranked = top_k(_wrap(baseline), _wrap(candidate))
+    turns = [r["baseline_turn"] for r in ranked]
+    if turns == [0, 1, 2]:
+        print(f"\n  ✅ Walk-order preserved on ties: turns = {turns}")
+        passed += 1
+    else:
+        print(f"\n  ❌ Expected [0,1,2] walk order; got {turns}")
+        failed += 1
+
+    # 5. first_divergence is walk-order first, divergences[0] is rank-first
+    b0 = mk_resp("same across both")
+    b1 = mk_resp(tool_name="search", tool_input={"q": "x"}, stop="tool_use")
+    c0 = mk_resp("completely different response here")
+    c1 = mk_resp(tool_name="lookup", tool_input={"q": "x"}, stop="tool_use")
+    d = _core.compute_diff_report(_wrap([b0, b1]), _wrap([c0, c1]))
+    fd = d.get("first_divergence")
+    ranked = d.get("divergences") or []
+    # fd (walk order): turn 0 decision. ranked[0] (severity rank): turn 1 structural.
+    if fd and fd["baseline_turn"] == 0 and ranked and ranked[0]["baseline_turn"] == 1:
+        print("\n  ✅ first_divergence=walk-order, divergences[0]=severity-rank")
+        print(f"     first_divergence: turn {fd['baseline_turn']} {fd['kind']}")
+        print(
+            f"     divergences[0]: turn {ranked[0]['baseline_turn']} {ranked[0]['kind']}"
+        )
+        passed += 1
+    else:
+        print(
+            f"\n  ❌ Expected fd@0, ranked[0]@1; got fd={fd}, rank0={ranked[0] if ranked else None}"
+        )
+        failed += 1
+
+    # 6. Real fixtures: every example produces ≥1 divergence in ranked output
+    for example in ["demo", "customer-support", "devops-agent", "er-triage"]:
+        base, cand = load_pair(example)
+        ranked = top_k(base, cand)
+        if len(ranked) >= 1:
+            print(
+                f"\n  ✅ {example}: {len(ranked)} divergence(s) detected; top: {ranked[0]['kind']}"
+            )
+            passed += 1
+        else:
+            print(f"\n  ❌ {example}: no divergences detected")
+            failed += 1
+
+    print(f"\n  Part D result: {passed} passed / {failed} failed")
+    return {"passed": passed, "failed": failed}
+
+
 if __name__ == "__main__":
     part_a()
     b = part_b()
     c = part_c()
-    total_p = b["passed"] + c["passed"]
-    total_f = b["failed"] + c["failed"]
+    d = part_d()
+    total_p = b["passed"] + c["passed"] + d["passed"]
+    total_f = b["failed"] + c["failed"] + d["failed"]
+    total = total_p + total_f
     print("\n" + "=" * 75)
-    print(f" VERDICT: {total_p} passed / {total_f} failed across 18 stress cases")
+    print(f" VERDICT: {total_p} passed / {total_f} failed across {total} stress cases")
     print("=" * 75)
     sys.exit(0 if total_f == 0 else 1)

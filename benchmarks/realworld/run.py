@@ -79,13 +79,16 @@ def run_scenario(scenario: Scenario) -> dict[str, Any]:
     candidate_records = _core.parse_agentlog(c.read_bytes())
     report = _core.compute_diff_report(baseline_records, candidate_records, None, 42)
 
-    target = next((r for r in report["rows"] if r["axis"] == scenario.expected_axis), {})
+    target = next(
+        (r for r in report["rows"] if r["axis"] == scenario.expected_axis), {}
+    )
     observed_sev = target.get("severity", "none")
     caught = SEVERITY_RANK[observed_sev] >= SEVERITY_RANK[scenario.min_severity]
 
     # Collect every axis that moved for transparency.
     all_movers = [
-        r for r in report["rows"]
+        r
+        for r in report["rows"]
         if r.get("delta") and abs(r["delta"]) > 1e-9 and r["severity"] != "none"
     ]
 
@@ -102,7 +105,8 @@ def run_scenario(scenario: Scenario) -> dict[str, Any]:
         "caught": caught,
         "also_moved": [
             {"axis": r["axis"], "severity": r["severity"], "delta": r["delta"]}
-            for r in all_movers if r["axis"] != scenario.expected_axis
+            for r in all_movers
+            if r["axis"] != scenario.expected_axis
         ],
     }
     marker = "✓" if caught else "✗"
@@ -113,9 +117,7 @@ def run_scenario(scenario: Scenario) -> dict[str, Any]:
         f"n={target.get('n', 0)})"
     )
     if all_movers:
-        also = ", ".join(
-            f"{m['axis']}={m['severity']}" for m in findings["also_moved"]
-        )
+        also = ", ".join(f"{m['axis']}={m['severity']}" for m in findings["also_moved"])
         if also:
             print(f"     other axes: {also}")
     return findings
