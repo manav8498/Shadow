@@ -9,7 +9,7 @@
 use async_trait::async_trait;
 
 use crate::agentlog::Record;
-use crate::diff::axes::{Axis, AxisStat, Severity};
+use crate::diff::axes::{Axis, AxisStat};
 use crate::diff::bootstrap::{median, paired_ci};
 
 /// User-supplied evaluator that scores a single (baseline, candidate)
@@ -45,22 +45,14 @@ pub async fn compute<J: Judge + ?Sized>(
         0,
         seed,
     );
-    AxisStat {
-        axis: Axis::Judge,
-        baseline_median: bm,
-        candidate_median: cm,
-        delta,
-        ci95_low: ci.low,
-        ci95_high: ci.high,
-        severity: Severity::classify(delta, 1.0, ci.low, ci.high),
-        n: pairs.len(),
-    }
+    AxisStat::new_value(Axis::Judge, bm, cm, delta, ci.low, ci.high, pairs.len())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::agentlog::Kind;
+    use crate::diff::axes::Severity;
     use async_trait::async_trait;
     use serde_json::json;
 

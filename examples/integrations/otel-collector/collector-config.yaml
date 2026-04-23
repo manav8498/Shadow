@@ -1,0 +1,48 @@
+# OpenTelemetry Collector config — ingests Shadow OTLP exports and fans out.
+#
+# Run with:
+#   otelcol-contrib --config ./collector-config.yaml
+#
+# Pipeline:
+#   Shadow CLI → `shadow export --format otel trace.agentlog` → OTLP/HTTP POST
+#   Collector ← receives on :4318
+#   Collector → Datadog / Jaeger / stdout (whichever exporters you enable)
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+  # Shadow already redacts at record boundaries; the filter is a belt-and-
+  # suspenders guard against any residual PII in attribute values.
+  attributes:
+    actions:
+      - key: gen_ai.request.model
+        action: upsert
+      # Redact any attribute key matching a secret-like pattern.
+      - key: "authorization"
+        action: delete
+      - key: "api-key"
+        action: delete
+
+exporters:
+  debug:
+    verbosity: normal
+  # Uncomment the exporter that matches your destination.
+  # datadog:
+  #   api:
+  #     site: datadoghq.com
+  #     key: ${DD_API_KEY}
+  # otlphttp/jaeger:
+  #   endpoint: http://jaeger:4318
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [attributes, batch]
+      exporters: [debug]

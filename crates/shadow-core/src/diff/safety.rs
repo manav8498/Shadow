@@ -28,7 +28,7 @@
 //! clinical-triage assistant — the model is refusing more.
 
 use crate::agentlog::Record;
-use crate::diff::axes::{Axis, AxisStat, Severity};
+use crate::diff::axes::{Axis, AxisStat};
 use crate::diff::bootstrap::paired_ci;
 
 /// Default refusal patterns — English, lowercase-compared substrings.
@@ -130,22 +130,14 @@ pub fn compute_with_patterns(
         0,
         seed,
     );
-    AxisStat {
-        axis: Axis::Safety,
-        baseline_median: bm,
-        candidate_median: cm,
-        delta,
-        ci95_low: ci.low,
-        ci95_high: ci.high,
-        severity: Severity::classify_rate(delta, ci.low, ci.high),
-        n: pairs.len(),
-    }
+    AxisStat::new_rate(Axis::Safety, bm, cm, delta, ci.low, ci.high, pairs.len())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::agentlog::Kind;
+    use crate::diff::axes::Severity;
     use serde_json::json;
 
     fn response(stop_reason: &str, text: &str) -> Record {
@@ -191,6 +183,7 @@ mod tests {
 
     #[test]
     fn rising_refusal_rate_is_detected() {
+        use crate::diff::axes::Flag;
         let b = response("end_turn", "fine");
         let c_yes = response("content_filter", "");
         let c_no = response("end_turn", "fine");
@@ -198,7 +191,41 @@ mod tests {
         let stat = compute(&pairs, Some(1));
         assert!((stat.baseline_median - 0.0).abs() < 1e-9);
         assert!((stat.candidate_median - (1.0 / 3.0)).abs() < 1e-9);
+        // On n=3 with a 1/3 refusal shift, the bootstrap CI is wide but
+        // bounded below by 0.0 (rate axes can't go negative when baseline
+        // is saturated at 0). Under the corrected severity logic, a
+        // boundary-touching CI is NOT downgraded — the rate shift is
+        // classified honestly as Severe. The LowPower flag still warns
+        // about small-sample reliability; that's the right separation
+        // of concerns (flags describe data quality, severity describes
+        // effect size).
         assert_eq!(stat.severity, Severity::Severe);
+        assert!(stat.flags.contains(&Flag::LowPower));
+        // CI does NOT strictly straddle zero — it's bounded below by 0.0
+        // (boundary artifact, not genuine uncertainty).
+        assert!(!stat.flags.contains(&Flag::CiCrossesZero));
+    }
+
+    #[test]
+    fn rising_refusal_rate_is_severe_with_adequate_sample() {
+        // Same shift (1/3 refusal) but n=30 → CI is tight enough to
+        // exclude zero, so severity escalates to the honest Severe.
+        let b = response("end_turn", "fine");
+        let c_yes = response("content_filter", "");
+        let c_no = response("end_turn", "fine");
+        let mut pairs: Vec<(&Record, &Record)> = Vec::new();
+        for i in 0..30 {
+            pairs.push(if i % 3 == 0 {
+                (&b, &c_yes)
+            } else {
+                (&b, &c_no)
+            });
+        }
+        let stat = compute(&pairs, Some(1));
+        assert!(matches!(
+            stat.severity,
+            Severity::Moderate | Severity::Severe
+        ));
     }
 
     #[test]

@@ -84,13 +84,18 @@ class Redactor:
         return value
 
     def _redact_credit_card(self, text: str) -> tuple[str, bool]:
-        """Redact Luhn-valid credit-card-like number sequences only."""
+        """Redact Luhn-valid credit-card-like number sequences only.
+
+        Strips hyphens/spaces before Luhn check so hyphenated PANs like
+        "4111-1111-1111-1111" are caught alongside contiguous forms.
+        """
         pat = CREDIT_CARD_CANDIDATE
         modified = False
         out: list[str] = []
         last = 0
         for match in pat.regex.finditer(text):
-            if luhn_valid(match.group()):
+            digits_only = "".join(c for c in match.group() if c.isdigit())
+            if luhn_valid(digits_only):
                 out.append(text[last : match.start()])
                 out.append(pat.replacement)
                 last = match.end()

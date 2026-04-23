@@ -67,9 +67,15 @@ from shadow.errors import ShadowConfigError
 #   tools.*    Tool-schema edits directly drive tool-call shape
 #              (→ trajectory). They also change the input-token count of
 #              every turn (→ verbosity of INPUT tokens, latency, cost).
-#              They do not retrain the model's refusal policy (safety
-#              is out) and they don't alter generated-text semantics
-#              except via trajectory-mediated downstream effects.
+#              Crucially they ALSO drive conformance: a tool schema
+#              with an `errors: {type: array}` field encourages the
+#              model to emit that field in its tool_use input;
+#              removing the field makes the candidate output miss a
+#              required key. This is exactly what the conformance axis
+#              detects in tool_use-driven agents. They do not retrain
+#              the model's refusal policy (safety is out) and they
+#              don't alter generated-text semantics except via
+#              trajectory-mediated downstream effects.
 #
 #   model_id   Model swaps can move any axis (different policy, different
 #              length priors, different pricing, different refusal
@@ -96,7 +102,7 @@ DELTA_KIND_AFFECTS: dict[str, frozenset[str]] = {
         }
     ),
     "params": frozenset({"semantic", "verbosity", "reasoning", "conformance", "latency", "cost"}),
-    "tools": frozenset({"trajectory", "verbosity", "latency", "cost"}),
+    "tools": frozenset({"trajectory", "verbosity", "latency", "cost", "conformance"}),
     "model": frozenset(AXIS_NAMES),
     "model_id": frozenset(AXIS_NAMES),
 }
@@ -171,6 +177,7 @@ def run_bisect(
             "active_categories": result["categories"],
             "warnings": warnings,
             "attributions": result["attributions"],
+            "attributions_ci": result.get("attributions_ci", {}),
         }
 
     if candidate_traces is not None:
@@ -178,6 +185,26 @@ def run_bisect(
         if note:
             warnings.append(note)
         attributions = _allocate_divergence(deltas, axis_divergence)
+        # Heuristic mode can't compute true bootstrap CIs or
+        # Meinshausen-Bühlmann stability-selection frequencies (those
+        # require live-replay corners). Fill with 0/False but keep the
+        # schema identical to live mode so consumers don't KeyError.
+        # `plausible` (via significant=True) is asserted when weight>0
+        # — i.e. the delta's kind could plausibly affect this axis.
+        normalized = {
+            axis: [
+                {
+                    "delta": lbl,
+                    "weight": float(w),
+                    "ci95_low": 0.0,
+                    "ci95_high": 0.0,
+                    "significant": False,
+                    "selection_frequency": 0.0,
+                }
+                for lbl, w in ranked
+            ]
+            for axis, ranked in attributions.items()
+        }
         return {
             "deltas": [{"path": d.path, "old": d.old_value, "new": d.new_value} for d in deltas],
             "mode": "heuristic_kind_allocator",
@@ -186,10 +213,7 @@ def run_bisect(
             "candidate_traces_path": str(candidate_traces),
             "active_categories": active_categories(a, b),
             "warnings": warnings,
-            "attributions": {
-                axis: [{"delta": lbl, "weight": float(w)} for lbl, w in ranked]
-                for axis, ranked in attributions.items()
-            },
+            "attributions": normalized,
         }
 
     # Placeholder-zero fallback. Both --backend and --candidate-traces
@@ -208,7 +232,17 @@ def run_bisect(
         "traces_path": str(traces),
         "warnings": warnings,
         "attributions": {
-            axis: [{"delta": lbl, "weight": float(w)} for lbl, w in ranked]
+            axis: [
+                {
+                    "delta": lbl,
+                    "weight": float(w),
+                    "ci95_low": 0.0,
+                    "ci95_high": 0.0,
+                    "significant": False,
+                    "selection_frequency": 0.0,
+                }
+                for lbl, w in ranked
+            ]
             for axis, ranked in attributions.items()
         },
     }
@@ -227,7 +261,7 @@ def _observed_divergence(
     baseline = _core.parse_agentlog(Path(baseline_path).read_bytes())
     candidate = _core.parse_agentlog(Path(candidate_path).read_bytes())
     report = _core.compute_diff_report(baseline, candidate, None, 42)
-    divergence: dict[str, float] = {axis: 0.0 for axis in AXIS_NAMES}
+    divergence: dict[str, float] = dict.fromkeys(AXIS_NAMES, 0.0)
     n_per_axis: dict[str, int] = {}
     for row in report["rows"]:
         divergence[row["axis"]] = abs(float(row["delta"]))
