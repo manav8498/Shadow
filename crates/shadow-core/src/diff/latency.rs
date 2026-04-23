@@ -1,7 +1,7 @@
 //! Axis 5: end-to-end latency (SPEC §4.2 `chat_response.latency_ms`).
 
 use crate::agentlog::Record;
-use crate::diff::axes::{Axis, AxisStat, Severity};
+use crate::diff::axes::{Axis, AxisStat};
 use crate::diff::bootstrap::{median, paired_ci};
 
 /// Extract `payload.latency_ms` from a chat_response, or `None` if missing.
@@ -32,16 +32,15 @@ pub fn compute(pairs: &[(&Record, &Record)], seed: Option<u64>) -> AxisStat {
         0,
         seed,
     );
-    AxisStat {
-        axis: Axis::Latency,
+    AxisStat::new_value(
+        Axis::Latency,
         baseline_median,
         candidate_median,
         delta,
-        ci95_low: ci.low,
-        ci95_high: ci.high,
-        severity: Severity::classify(delta, baseline_median, ci.low, ci.high),
-        n: baseline_vals.len(),
-    }
+        ci.low,
+        ci.high,
+        baseline_vals.len(),
+    )
 }
 
 #[cfg(test)]
@@ -64,6 +63,8 @@ mod tests {
             None,
         )
     }
+
+    use crate::diff::axes::Severity;
 
     #[test]
     fn equal_latency_has_zero_delta_and_no_severity() {

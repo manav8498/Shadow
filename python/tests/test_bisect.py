@@ -29,6 +29,145 @@ def test_diff_configs_identical_returns_empty() -> None:
     assert diff_configs(a, a) == []
 
 
+def test_diff_configs_coalesces_tool_schema_changes_to_one_delta_per_tool() -> None:
+    """REGRESSION TEST: the v0.1 walker produced ~50 atomic deltas for a
+    typical 4-tool config edit because every schema-leaf counted as one
+    delta. This made LASSO-over-corners infeasible (too many features,
+    too few runs). The coalescer collapses to one delta per tool-NAME."""
+    a = {
+        "tools": [
+            {
+                "name": "fetch",
+                "description": "Get a thing",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"],
+                },
+            },
+            {
+                "name": "verify",
+                "description": "Double-check a thing",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"value": {"type": "integer"}},
+                    "required": ["value"],
+                },
+            },
+        ]
+    }
+    # b: deletes `verify` entirely, AND edits `fetch`'s description + schema.
+    b = {
+        "tools": [
+            {
+                "name": "fetch",
+                "description": "Fetch a thing",  # changed
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}, "limit": {"type": "integer"}},
+                    "required": ["id"],
+                },
+            },
+        ]
+    }
+    deltas = diff_configs(a, b)
+    paths = sorted(d.path for d in deltas)
+    # Exactly 2 deltas: one per affected tool-name.
+    assert paths == ["tools.fetch", "tools.verify"]
+    by_path = {d.path: d for d in deltas}
+    # fetch was modified
+    assert by_path["tools.fetch"].old_value != by_path["tools.fetch"].new_value
+    # verify was deleted
+    assert by_path["tools.verify"].new_value is None
+    # Legacy mode still exposes the leaf-level explosion for debugging.
+    leaf_deltas = diff_configs(a, b, coalesce=False)
+    assert len(leaf_deltas) > len(deltas)
+
+
+def test_diff_configs_coalesced_kind_is_tools() -> None:
+    a = {"tools": [{"name": "x", "description": "a"}]}
+    b = {"tools": [{"name": "x", "description": "b"}]}
+    [d] = diff_configs(a, b)
+    assert d.path == "tools.x"
+    assert d.kind == "tools"
+
+
+def test_bisect_attribution_schema_is_uniform_across_modes(tmp_path) -> None:
+    """REGRESSION TEST: heuristic and placeholder modes used to emit
+    different attribution row shapes than live-replay mode, causing
+    downstream KeyErrors. Every mode must now emit the SAME keys."""
+    import yaml
+
+    from shadow import _core
+    from shadow.bisect.runner import run_bisect
+
+    expected_keys = {
+        "delta",
+        "weight",
+        "ci95_low",
+        "ci95_high",
+        "significant",
+        "selection_frequency",
+    }
+
+    a_cfg = {
+        "model_id": "claude-sonnet-4-6",
+        "params": {"temperature": 0.0},
+        "prompt": {"system": "careful"},
+        "tools": [{"name": "x", "description": "a"}],
+    }
+    b_cfg = {
+        "model_id": "claude-sonnet-4-6",
+        "params": {"temperature": 0.5},
+        "prompt": {"system": "quick"},
+        "tools": [{"name": "x", "description": "b"}],
+    }
+    (tmp_path / "a.yaml").write_text(yaml.safe_dump(a_cfg))
+    (tmp_path / "b.yaml").write_text(yaml.safe_dump(b_cfg))
+
+    # Empty agentlog files (just metadata) for both traces.
+    empty = _core.write_agentlog([
+        {
+            "version": _core.SPEC_VERSION,
+            "id": _core.content_id({"sdk": {"name": "shadow"}}),
+            "kind": "metadata",
+            "ts": "2026-04-23T00:00:00Z",
+            "parent": None,
+            "payload": {"sdk": {"name": "shadow"}},
+            "meta": {"trace_id": "t"},
+        }
+    ])
+    (tmp_path / "a.agentlog").write_bytes(empty)
+    (tmp_path / "b.agentlog").write_bytes(empty)
+
+    # Heuristic mode (candidate_traces supplied, no backend).
+    heu = run_bisect(
+        tmp_path / "a.yaml",
+        tmp_path / "b.yaml",
+        tmp_path / "a.agentlog",
+        candidate_traces=tmp_path / "b.agentlog",
+    )
+    assert heu["mode"] == "heuristic_kind_allocator"
+    for axis_rows in heu["attributions"].values():
+        for row in axis_rows:
+            assert expected_keys <= set(row.keys()), (
+                f"heuristic row missing keys: {expected_keys - set(row.keys())}"
+            )
+
+    # Placeholder-zero mode (neither backend nor candidate_traces).
+    plc = run_bisect(
+        tmp_path / "a.yaml",
+        tmp_path / "b.yaml",
+        tmp_path / "a.agentlog",
+    )
+    assert plc["mode"] == "lasso_placeholder_zero"
+    for axis_rows in plc["attributions"].values():
+        for row in axis_rows:
+            assert expected_keys <= set(row.keys()), (
+                f"placeholder row missing keys: {expected_keys - set(row.keys())}"
+            )
+
+
 def test_full_factorial_k2_matches_manual_table() -> None:
     # Expected 4 rows x 2 cols: (-1,-1), (1,-1), (-1,1), (1,1).
     expected = np.array([[-1, -1], [1, -1], [-1, 1], [1, 1]], dtype=np.int8)

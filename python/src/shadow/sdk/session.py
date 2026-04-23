@@ -1,29 +1,39 @@
 """Session — the recording context manager that writes an `.agentlog` file.
 
-Usage:
+Usage (auto-instrumentation, default):
 
 ```python
 from shadow.sdk import Session
-from shadow.llm import MockLLM
+import anthropic
 
-async def run(agent_fn, backend):
-    with Session(output_path="trace.agentlog", tags={"env": "dev"}) as session:
-        # every call to session.record_chat(request, response) writes a
-        # chat_request + chat_response pair into the .agentlog file.
-        request = {"model": "claude-opus-4-7", "messages": [...], "params": {}}
-        response = await backend.complete(request)
-        session.record_chat(request, response)
+with Session(output_path="trace.agentlog", tags={"env": "dev"}):
+    client = anthropic.Anthropic()
+    response = client.messages.create(
+        model="claude-opus-4-7",
+        max_tokens=1024,
+        messages=[{"role": "user", "content": "hello"}],
+    )
+    # Shadow records this call automatically; no record_chat needed.
 ```
 
-In v0.1 the Session is a manual recorder — agents call `record_chat` after
-each LLM round-trip. Monkey-patch-based auto-instrumentation of the
-anthropic/openai Python clients is deferred to v0.2 per the plan (and
-because the two SDKs have different streaming/non-streaming surfaces
-that aren't worth unifying in v0.1).
+The auto-instrumentor monkey-patches `anthropic.resources.messages.{,Async}Messages.create`
+and `openai.resources.chat.completions.{,Async}Completions.create` at
+`Session.__enter__` and restores them at `__exit__`. If an SDK isn't
+installed, it's skipped cleanly. Streaming calls pass through un-recorded.
+
+You can also record manually — useful for custom backends or reshaping:
+
+```python
+with Session(output_path="trace.agentlog") as session:
+    session.record_chat(request_dict, response_dict)
+```
+
+Pass `auto_instrument=False` to disable the monkey-patching.
 """
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import os
 import platform
@@ -67,13 +77,24 @@ class Session:
         tags: dict[str, str] | None = None,
         session_tag: str | None = None,
         redactor: Redactor | None = None,
+        auto_instrument: bool = True,
+        trace_id: str | None = None,
+        parent_span_id: str | None = None,
     ) -> None:
+        from shadow.sdk.tracing import current_parent_span_id, current_trace_id, new_trace_id
+
         self._output_path = Path(output_path)
         self._tags = dict(tags or {})
         self._session_tag = session_tag
         self._redactor: Redactor | None = redactor if redactor is not None else Redactor()
         self._records: list[dict[str, Any]] = []
         self._root_id: str | None = None
+        self._auto_instrument = auto_instrument
+        self._instrumentor: Any | None = None
+        # Distributed-trace propagation: inherit trace_id from the env if a
+        # parent set it, else mint a new one. span_id is this session's own.
+        self._trace_id = trace_id or current_trace_id() or new_trace_id()
+        self._parent_span_id = parent_span_id or current_parent_span_id()
 
     def __enter__(self) -> Self:
         meta_payload: dict[str, Any] = {
@@ -89,6 +110,20 @@ class Session:
         meta_id = _core.content_id(meta_payload)
         self._root_id = meta_id
         self._records.append(self._envelope("metadata", meta_payload, meta_id, parent=None))
+        if self._auto_instrument:
+            from shadow.sdk.instrumentation import Instrumentor
+
+            # If install() fails mid-way, uninstall whatever patches ARE
+            # recorded so we don't leave the global SDK classes in a
+            # half-patched state across the session boundary.
+            instr = Instrumentor(self)
+            try:
+                instr.install()
+            except Exception:
+                with contextlib.suppress(Exception):
+                    instr.uninstall()
+                raise
+            self._instrumentor = instr
         return self
 
     def __exit__(
@@ -97,6 +132,9 @@ class Session:
         exc: BaseException | None,
         tb: TracebackType | None,
     ) -> None:
+        if self._instrumentor is not None:
+            self._instrumentor.uninstall()
+            self._instrumentor = None
         self._output_path.parent.mkdir(parents=True, exist_ok=True)
         bytes_out = _core.write_agentlog(self._records)
         self._output_path.write_bytes(bytes_out)
@@ -105,6 +143,19 @@ class Session:
     def root_id(self) -> str | None:
         """Root record id, available after __enter__."""
         return self._root_id
+
+    @property
+    def trace_id(self) -> str:
+        """Distributed trace id. Same across all sessions linked via env vars."""
+        return self._trace_id
+
+    def env_for_child(self) -> dict[str, str]:
+        """Env dict to pass to a child process so it joins this trace."""
+        from shadow.sdk.tracing import env_for_child
+
+        # Use the root record's id as this session's span_id for clarity.
+        span_id = (self._root_id or "").replace("sha256:", "")[:16]
+        return env_for_child(self._trace_id, span_id or "0" * 16)
 
     def record_chat(
         self,
@@ -179,13 +230,15 @@ class Session:
             "parent": parent,
             "payload": payload,
         }
-        if self._session_tag is not None or (self._redactor and self._redactor.last_modified):
-            meta: dict[str, Any] = {}
-            if self._session_tag is not None:
-                meta["session_tag"] = self._session_tag
-            if self._redactor and self._redactor.last_modified:
-                meta["redacted"] = True
-            env["meta"] = meta
+        meta: dict[str, Any] = {}
+        if self._session_tag is not None:
+            meta["session_tag"] = self._session_tag
+        if self._redactor and self._redactor.last_modified:
+            meta["redacted"] = True
+        meta["trace_id"] = self._trace_id
+        if self._parent_span_id is not None:
+            meta["parent_span_id"] = self._parent_span_id
+        env["meta"] = meta
         return env
 
     def _redact(self, value: dict[str, Any]) -> dict[str, Any]:

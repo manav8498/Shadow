@@ -2,7 +2,7 @@
 //! `chat_response.usage.output_tokens`.
 
 use crate::agentlog::Record;
-use crate::diff::axes::{Axis, AxisStat, Severity};
+use crate::diff::axes::{Axis, AxisStat};
 use crate::diff::bootstrap::{median, paired_ci};
 
 fn output_tokens(r: &Record) -> Option<f64> {
@@ -29,16 +29,7 @@ pub fn compute(pairs: &[(&Record, &Record)], seed: Option<u64>) -> AxisStat {
     let cm = median(&c);
     let delta = cm - bm;
     let ci = paired_ci(&b, &c, |bs, cs| median(cs) - median(bs), 0, seed);
-    AxisStat {
-        axis: Axis::Verbosity,
-        baseline_median: bm,
-        candidate_median: cm,
-        delta,
-        ci95_low: ci.low,
-        ci95_high: ci.high,
-        severity: Severity::classify(delta, bm, ci.low, ci.high),
-        n: b.len(),
-    }
+    AxisStat::new_value(Axis::Verbosity, bm, cm, delta, ci.low, ci.high, b.len())
 }
 
 #[cfg(test)]
@@ -64,6 +55,7 @@ mod tests {
 
     #[test]
     fn candidate_half_as_verbose_is_moderate_or_severe() {
+        use crate::diff::axes::Severity;
         let baseline: Vec<Record> = (0..20).map(|i| response(100 + i)).collect();
         let candidate: Vec<Record> = (0..20).map(|i| response(50 + i)).collect();
         let pairs: Vec<(&Record, &Record)> = baseline.iter().zip(candidate.iter()).collect();
