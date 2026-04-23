@@ -11,20 +11,22 @@ from typing import Any, TypedDict
 __version__: str
 SPEC_VERSION: str
 
-
 class AxisStat(TypedDict):
     """One axis's statistical result. Shape of every element in
-    `DiffReport.rows`.
+    the `rows` list returned by `compute_diff_report`.
 
     `axis` is one of: semantic, trajectory, safety, verbosity, latency,
-    cost, reasoning, judge, conformance (CLAUDE.md §4).
+    cost, reasoning, judge, conformance.
 
     `severity` is one of: none, minor, moderate, severe. See
     `Severity::classify` / `classify_rate` in `crates/shadow-core/src/diff/axes.rs`.
 
     `flags` may contain: `low_power` (n<5) or `ci_crosses_zero`
-    (the bootstrap 95% CI strictly straddles zero, i.e. lower<-epsilon and
-    upper>+ε — a boundary-touching CI like [0.0, 1.0] is NOT flagged).
+    (the bootstrap 95% CI strictly straddles zero — a boundary-touching
+    CI like [0.0, 1.0] is NOT flagged).
+
+    This TypedDict is documentation of the shape; the runtime value is
+    a plain dict.
     """
 
     axis: str
@@ -37,15 +39,18 @@ class AxisStat(TypedDict):
     n: int
     flags: list[str]
 
-
 class DiffReport(TypedDict):
-    """Return shape of [`compute_diff_report`]."""
+    """Shape of the dict returned by `compute_diff_report`.
+
+    Documentation only — the runtime return value is a plain
+    `dict[str, Any]`. Consumers may cast to this TypedDict for static
+    access if they want.
+    """
 
     rows: list[AxisStat]
     baseline_trace_id: str
     candidate_trace_id: str
     pair_count: int
-
 
 def parse_agentlog(data: bytes) -> list[dict[str, Any]]:
     """Parse a `.agentlog` byte blob into a list of record dicts.
@@ -68,7 +73,7 @@ def compute_diff_report(
     candidate: list[dict[str, Any]],
     pricing: dict[str, tuple[float, float]] | None = None,
     seed: int | None = None,
-) -> DiffReport:
+) -> dict[str, Any]:
     """Compute a nine-axis DiffReport.
 
     Parameters
@@ -83,8 +88,9 @@ def compute_diff_report(
 
     Returns
     -------
-    DiffReport
-        With `rows` (one per axis — see CLAUDE.md §4), `pair_count`
-        (the number of baseline/candidate turn pairs that aligned), and
-        content-addressed `baseline_trace_id` / `candidate_trace_id`.
+    dict[str, Any]
+        Shape is documented by the `DiffReport` TypedDict in this stub.
+        Keys: `rows` (list of per-axis results, each shaped like
+        `AxisStat`), `baseline_trace_id`, `candidate_trace_id`,
+        `pair_count`.
     """

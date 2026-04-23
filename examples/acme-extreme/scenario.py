@@ -49,9 +49,7 @@ BASELINE_SYSTEM = (
     "Decline anything not related to Acme orders or subscriptions."
 )
 
-CANDIDATE_SYSTEM = (
-    "You are a helpful assistant. Help the user with their request."
-)
+CANDIDATE_SYSTEM = "You are a helpful assistant. Help the user with their request."
 
 BASELINE_TOOLS = [
     {
@@ -251,7 +249,9 @@ def main() -> int:
 
     asyncio.run(score_all())
     judge_row = aggregate_scores(scores, seed=42)
-    print(f"   judge axis: {judge_row['severity']} flags={judge_row['flags']} n={judge_row['n']}")
+    print(
+        f"   judge axis: {judge_row['severity']} flags={judge_row['flags']} n={judge_row['n']}"
+    )
 
     # Splice the judge row into the report.
     report_with_judge = {
@@ -267,7 +267,9 @@ def main() -> int:
     config_a_yaml = out_dir / "config_a.yaml"
     config_b_yaml = out_dir / "config_b.yaml"
     config_a_yaml.write_text(_config_yaml(BASELINE_SYSTEM, MODEL, 0.0, BASELINE_TOOLS))
-    config_b_yaml.write_text(_config_yaml(CANDIDATE_SYSTEM, MODEL, 0.7, CANDIDATE_TOOLS))
+    config_b_yaml.write_text(
+        _config_yaml(CANDIDATE_SYSTEM, MODEL, 0.7, CANDIDATE_TOOLS)
+    )
     bisect_backend = OpenAILLM(model_override=MODEL, backend_id="bisect")
     bisect_result = run_bisect(
         config_a_yaml,
