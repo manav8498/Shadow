@@ -25,7 +25,6 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "python" / "src"))
 
-from shadow import _core  # noqa: E402
 from shadow.bisect import run_bisect  # noqa: E402
 from shadow.llm.openai_backend import OpenAILLM  # noqa: E402
 from shadow.sdk import Session  # noqa: E402
@@ -34,8 +33,7 @@ OUT = Path(__file__).parent / ".out" / "k4"
 OUT.mkdir(parents=True, exist_ok=True)
 
 TASKS = [
-    f"I want a refund for order #A-{1000 + i}, it arrived damaged."
-    for i in range(6)
+    f"I want a refund for order #A-{1000 + i}, it arrived damaged." for i in range(6)
 ]
 
 TOOL_GOOD = {
@@ -61,7 +59,7 @@ CONFIG_A = {
     "model": "gpt-4o-mini",
     "prompt": {
         "system": (
-            'You are a support agent. Return ONLY a JSON object: '
+            "You are a support agent. Return ONLY a JSON object: "
             '{"action":"refund|info","reason":"..."}. No prose.'
         )
     },
@@ -126,7 +124,9 @@ def main() -> int:
     (OUT / "result.json").write_text(json.dumps(_jsonable(result), indent=2))
 
     print(f"\nmode: {result['mode']}")
-    print(f"active categories: {result['active_categories']} (k={len(result['active_categories'])})")
+    print(
+        f"active categories: {result['active_categories']} (k={len(result['active_categories'])})"
+    )
     print(f"design runs: {result['design_runs']}")
 
     if len(result["active_categories"]) != 4:
@@ -137,21 +137,28 @@ def main() -> int:
     print(f"{'axis':<12} {'category':<10} {'weight':>8}  {'CI (95%)':<22} sig")
     print("-" * 62)
     ci_attr = result.get("attributions_ci", {})
-    for axis in ("trajectory", "conformance", "latency", "verbosity", "semantic", "safety"):
+    for axis in (
+        "trajectory",
+        "conformance",
+        "latency",
+        "verbosity",
+        "semantic",
+        "safety",
+    ):
         rows = ci_attr.get(axis, [])
         for i, r in enumerate(rows):
             star = "*" if r["significant"] else ""
             ci = f"[{r['ci95_low']:+.3f}, {r['ci95_high']:+.3f}]"
             prefix = axis if i == 0 else ""
-            print(f"{prefix:<12} {r['category']:<10} {r['weight']:>8.3f}  {ci:<22} {star}")
+            print(
+                f"{prefix:<12} {r['category']:<10} {r['weight']:>8.3f}  {ci:<22} {star}"
+            )
 
     # Key ground-truth check: trajectory → tools should be significant.
     # Conformance is honestly hard to force under model robustness and
     # we don't assert on axes that may legitimately not move.
     trajectory_rows = ci_attr.get("trajectory", [])
-    tools_row = next(
-        (r for r in trajectory_rows if r["category"] == "tools"), None
-    )
+    tools_row = next((r for r in trajectory_rows if r["category"] == "tools"), None)
     if tools_row is None or not tools_row["significant"] or tools_row["weight"] < 0.5:
         print(
             "\nFAIL: trajectory → tools should be significant with weight ≥ 0.5; "

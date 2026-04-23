@@ -102,13 +102,27 @@ pub struct FirstDivergence {
 // Public entry point
 // ---------------------------------------------------------------------------
 
+/// Default number of top-ranked divergences returned by [`detect_top_k`].
+/// The markdown / terminal renderers show the top 3; the full list goes
+/// to the JSON output. Users can override via the explicit `k` parameter.
+pub const DEFAULT_K: usize = 5;
+
 /// Detect the first meaningful divergence between two traces.
 ///
 /// Returns `None` when the traces agree on every compared turn up to the
 /// length of the shorter one (and the longer tail is empty or also
 /// matches). Returns `Some` at the first pair whose combined per-cell
 /// cost exceeds the noise floor.
+///
+/// This is a thin convenience wrapper around [`detect_top_k`] that
+/// returns only the highest-ranked divergence by walk order. Callers
+/// who want multi-fork coverage should use `detect_top_k` directly.
 pub fn detect(baseline: &[Record], candidate: &[Record]) -> Option<FirstDivergence> {
+    // The original "first divergence" is literally the first cell on
+    // the alignment walk that exceeds the noise floor — i.e. rank=0
+    // in walk order, NOT in severity-weighted rank. We preserve that
+    // semantic here for backward compatibility by doing a single-step
+    // walk instead of sorting top-K.
     let baseline_responses: Vec<&Record> = baseline
         .iter()
         .filter(|r| r.kind == Kind::ChatResponse)
@@ -120,9 +134,73 @@ pub fn detect(baseline: &[Record], candidate: &[Record]) -> Option<FirstDivergen
     if baseline_responses.is_empty() || candidate_responses.is_empty() {
         return None;
     }
-
     let alignment = align(&baseline_responses, &candidate_responses);
-    walk_for_first_divergence(&alignment, &baseline_responses, &candidate_responses)
+    walk_collecting(&alignment, &baseline_responses, &candidate_responses, 1)
+        .into_iter()
+        .next()
+}
+
+/// Detect up to `k` meaningful divergences between two traces, sorted
+/// by importance (kind severity × confidence, descending).
+///
+/// Returns an empty vec when the traces agree end-to-end. Returns at
+/// most `k` results; fewer if the walk produces fewer above-noise cells.
+/// Pass `k = DEFAULT_K` for the standard top-5.
+///
+/// **Ranking:** Structural > Decision > Style (by class), then by
+/// `confidence` within a class. This surfaces the most actionable
+/// regression first, not just the earliest. Walk order is preserved
+/// as a stable tiebreaker so identical-severity events are reported
+/// in temporal order (earlier turns before later ones).
+pub fn detect_top_k(baseline: &[Record], candidate: &[Record], k: usize) -> Vec<FirstDivergence> {
+    if k == 0 {
+        return Vec::new();
+    }
+    let baseline_responses: Vec<&Record> = baseline
+        .iter()
+        .filter(|r| r.kind == Kind::ChatResponse)
+        .collect();
+    let candidate_responses: Vec<&Record> = candidate
+        .iter()
+        .filter(|r| r.kind == Kind::ChatResponse)
+        .collect();
+    if baseline_responses.is_empty() || candidate_responses.is_empty() {
+        return Vec::new();
+    }
+    let alignment = align(&baseline_responses, &candidate_responses);
+    // Collect ALL above-noise divergences in walk order (there can't
+    // be more than baseline.len() + candidate.len() of them).
+    let max_possible = baseline_responses.len() + candidate_responses.len();
+    let mut all = walk_collecting(
+        &alignment,
+        &baseline_responses,
+        &candidate_responses,
+        max_possible,
+    );
+    // Stable sort by (kind rank desc, confidence desc, walk-order asc).
+    // Walk-order is captured by the current vec position (index), so we
+    // use a stable sort and only key on the two explicit ranks.
+    all.sort_by(|a, b| {
+        kind_rank(b.kind).cmp(&kind_rank(a.kind)).then_with(|| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    });
+    all.truncate(k);
+    all
+}
+
+/// Ranking weight for each kind. Higher = more actionable, ranks higher.
+/// Structural drift (tool sequence differs) is nearly always a real
+/// behavioural regression; decision drift (same shape, different call)
+/// needs investigation but less urgent; style drift is cosmetic.
+fn kind_rank(k: DivergenceKind) -> u8 {
+    match k {
+        DivergenceKind::Structural => 3,
+        DivergenceKind::Decision => 2,
+        DivergenceKind::Style => 1,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -416,11 +494,20 @@ fn shingles(s: &str, k: usize) -> BTreeSet<String> {
 // Walk the alignment for the first divergence
 // ---------------------------------------------------------------------------
 
-fn walk_for_first_divergence(
+/// Walk the alignment and collect up to `limit` above-noise divergences
+/// in alignment order. Returns an empty vec when the traces agree
+/// end-to-end. Cursor tracking lets gap steps report the correct
+/// baseline / candidate positions even after previous gaps.
+fn walk_collecting(
     alignment: &Alignment,
     baseline: &[&Record],
     candidate: &[&Record],
-) -> Option<FirstDivergence> {
+    limit: usize,
+) -> Vec<FirstDivergence> {
+    let mut out: Vec<FirstDivergence> = Vec::new();
+    if limit == 0 {
+        return out;
+    }
     // Track cursors through the walk so that gap steps can report the
     // baseline / candidate position correctly — without this, an
     // insertion on the candidate side can't tell which baseline turn
@@ -428,6 +515,9 @@ fn walk_for_first_divergence(
     let mut b_cursor: usize = 0;
     let mut c_cursor: usize = 0;
     for step in &alignment.steps {
+        if out.len() >= limit {
+            return out;
+        }
         match *step {
             Step::InsertCandidate(j) => {
                 // Candidate inserted a turn the baseline didn't have —
@@ -443,7 +533,7 @@ fn walk_for_first_divergence(
                 } else {
                     format!("an extra turn with {n_tools} tool calls")
                 };
-                return Some(FirstDivergence {
+                out.push(FirstDivergence {
                     baseline_turn: insertion_point,
                     candidate_turn: j,
                     kind: DivergenceKind::Structural,
@@ -454,6 +544,7 @@ fn walk_for_first_divergence(
                     ),
                     confidence: 1.0,
                 });
+                c_cursor = c_cursor.saturating_add(1);
             }
             Step::DeleteBaseline(i) => {
                 let b = baseline[i];
@@ -466,7 +557,7 @@ fn walk_for_first_divergence(
                 } else {
                     format!("a turn with {n_tools} tool calls")
                 };
-                return Some(FirstDivergence {
+                out.push(FirstDivergence {
                     baseline_turn: i,
                     candidate_turn: deletion_point,
                     kind: DivergenceKind::Structural,
@@ -476,6 +567,7 @@ fn walk_for_first_divergence(
                     ),
                     confidence: 1.0,
                 });
+                b_cursor = b_cursor.saturating_add(1);
             }
             Step::Match(i, j) => {
                 let b = baseline[i];
@@ -486,10 +578,10 @@ fn walk_for_first_divergence(
                 if cost <= NOISE_FLOOR {
                     continue;
                 }
-                // Above noise floor — classify.
+                // Above noise floor — classify and record.
                 let (kind, axis, explanation) = classify(b, c, cost);
                 let confidence = ((cost - NOISE_FLOOR) / (1.0 - NOISE_FLOOR)).clamp(0.0, 1.0);
-                return Some(FirstDivergence {
+                out.push(FirstDivergence {
                     baseline_turn: i,
                     candidate_turn: j,
                     kind,
@@ -500,7 +592,7 @@ fn walk_for_first_divergence(
             }
         }
     }
-    None
+    out
 }
 
 /// Classify a significant (above-noise-floor) matched pair.
@@ -860,5 +952,156 @@ mod tests {
         assert_eq!(matches, 2);
         let gaps = alignment.steps.len() - matches;
         assert_eq!(gaps, 0);
+    }
+
+    // -----------------------------------------------------------------
+    // Top-K tests
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn top_k_with_zero_returns_empty() {
+        let r1 = response_text_only("same", "end_turn");
+        let r2 = response_text_only("different", "end_turn");
+        let out = detect_top_k(&[meta(), r1], &[meta(), r2], 0);
+        assert_eq!(out.len(), 0);
+    }
+
+    #[test]
+    fn top_k_with_identical_returns_empty() {
+        let r = response_text_only("same", "end_turn");
+        let out = detect_top_k(&[meta(), r.clone(), r.clone()], &[meta(), r.clone(), r], 3);
+        assert_eq!(out.len(), 0);
+    }
+
+    #[test]
+    fn top_k_orders_structural_before_decision_before_style() {
+        // Construct a candidate with one divergence of each kind, in
+        // order: Style @ turn 0, Decision @ turn 1 (refusal), Structural
+        // @ turn 2 (tool change). Top-K must rerank: Structural #1,
+        // Decision #2, Style #3 — NOT walk order.
+        let b0 = response_text_only(
+            "Hello, here is a detailed answer explaining the topic in full.",
+            "end_turn",
+        );
+        let b1 = response_text_only("The answer is 42.", "end_turn");
+        let b2 = response_with_tool("search", json!({"q": "x"}), "tool_use");
+        let c0 = response_text_only(
+            "Hello, here is a detailed answer explaining the topic in full!",
+            "end_turn",
+        ); // cosmetic punctuation → style
+        let c1 = response_text_only("I cannot answer that.", "content_filter"); // refusal → decision (safety)
+        let c2 = response_with_tool("lookup", json!({"q": "x"}), "tool_use"); // tool name change → structural
+        let baseline = vec![meta(), b0, b1, b2];
+        let candidate = vec![meta(), c0, c1, c2];
+        let out = detect_top_k(&baseline, &candidate, 5);
+        assert!(
+            out.len() >= 2,
+            "expected at least 2 divergences, got {}",
+            out.len()
+        );
+        // #1 must be structural
+        assert_eq!(
+            out[0].kind,
+            DivergenceKind::Structural,
+            "rank 1 should be Structural, got {:?}",
+            out[0].kind
+        );
+        // If we have a rank 2, it must be Decision (Style is lowest priority)
+        if out.len() >= 2 {
+            assert_eq!(
+                out[1].kind,
+                DivergenceKind::Decision,
+                "rank 2 should be Decision, got {:?}",
+                out[1].kind
+            );
+        }
+    }
+
+    #[test]
+    fn top_k_truncates_at_k() {
+        // 5 divergent turns, ask for top 2.
+        let same = response_text_only("unchanged", "end_turn");
+        let _ = same.clone(); // avoid unused_assignments warning pattern
+        let baseline = vec![
+            meta(),
+            response_with_tool("a", json!({}), "tool_use"),
+            response_with_tool("b", json!({}), "tool_use"),
+            response_with_tool("c", json!({}), "tool_use"),
+            response_with_tool("d", json!({}), "tool_use"),
+            response_with_tool("e", json!({}), "tool_use"),
+        ];
+        let candidate = vec![
+            meta(),
+            response_with_tool("A", json!({}), "tool_use"),
+            response_with_tool("B", json!({}), "tool_use"),
+            response_with_tool("C", json!({}), "tool_use"),
+            response_with_tool("D", json!({}), "tool_use"),
+            response_with_tool("E", json!({}), "tool_use"),
+        ];
+        let out = detect_top_k(&baseline, &candidate, 2);
+        assert_eq!(out.len(), 2);
+        // All should be Structural (tool name differs)
+        for dv in &out {
+            assert_eq!(dv.kind, DivergenceKind::Structural);
+        }
+    }
+
+    #[test]
+    fn top_k_preserves_walk_order_within_same_severity_and_confidence() {
+        // Three Structural divergences with identical confidence → ties
+        // broken by walk order (earlier turns before later ones).
+        let baseline = vec![
+            meta(),
+            response_with_tool("a", json!({}), "tool_use"),
+            response_with_tool("b", json!({}), "tool_use"),
+            response_with_tool("c", json!({}), "tool_use"),
+        ];
+        let candidate = vec![
+            meta(),
+            response_with_tool("A", json!({}), "tool_use"),
+            response_with_tool("B", json!({}), "tool_use"),
+            response_with_tool("C", json!({}), "tool_use"),
+        ];
+        let out = detect_top_k(&baseline, &candidate, 3);
+        assert_eq!(out.len(), 3);
+        // Stable sort preserves walk order for equal keys
+        assert_eq!(out[0].baseline_turn, 0);
+        assert_eq!(out[1].baseline_turn, 1);
+        assert_eq!(out[2].baseline_turn, 2);
+    }
+
+    #[test]
+    fn top_k_of_1_matches_first_divergence_classifier() {
+        // detect_top_k(.., 1) and detect() should name the same KIND
+        // for simple single-divergence traces (walk order preserved
+        // within the same kind rank).
+        let b = response_with_tool("search", json!({"q": "x"}), "tool_use");
+        let c = response_with_tool("search", json!({"q": "y"}), "tool_use");
+        let first = detect(&[meta(), b.clone()], &[meta(), c.clone()]).unwrap();
+        let top = detect_top_k(&[meta(), b], &[meta(), c], 1);
+        assert_eq!(top.len(), 1);
+        assert_eq!(top[0].kind, first.kind);
+        assert_eq!(top[0].baseline_turn, first.baseline_turn);
+    }
+
+    #[test]
+    fn first_divergence_is_alignment_order_not_importance_rank() {
+        // Explicit guarantee: `detect()` returns divergence by WALK
+        // order (earliest above-noise cell), not importance. This
+        // preserves backward compat with v1's semantic.
+        let b0 = response_text_only("same across both", "end_turn");
+        let b1 = response_with_tool("search", json!({"q": "x"}), "tool_use");
+        let c0 = response_text_only("completely different response here", "end_turn");
+        let c1 = response_with_tool("lookup", json!({"q": "x"}), "tool_use");
+        // Turn 0 has Decision (text shift); turn 1 has Structural.
+        // top_k will rank Structural #1 (higher class). first() must
+        // still return the turn 0 divergence (walk order).
+        let baseline = vec![meta(), b0, b1];
+        let candidate = vec![meta(), c0, c1];
+        let first = detect(&baseline, &candidate).unwrap();
+        let top = detect_top_k(&baseline, &candidate, 3);
+        assert_eq!(first.baseline_turn, 0);
+        assert_eq!(top[0].baseline_turn, 1); // re-ranked Structural first
+        assert_eq!(top[0].kind, DivergenceKind::Structural);
     }
 }

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "python" / "src"))
@@ -46,7 +45,9 @@ def main() -> int:
         bm25_row = next(r for r in bm25_report["rows"] if r["axis"] == "semantic")
         bm25_sev = bm25_row["severity"]
 
-        emb_row = recompute_semantic_axis(baseline, candidate, embedder, seed=42, n_bootstrap=200)
+        emb_row = recompute_semantic_axis(
+            baseline, candidate, embedder, seed=42, n_bootstrap=200
+        )
         emb_sev = emb_row["severity"]
 
         bm25_caught = SEVERITY_RANK[bm25_sev] >= SEVERITY_RANK[min_sev]
@@ -60,9 +61,7 @@ def main() -> int:
 
         bm25_str = f"{bm25_sev}{'✓' if bm25_caught else '✗'}"
         emb_str = f"{emb_sev}{'✓' if emb_caught else '✗'}"
-        print(
-            f"{name:<24} {min_sev:<10} {bm25_str:<12} {emb_str:<12} {verdict}"
-        )
+        print(f"{name:<24} {min_sev:<10} {bm25_str:<12} {emb_str:<12} {verdict}")
 
     print()
     print(f"cases where embeddings closed a BM25 known-limit: {wins}")

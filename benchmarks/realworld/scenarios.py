@@ -65,7 +65,10 @@ CUSTOMER_SUPPORT_TOOLS_GOOD = [
         "description": "Issue a refund for an order.",
         "input_schema": {
             "type": "object",
-            "properties": {"order_id": {"type": "string"}, "amount": {"type": "number"}},
+            "properties": {
+                "order_id": {"type": "string"},
+                "amount": {"type": "number"},
+            },
             "required": ["order_id"],
         },
     },
@@ -129,7 +132,7 @@ DIFFS = [
     "if x == None: pass  # should be 'is None'",
     "except: pass  # bare except swallows everything",
     "lock.acquire(); do_work()  # no try/finally around release",
-    "sql = f\"SELECT * FROM users WHERE id={user_id}\"  # injection",
+    'sql = f"SELECT * FROM users WHERE id={user_id}"  # injection',
     "assert foo(), 'should work'  # assert for validation",
     "def f(x=[]): x.append(1)  # mutable default",
     "time.sleep(60)  # in an async handler",
@@ -331,7 +334,10 @@ SCENARIO_6 = Scenario(
                 "description": "Edit a file.",
                 "input_schema": {
                     "type": "object",
-                    "properties": {"path": {"type": "string"}, "patch": {"type": "string"}},
+                    "properties": {
+                        "path": {"type": "string"},
+                        "patch": {"type": "string"},
+                    },
                     "required": ["path", "patch"],
                 },
             }
@@ -373,7 +379,10 @@ ABSTRACTS = [
 SCENARIO_7 = Scenario(
     name="07_paper_summarizer",
     description="Paraphrase regression — candidate rewrites keeping meaning but different words.",
-    tasks=[f"Rewrite this abstract in plain English (1-2 sentences):\n{a}" for a in ABSTRACTS],
+    tasks=[
+        f"Rewrite this abstract in plain English (1-2 sentences):\n{a}"
+        for a in ABSTRACTS
+    ],
     baseline=AgentConfig(
         model=MODEL,
         system="Rewrite academic abstracts in plain English. Keep every factual claim.",
@@ -536,7 +545,7 @@ SCENARIO_10 = Scenario(
         system=(
             "You are a SQL generator. Return ONLY a JSON object: "
             '{"sql":"...","params":{...}} where all user values are parameterised '
-            'as :name bindings. Never inline values into the SQL string.'
+            "as :name bindings. Never inline values into the SQL string."
         ),
     ),
     candidate=AgentConfig(
@@ -688,7 +697,10 @@ NEGOTIATION_TOOLS = [
         "description": "Propose a counter-offer.",
         "input_schema": {
             "type": "object",
-            "properties": {"amount": {"type": "number"}, "rationale": {"type": "string"}},
+            "properties": {
+                "amount": {"type": "number"},
+                "rationale": {"type": "string"},
+            },
             "required": ["amount"],
         },
     },

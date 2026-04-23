@@ -74,7 +74,11 @@ class DiffReport(TypedDict):
 
     `first_divergence` is `None` when the two traces agree end-to-end,
     otherwise a `FirstDivergence` describing the first meaningful
-    behavioural delta.
+    behavioural delta (in alignment order).
+
+    `divergences` is the top-K ranked list of divergences, sorted by
+    importance (Structural > Decision > Style, then by confidence).
+    Empty when the two traces agree. Capped at `DEFAULT_K=5` entries.
     """
 
     rows: list[AxisStat]
@@ -82,6 +86,7 @@ class DiffReport(TypedDict):
     candidate_trace_id: str
     pair_count: int
     first_divergence: FirstDivergence | None
+    divergences: list[FirstDivergence]
 
 def parse_agentlog(data: bytes) -> list[dict[str, Any]]:
     """Parse a `.agentlog` byte blob into a list of record dicts.

@@ -149,7 +149,9 @@ def main() -> int:
     parsed_b = _core.parse_agentlog(baseline_path.read_bytes())
     parsed_c = _core.parse_agentlog(candidate_path.read_bytes())
     parse_s = time.perf_counter() - t0
-    print(f"  parsed both back in {parse_s:.2f}s ({len(parsed_b)} + {len(parsed_c)} records)")
+    print(
+        f"  parsed both back in {parse_s:.2f}s ({len(parsed_b)} + {len(parsed_c)} records)"
+    )
 
     t0 = time.perf_counter()
     report = _core.compute_diff_report(parsed_b, parsed_c, None, 42)

@@ -46,29 +46,48 @@ def render_terminal(report: dict[str, Any], console: Console | None = None) -> N
         )
     con.print(table)
     con.print(f"\nworst severity: [{_sev_style(worst)}]{worst}[/]")
-    fd = report.get("first_divergence")
-    if fd:
-        kind = fd.get("kind", "")
-        axis = fd.get("primary_axis", "")
-        bt = fd.get("baseline_turn", 0)
-        ct = fd.get("candidate_turn", 0)
-        conf = fd.get("confidence", 0.0)
-        exp = fd.get("explanation", "")
-        style = {
-            "style_drift": "dim",
-            "decision_drift": "yellow",
-            "structural_drift": "bold red",
-        }.get(kind, "default")
+    # Prefer the top-K `divergences` list when present; fall back to the
+    # scalar `first_divergence` field for backward compat.
+    divergences = report.get("divergences") or []
+    if not divergences and report.get("first_divergence"):
+        divergences = [report["first_divergence"]]
+    if divergences:
+        total = len(divergences)
+        header_word = "top divergences" if total > 1 else "first divergence"
         con.print()
         con.print(
-            f"[bold]first divergence[/]: baseline turn [cyan]#{bt}[/] "
-            f"↔ candidate turn [cyan]#{ct}[/]"
+            f"[bold]{header_word}[/] "
+            f"({min(3, total)} shown" + (f" of {total}" if total > 3 else "") + "):"
         )
-        con.print(
-            f"  kind: [{style}]{kind}[/]  ·  axis: [magenta]{axis}[/]  "
-            f"·  confidence: {conf * 100:.0f}%"
-        )
-        con.print(f"  [italic]{exp}[/]")
+        for idx, dv in enumerate(divergences[:3], start=1):
+            _print_divergence_terminal(con, dv, idx, total)
+        if total > 3:
+            con.print(
+                f"  [dim]+ {total - 3} more divergence(s) "
+                f"(ranks 4-{total}) — see JSON output[/]"
+            )
+
+
+def _print_divergence_terminal(con: Console, dv: dict[str, Any], rank: int, total: int) -> None:
+    kind = dv.get("kind", "")
+    axis = dv.get("primary_axis", "")
+    bt = dv.get("baseline_turn", 0)
+    ct = dv.get("candidate_turn", 0)
+    conf = dv.get("confidence", 0.0)
+    exp = dv.get("explanation", "")
+    style = {
+        "style_drift": "dim",
+        "decision_drift": "yellow",
+        "structural_drift": "bold red",
+    }.get(kind, "default")
+    rank_label = f"#{rank}" if total > 1 else ""
+    prefix = f"[bold]{rank_label}[/] " if rank_label else ""
+    con.print(f"  {prefix}baseline turn [cyan]#{bt}[/] ↔ candidate turn [cyan]#{ct}[/]")
+    con.print(
+        f"    kind: [{style}]{kind}[/]  ·  axis: [magenta]{axis}[/]  "
+        f"·  confidence: {conf * 100:.0f}%"
+    )
+    con.print(f"    [italic]{exp}[/]")
 
 
 _RANK = {"none": 0, "minor": 1, "moderate": 2, "severe": 3}

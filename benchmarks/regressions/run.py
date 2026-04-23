@@ -85,9 +85,7 @@ def main() -> int:
     caught = sum(1 for r in results if r["caught"])
     total = len(results)
     known_limits = [r for r in results if r["known_limit"]]
-    unexpected_misses = [
-        r for r in results if not r["caught"] and not r["known_limit"]
-    ]
+    unexpected_misses = [r for r in results if not r["caught"] and not r["known_limit"]]
     unexpected_catches = [r for r in results if r["caught"] and r["known_limit"]]
 
     if args.json:
@@ -105,7 +103,9 @@ def main() -> int:
         )
     else:
         print(f"Shadow regression benchmark — {caught}/{total} caught\n")
-        print(f"{'case':<24} {'axis':<12} {'expected':<10} {'observed':<10} {'result':<10}")
+        print(
+            f"{'case':<24} {'axis':<12} {'expected':<10} {'observed':<10} {'result':<10}"
+        )
         print("-" * 80)
         for r in results:
             if r["caught"] and not r["known_limit"]:
