@@ -76,14 +76,19 @@ top divergences (3 shown):
   #3  baseline turn #1 ↔ candidate turn #1
       kind: decision_drift    ·  axis: semantic    ·  confidence: 9%
       response text diverged (text similarity 0.21); same tool sequence
+
+recommendations (3):
+  error   REVIEW  Review tool-schema change at turn 0: call shape diverged.
+  error   REVIEW  Review refusal behaviour at turn 2: candidate may be over-refusing.
+  warning REVIEW  Review response text at turn 1: semantic content shifted.
 ```
 
 Each row is one behavioural dimension. The severity column makes it
-obvious where to look — and the **top divergences** list names the
-exact changes responsible, ranked by severity: the candidate's
-`search_files` tool schema gained a `limit` parameter, a later turn
-started refusing, and a third had a semantic shift. Root-cause
-attribution in one glance, no dashboard needed.
+obvious where to look, the **top divergences** list names the exact
+changes responsible, and the **recommendations** list tells you
+*what to do about them* — in one pass, in under 30 seconds, without
+having to click through traces. Root-cause attribution plus
+prescriptive fixes, no dashboard needed.
 
 ## Instrument your own agent
 

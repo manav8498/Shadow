@@ -66,6 +66,30 @@ def render_terminal(report: dict[str, Any], console: Console | None = None) -> N
                 f"  [dim]+ {total - 3} more divergence(s) "
                 f"(ranks 4-{total}) — see JSON output[/]"
             )
+    recommendations = report.get("recommendations") or []
+    if recommendations:
+        con.print()
+        con.print(f"[bold]recommendations[/] ({len(recommendations)}):")
+        for rec in recommendations:
+            _print_recommendation_terminal(con, rec)
+
+
+_REC_STYLE = {
+    "error": "bold red",
+    "warning": "yellow",
+    "info": "cyan",
+}
+
+
+def _print_recommendation_terminal(con: Console, rec: dict[str, Any]) -> None:
+    sev = rec.get("severity", "info")
+    action = rec.get("action", "").upper()
+    message = rec.get("message", "")
+    rationale = rec.get("rationale", "")
+    style = _REC_STYLE.get(sev, "default")
+    con.print(f"  [{style}]{sev:<7}[/] [bold]{action:<7}[/] {message}")
+    if rationale:
+        con.print(f"             [dim italic]{rationale}[/]")
 
 
 def _print_divergence_terminal(con: Console, dv: dict[str, Any], rank: int, total: int) -> None:

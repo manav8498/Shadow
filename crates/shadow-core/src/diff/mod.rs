@@ -24,6 +24,7 @@ pub mod cost;
 pub mod judge;
 pub mod latency;
 pub mod reasoning;
+pub mod recommendations;
 pub mod report;
 pub mod safety;
 pub mod semantic;
@@ -33,6 +34,7 @@ pub mod verbosity;
 pub use alignment::{DivergenceKind, FirstDivergence};
 pub use axes::{Axis, AxisStat, Severity};
 pub use bootstrap::{paired_ci, CiResult};
+pub use recommendations::{ActionKind, Recommendation, RecommendationSeverity};
 pub use report::DiffReport;
 
 /// Extract (baseline_response, candidate_response) pairs by pairing the
@@ -80,14 +82,20 @@ pub fn compute_report(
     ];
     let first_divergence = alignment::detect(baseline, candidate);
     let divergences = alignment::detect_top_k(baseline, candidate, alignment::DEFAULT_K);
-    DiffReport {
+    let mut report = DiffReport {
         rows,
         baseline_trace_id: baseline.first().map(|r| r.id.clone()).unwrap_or_default(),
         candidate_trace_id: candidate.first().map(|r| r.id.clone()).unwrap_or_default(),
         pair_count: pairs.len(),
         first_divergence,
         divergences,
-    }
+        recommendations: Vec::new(),
+    };
+    // Recommendations are derived from the rest of the report, so fill
+    // the field last. Keeps the function ordering natural and avoids
+    // passing the half-built report around.
+    report.recommendations = recommendations::generate(&report);
+    report
 }
 
 #[cfg(test)]
