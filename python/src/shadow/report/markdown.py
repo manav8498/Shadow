@@ -14,14 +14,16 @@ def render_markdown(report: dict[str, Any]) -> str:
         f"**Baseline:** `{_short(report.get('baseline_trace_id', ''))}`  ",
         f"**Candidate:** `{_short(report.get('candidate_trace_id', ''))}`  ",
         "",
-        "| axis | baseline | candidate | delta | 95% CI | severity | n |",
-        "|------|---------:|----------:|------:|:-------|:---------|---:|",
+        "| axis | baseline | candidate | delta | 95% CI | severity | flags | n |",
+        "|------|---------:|----------:|------:|:-------|:---------|:------|---:|",
     ]
     worst = "none"
     for row in report.get("rows", []):
         sev = row.get("severity", "none")
         if _sev_rank(sev) > _sev_rank(worst):
             worst = sev
+        flags = row.get("flags", []) or []
+        flags_str = ", ".join(f"`{f}`" for f in flags) if flags else ""
         lines.append(
             f"| {row.get('axis', '')} "
             f"| {row.get('baseline_median', 0.0):.3f} "
@@ -29,6 +31,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             f"| {row.get('delta', 0.0):+.3f} "
             f"| [{row.get('ci95_low', 0.0):+.2f}, {row.get('ci95_high', 0.0):+.2f}] "
             f"| {_sev_label(sev)} "
+            f"| {flags_str} "
             f"| {row.get('n', 0)} |"
         )
     lines.append("")

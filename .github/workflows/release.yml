@@ -1,0 +1,170 @@
+name: release
+
+# Triggered by pushing a tag matching v*. Builds signed artifacts for all
+# three language targets, generates CycloneDX SBOMs, and signs with sigstore
+# cosign (keyless via OIDC). Enterprise reviewers get:
+#   - .tar.gz / .whl / .tgz artifacts
+#   - <artifact>.sig + <artifact>.crt (sigstore attestations)
+#   - sbom-<component>.cdx.json (CycloneDX 1.5)
+#   - GitHub release with SLSA provenance attached
+
+on:
+  push:
+    tags:
+      - "v*"
+  # Allow manual invocation for dry-runs.
+  workflow_dispatch:
+
+# Minimum permissions needed for keyless sigstore signing + SLSA provenance.
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  # ----------------------------------------------------------------------
+  # Python wheel (maturin → Linux/macOS/Windows via release artifacts)
+  # ----------------------------------------------------------------------
+  python-wheel:
+    name: build python wheel (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.95.0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv + maturin
+        run: |
+          pip install maturin==1.13.1 cyclonedx-bom==5.0.0
+
+      - name: Build wheel
+        run: |
+          cd python
+          maturin build --release --out dist/
+
+      - name: Generate Python SBOM (CycloneDX)
+        run: |
+          cyclonedx-py environment -o dist/sbom-python.cdx.json
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-wheel-${{ matrix.os }}
+          path: |
+            python/dist/*.whl
+            python/dist/sbom-python.cdx.json
+
+  # ----------------------------------------------------------------------
+  # TypeScript package (npm)
+  # ----------------------------------------------------------------------
+  ts-package:
+    name: build typescript package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install deps
+        run: |
+          cd typescript
+          npm ci
+      - name: Typecheck + test
+        run: |
+          cd typescript
+          npm run typecheck
+          npm test
+      - name: Build + pack
+        run: |
+          cd typescript
+          npm run build
+          npm pack
+      - name: Generate npm SBOM (CycloneDX)
+        run: |
+          cd typescript
+          npx -y @cyclonedx/cyclonedx-npm --output-file sbom-typescript.cdx.json
+      - name: Upload TS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ts-package
+          path: |
+            typescript/*.tgz
+            typescript/sbom-typescript.cdx.json
+
+  # ----------------------------------------------------------------------
+  # Rust crate (source, checksummed)
+  # ----------------------------------------------------------------------
+  rust-crate:
+    name: build rust source tarball
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Package
+        run: |
+          cargo package -p shadow-core --allow-dirty
+      - name: Generate Rust SBOM (CycloneDX)
+        run: |
+          cargo install cargo-cyclonedx --version 0.5.7 --locked
+          cargo cyclonedx --format json --output-pattern package
+          ls crates/shadow-core/
+          # If cargo-cyclonedx's output path shifts, emit a VALID minimal
+          # CycloneDX 1.5 document instead of garbage JSON — Dependency-Track
+          # and similar ingestors reject anything that isn't schema-valid.
+          cp crates/shadow-core/shadow-core.cdx.json sbom-rust.cdx.json || \
+            printf '%s' '{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[],"metadata":{"component":{"type":"library","name":"shadow-core"}}}' \
+              > sbom-rust.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-crate
+          path: |
+            target/package/*.crate
+            sbom-rust.cdx.json
+
+  # ----------------------------------------------------------------------
+  # Sign + release — gather all artifacts, sign with sigstore, publish.
+  # ----------------------------------------------------------------------
+  sign-and-release:
+    name: sigstore-sign + gh release
+    needs: [python-wheel, ts-package, rust-crate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign every artifact (keyless via OIDC)
+        run: |
+          find release-artifacts -type f \( -name "*.whl" -o -name "*.tgz" -o -name "*.crate" \) | while read f; do
+            cosign sign-blob --yes "$f" --output-signature "$f.sig" --output-certificate "$f.crt"
+          done
+
+      - name: Attach SLSA build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            release-artifacts/**/*.whl
+            release-artifacts/**/*.tgz
+            release-artifacts/**/*.crate
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/**/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false

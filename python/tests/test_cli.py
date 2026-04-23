@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from typer.testing import CliRunner
 
@@ -33,6 +34,46 @@ def test_init_creates_shadow_dir(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert (tmp_path / ".shadow" / "traces").is_dir()
     assert (tmp_path / ".shadow" / "config.toml").is_file()
+
+
+def test_diff_with_judge_sanity_populates_axis_8(tmp_path: Path, monkeypatch: Any) -> None:
+    """`diff --judge sanity` replaces the empty axis-8 row with a real one."""
+    baseline = tmp_path / "b.agentlog"
+    candidate = tmp_path / "c.agentlog"
+    _make_trace(baseline, latency_ms=100, text="Paris is the capital of France.")
+    _make_trace(candidate, latency_ms=100, text="Paris.")
+
+    # Patch SanityJudge to return a deterministic verdict without a real LLM.
+    async def fake_score(
+        self: Any, b: dict[str, Any], c: dict[str, Any], ctx: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return {"verdict": "equal", "confidence": 0.9, "reason": "same answer", "score": 1.0}
+
+    from shadow.judge import sanity as sanity_mod
+
+    monkeypatch.setattr(sanity_mod.SanityJudge, "score_pair", fake_score)
+
+    out_json = tmp_path / "report.json"
+    result = runner.invoke(
+        app,
+        [
+            "diff",
+            str(baseline),
+            str(candidate),
+            "--judge",
+            "sanity",
+            "--judge-backend",
+            "mock",
+            "--output-json",
+            str(out_json),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(out_json.read_text())
+    judge_row = next(r for r in data["rows"] if r["axis"] == "judge")
+    assert judge_row["n"] == 1
+    assert judge_row["candidate_median"] == 1.0
+    assert judge_row["severity"] == "none"
 
 
 def test_diff_produces_a_nine_axis_report(tmp_path: Path) -> None:
