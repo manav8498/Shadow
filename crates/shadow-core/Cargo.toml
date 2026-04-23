@@ -60,7 +60,7 @@ rusqlite = { version = "=0.32.1", features = ["bundled"] }
 thiserror = "=2.0.18"
 rand = "=0.8.6"
 rand_distr = "=0.4.3"
-statrs = "=0.17.1"
+statrs = "=0.18.0"
 tracing = "=0.1.41"
 unicode-normalization = "=0.1.24"
 pyo3 = { version = "=0.22.6", features = ["abi3-py311"], optional = true }
