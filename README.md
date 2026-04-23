@@ -7,21 +7,24 @@
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
-**A behavioural diff tool for LLM agents.**
+**Behavioural code review for LLM agents.**
 Shadow records the calls your agent makes to Claude or GPT, replays them
-against a new config, and shows you exactly what changed — right in your
-pull request.
+against a new config, and tells you — right on the pull request —
+*what changed, why it changed, and what to do about it.*
 
 ## What problem it solves
 
-When you change a prompt, swap a model, or edit a tool schema, the agent
-still runs. It just behaves differently. Accuracy dashboards don't catch
-this kind of drift, and by the time a customer complains the change has
-already shipped.
+A diff tool for code breaks when the change is a prompt edit, a model
+swap, or a tool-schema rename. The agent still runs. It just behaves
+differently. The regression ships, the customer complains, and nobody
+knows which line of the PR caused it.
 
-Shadow compares the before-and-after behaviour on a fixed set of traces
-and reports exactly how the agent changed — across nine dimensions, with
-statistical confidence.
+Shadow reviews the PR the way a senior engineer would: compares the
+before-and-after behaviour on a fixed set of traces, ranks divergences
+by severity across nine dimensions with statistical confidence, names
+the first point the candidate diverged from the baseline, attributes
+each dimension's regression to the specific config delta that caused
+it, and ends with a short list of concrete fixes.
 
 ## How it works
 
@@ -171,6 +174,7 @@ Every example runs offline from committed fixtures. No API key required:
 | `shadow replay <cfg> --baseline <trace>` | Replay baseline through a new config |
 | `shadow diff <baseline> <candidate>` | Nine-axis behavioural diff |
 | `shadow bisect <cfg-a> <cfg-b> --traces <set>` | Which config delta moved which axis |
+| `shadow schema-watch <cfg-a> <cfg-b>` | Classify tool-schema changes (renames, breaking edits) before replaying |
 | `shadow report <report.json>` | Re-render a diff as terminal / markdown / PR-comment |
 
 ## Project layout

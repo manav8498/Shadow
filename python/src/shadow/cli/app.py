@@ -719,6 +719,95 @@ def serve(
         _fail(e)
 
 
+# ---- schema-watch ---------------------------------------------------------
+
+
+class SchemaWatchFormat(StrEnum):
+    """Output formats for `shadow schema-watch`."""
+
+    terminal = "terminal"
+    markdown = "markdown"
+    json = "json"
+
+
+@app.command("schema-watch")
+def schema_watch_cmd(
+    old_config: Annotated[Path, typer.Argument(help="Baseline config YAML")],
+    new_config: Annotated[Path, typer.Argument(help="Candidate config YAML")],
+    fmt: Annotated[
+        SchemaWatchFormat,
+        typer.Option("--format", "-f", help="Output format"),
+    ] = SchemaWatchFormat.terminal,
+    fail_on: Annotated[
+        str,
+        typer.Option(
+            "--fail-on",
+            help="Exit non-zero when a change of at least this severity is found. "
+            "One of: breaking, risky, additive, neutral, none.",
+        ),
+    ] = "breaking",
+) -> None:
+    """Classify tool-schema changes between two configs without replaying.
+
+    Cheap, proactive check for tool-schema regressions (renames, dropped
+    required params, enum narrowing). Designed to run first in CI —
+    before `shadow diff` — so PRs get a fast signal on whether any
+    schema edits are agent-breaking.
+
+    Exit code: 1 if any change at --fail-on severity or higher is
+    detected; 0 otherwise.
+    """
+    from shadow.schema_watch import (
+        Severity,
+        render_markdown,
+        render_terminal,
+        watch_files,
+    )
+
+    severity_order = {
+        "breaking": 0,
+        "risky": 1,
+        "additive": 2,
+        "neutral": 3,
+        "none": 99,
+    }
+    if fail_on not in severity_order:
+        err_console.print(
+            f"[red]error[/]: --fail-on must be one of " f"{', '.join(severity_order.keys())}"
+        )
+        raise typer.Exit(code=2)
+
+    try:
+        report = watch_files(old_config, new_config)
+    except ShadowError as e:
+        _fail(e)
+        return
+    except Exception as e:
+        _fail(e)
+        return
+
+    if fmt is SchemaWatchFormat.terminal:
+        console.print(render_terminal(report))
+    elif fmt is SchemaWatchFormat.markdown:
+        sys.stdout.write(render_markdown(report))
+    else:
+        sys.stdout.write(json.dumps(report.to_dict(), indent=2) + "\n")
+
+    threshold = severity_order[fail_on]
+    observed = {
+        Severity.BREAKING: 0,
+        Severity.RISKY: 1,
+        Severity.ADDITIVE: 2,
+        Severity.NEUTRAL: 3,
+    }
+    worst = min(
+        (observed[c.severity] for c in report.changes),
+        default=99,
+    )
+    if worst <= threshold:
+        raise typer.Exit(code=1)
+
+
 # ---- version (hidden convenience) -----------------------------------------
 
 
