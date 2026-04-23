@@ -43,17 +43,23 @@ use crate::agentlog::{Kind, Record};
 use crate::diff::axes::Axis;
 
 /// Classification of the first divergence between two traces.
+///
+/// Serialises with a consistent `_drift` suffix across Rust's `label()`,
+/// serde JSON output, and Python-side string representation so the same
+/// value appears identically everywhere a consumer might see it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum DivergenceKind {
     /// Cosmetic wording only: semantic similarity high, tool shape
     /// identical, stop reason identical. Safe-to-merge signal, usually.
+    #[serde(rename = "style_drift")]
     Style,
     /// Same structure, different decision: arg values differ, refusal
     /// flipped, or final-answer semantics shifted meaningfully.
+    #[serde(rename = "decision_drift")]
     Decision,
     /// Tool-call sequence differs: insertion, deletion, or reorder.
     /// This is almost always a real behavioural regression.
+    #[serde(rename = "structural_drift")]
     Structural,
 }
 
@@ -342,22 +348,53 @@ fn jaccard(a: &BTreeSet<String>, b: &BTreeSet<String>) -> f64 {
     }
 }
 
-/// Lightweight text-similarity proxy: character-shingle Jaccard. We
-/// avoid bringing in embeddings here because this module is in the
-/// Rust core and must not take a heavy ML dep. The Python layer can
-/// upgrade this via a similarity callback in v0.2.
+/// Lightweight text-similarity proxy: character-shingle Jaccard over
+/// whitespace-normalised text. We avoid bringing in embeddings here
+/// because this module is in the Rust core and must not take a heavy
+/// ML dep. The Python layer can upgrade this via a similarity callback
+/// in v0.2.
 ///
-/// For empty strings, returns 1.0 (both empty → identical).
+/// Whitespace is normalised (collapsed and trimmed) before shingling:
+/// `"ok"` and `"o k"` should be treated as identical, not as totally
+/// different strings — whitespace-only diffs are the canonical style-
+/// drift signal and must not survive into the similarity score.
+///
+/// For empty (post-normalisation) strings, returns 1.0.
 fn text_similarity(a: &str, b: &str) -> f64 {
-    if a.is_empty() && b.is_empty() {
+    let na = normalise_whitespace(a);
+    let nb = normalise_whitespace(b);
+    if na.is_empty() && nb.is_empty() {
         return 1.0;
     }
-    if a == b {
+    if na == nb {
         return 1.0;
     }
-    let sa = shingles(a, 4);
-    let sb = shingles(b, 4);
+    let sa = shingles(&na, 4);
+    let sb = shingles(&nb, 4);
     jaccard(&sa, &sb)
+}
+
+/// Collapse runs of whitespace into a single space and trim edges.
+/// Whitespace-only differences aren't meaningful semantic signal for
+/// the alignment cost function.
+fn normalise_whitespace(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_ws = false;
+    for ch in s.chars() {
+        if ch.is_whitespace() {
+            if !in_ws && !out.is_empty() {
+                out.push(' ');
+            }
+            in_ws = true;
+        } else {
+            out.push(ch);
+            in_ws = false;
+        }
+    }
+    if out.ends_with(' ') {
+        out.pop();
+    }
+    out
 }
 
 fn shingles(s: &str, k: usize) -> BTreeSet<String> {
@@ -398,14 +435,22 @@ fn walk_for_first_divergence(
                 // `b_cursor - 1` and `b_cursor` on the baseline side.
                 let cand = candidate[j];
                 let insertion_point = b_cursor;
+                let n_tools = tool_shape(cand).len();
+                let detail = if n_tools == 0 {
+                    "an extra response turn with no tool calls".to_string()
+                } else if n_tools == 1 {
+                    "an extra turn with 1 tool call".to_string()
+                } else {
+                    format!("an extra turn with {n_tools} tool calls")
+                };
                 return Some(FirstDivergence {
                     baseline_turn: insertion_point,
                     candidate_turn: j,
                     kind: DivergenceKind::Structural,
                     primary_axis: Axis::Trajectory,
                     explanation: format!(
-                        "candidate turn {j} has no baseline counterpart — inserted {} tool call(s) / response",
-                        tool_shape(cand).len()
+                        "candidate inserted {detail} between baseline turns #{prev} and #{insertion_point}",
+                        prev = insertion_point.saturating_sub(1),
                     ),
                     confidence: 1.0,
                 });
@@ -413,14 +458,21 @@ fn walk_for_first_divergence(
             Step::DeleteBaseline(i) => {
                 let b = baseline[i];
                 let deletion_point = c_cursor;
+                let n_tools = tool_shape(b).len();
+                let detail = if n_tools == 0 {
+                    "a response turn with no tool calls".to_string()
+                } else if n_tools == 1 {
+                    "a turn with 1 tool call".to_string()
+                } else {
+                    format!("a turn with {n_tools} tool calls")
+                };
                 return Some(FirstDivergence {
                     baseline_turn: i,
                     candidate_turn: deletion_point,
                     kind: DivergenceKind::Structural,
                     primary_axis: Axis::Trajectory,
                     explanation: format!(
-                        "baseline turn {i} has no candidate counterpart — candidate dropped {} tool call(s) / response",
-                        tool_shape(b).len()
+                        "candidate dropped {detail} (baseline turn #{i} has no counterpart)",
                     ),
                     confidence: 1.0,
                 });
