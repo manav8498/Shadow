@@ -6,9 +6,16 @@ members = ["crates/shadow-core"]
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.95"
-license = "MIT"
+# Dual-licensed per Rust community convention (tokio, serde, ruff, uv, polars).
+# Apache-2.0 adds an explicit patent grant; MIT keeps embedding friction low.
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/manav8498/Shadow"
+homepage = "https://github.com/manav8498/Shadow"
 authors = ["manav8498"]
+keywords = ["llm", "agents", "testing", "observability", "diff"]
+categories = ["development-tools::testing", "command-line-utilities"]
+# NOTE: `readme` is set per-crate (not inherited) because cargo resolves
+# readme paths relative to each crate's Cargo.toml, not the workspace root.
 
 # See CLAUDE.md §Coding conventions. Clippy lints that forbid panics in
 # non-test code are applied per-crate via inner attributes (lib.rs) rather

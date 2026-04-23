@@ -331,9 +331,30 @@ The content hash in §6 is computed over the **canonical form** of the
 payload. Canonicalization is lossless for the value space defined here:
 the same logical payload always serializes to the same bytes.
 
-This section defines the canonicalization. Implementations MAY use
-[RFC 8785](https://www.rfc-editor.org/rfc/rfc8785) (JCS) directly; the
-rules below are equivalent to JCS with one clarification (§5.4).
+This section defines Shadow's canonicalization, which is **inspired by
+but not byte-identical to** [RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)
+(JCS). Shadow's canonical form deliberately diverges from JCS in two
+places, documented below. Consequently, a Shadow content-id (SHA-256
+of canonical bytes) will generally **not** match the hash produced by
+a strict JCS implementation of the same JSON value; callers who need
+JCS-interop should canonicalize with a JCS library before hashing.
+
+Divergences from RFC 8785:
+
+1. **Key sorting order.** JCS sorts object keys by the UTF-16
+   code-unit sequence of each key (RFC 8785 §3.2.3). Shadow sorts by
+   the UTF-8 byte sequence (§5.1 below). For ASCII keys the two are
+   equivalent; for non-BMP keys the orderings differ.
+2. **Unicode normalization.** JCS forbids normalization
+   (RFC 8785 §3.2: "implementations MUST preserve Unicode string data
+   'as is'"). Shadow applies NFC to every string and key (§5.2), so
+   producers encoding the same logical character differently (e.g.
+   precomposed vs decomposed "é") still dedup to one record.
+
+These divergences are deliberate — the UTF-8 sort simplifies the Rust
+implementation, and NFC fixes a real dedup failure we hit early in
+v0.1. If a future spec revision removes them, content-ids would
+change, so bumping the spec `version` field from `"0.1"` is required.
 
 ### §5.1 Structure
 
@@ -435,10 +456,10 @@ serialization (§5) and content addressing (§6).
 | SHA-256 digest (hex) | `93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588` |
 | Content id | `sha256:93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588` |
 
-Shadow's Rust core pins this vector in
-`crates/shadow-core/tests/canonical_vectors.rs` (Phase 2). Other
-implementations SHOULD pin the same vector so a round-trip can be
-verified byte-for-byte across implementations.
+Shadow's Rust core pins this vector as a unit test in
+`crates/shadow-core/src/agentlog/hash.rs`. Other implementations
+SHOULD pin the same vector so a round-trip can be verified
+byte-for-byte across implementations.
 
 ## §6 Content addressing
 

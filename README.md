@@ -1,273 +1,202 @@
 # Shadow
 
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
-[![license](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](#license)
+[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
 [![version](https://img.shields.io/badge/version-0.1.0-brightgreen.svg)](CHANGELOG.md)
+[![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
+[![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
-> **Git-native behavioral diff and shadow deployment for LLM agents.**
-> Codecov for AI agents — replay production traces against a proposed
-> config change, get a nine-axis behavioral diff in your PR, and
-> automatically bisect which change caused which regression.
+> **Catch AI-agent regressions before they hit production.**
+> Shadow is a PR-native diff tool for LLM agents — think "Codecov, but for
+> your Claude / GPT agents."
 
-<!-- TODO(v0.2): replace with a real recorded demo GIF.
-     Generate with: bash examples/demo/demo.sh | asciinema rec | agg out.gif -->
-![demo — TODO: record and embed](.github/assets/demo.gif)
+## The problem
 
-*(Demo GIF placeholder — the `just demo` command reproduces the terminal
-output shown below. See [`examples/demo/`](examples/demo/) for the exact
-script.)*
+You change a prompt. Or upgrade the model. Or tweak a tool schema.
+Everything still looks fine in staging. Then a week later a customer
+complains the agent is acting weird.
 
-## Why Shadow?
+Sound familiar? That's because most LLM regressions are **behavioural,
+not functional** — the agent still runs, it just decides differently.
+Accuracy dashboards don't catch this. By the time they do, you've
+already shipped the bug.
 
-Every AI team hits this problem weekly: a model drops
-(`claude-opus-4-6` → `4-7`), a prompt gets edited, or a tool schema
-changes. Nobody knows what silently regressed in production until a user
-complains.
-
-Existing observability products are dashboards you log into *after*
-something is broken. **Shadow lives in the PR** — it tells you, before
-you merge, that the candidate config produces 4× the latency, 2× the
-verbosity, and a 33% increase in safety refusals, all attributable to
-your prompt edit and not the model bump.
-
-### What makes it different
-
-| | Langfuse | Braintrust | LangSmith | **Shadow** |
-|---|---|---|---|---|
-| Dashboard to visit | ✓ | ✓ | ✓ | PR comment |
-| Self-hostable | ✓ | — | — | ✓ (local-only in v0.1) |
-| Replay prod against new config | ✓ | ✓ | ✓ | ✓ |
-| Behavioral diff across N axes | — | partial (custom scorers) | partial | **9 axes, bootstrapped CIs** |
-| Causal bisection | — | — | — | **LASSO + Plackett-Burman** |
-| Content-addressed trace format (OSS spec) | — | — | — | **SPEC.md (Apache-2.0)** |
-| CI-native | partial | partial | partial | **composite GitHub Action** |
-
-Shadow is narrower in scope (no hosted UI, no cross-org trace
-sharing) but sharper on the "does this PR regress things?" question
-that owns you at 3 AM.
-
-## Quickstart (60 seconds)
-
-```bash
-git clone https://github.com/manav8498/Shadow
-cd shadow
-just setup          # user-local rustup if needed, then uv venv, maturin develop
-just demo           # runs examples/demo/demo.sh — MockLLM, no network
-```
-
-Expected: the 9-axis diff table prints in your terminal in ≈1 s.
-
-<details>
-<summary>Sample output (abbreviated)</summary>
-
-```
-Shadow diff — 3 response pair(s)
-axis              baseline  candidate  delta        95% CI            severity
-semantic             1.000      0.732  -0.268   [-0.31, -0.25]        moderate
-trajectory           0.000      0.000  +0.000   [+0.00, +1.00]            none
-safety               0.000      0.333  +0.333   [+0.00, +1.00]            none
-verbosity           26.000     52.000 +26.000   [-17.00, +40.00]        severe
-latency             98.000    412.000 +314.000  [+314.00, +419.00]      severe
-cost                 0.000      0.000  +0.000   [+0.00, +0.00]            none
-reasoning            0.000      0.000  +0.000   [+0.00, +0.00]            none
-judge                0.000      0.000  +0.000   [+0.00, +0.00]            none
-conformance          0.000      0.000  +0.000   [+0.00, +0.00]            none
-worst severity: severe
-```
-</details>
-
-Then point it at your own code:
-
-```bash
-cd path/to/your/agent/repo
-shadow init
-# instrument your agent with shadow.sdk.Session (see examples/demo/agent.py)
-python my_agent.py   # produces .shadow/traces/*.agentlog
-shadow replay candidate-config.yaml --baseline path/to/baseline.agentlog
-shadow diff path/to/baseline.agentlog .shadow/replays/latest.agentlog
-```
+**Shadow catches it in the pull request, before merge.**
 
 ## How it works
 
-### Architecture
+Shadow has three simple steps:
 
-```mermaid
-flowchart LR
-    A[agent.py] -->|anthropic / openai client| B[shadow.sdk<br/>Session]
-    B -->|redact + canonical JSON<br/>+ SHA-256| C[.agentlog<br/>records]
-    C --> D[(content-addressed<br/>blob store)]
-    C --> E[(SQLite index)]
-    D --> F[replay engine]
-    F -->|new config| G[candidate<br/>.agentlog]
-    D --> H[9-axis differ]
-    G --> H
-    H --> I[DiffReport]
-    I --> J[LASSO bisect]
-    J --> K[attribution]
-    I --> L[terminal / markdown /<br/>GitHub Action PR comment]
-    K --> L
+1. **Record** — your agent talks to OpenAI / Anthropic normally.
+   Shadow's SDK silently saves every request and response to a
+   `.agentlog` file. Nothing in your code changes.
+2. **Replay** — in CI, Shadow takes those saved requests and runs them
+   through your new config (new prompt, new model, whatever changed).
+   Gets new responses.
+3. **Diff** — Shadow compares old vs new responses across **nine
+   behavioural dimensions** — meaning, tool use, refusals, verbosity,
+   speed, cost, reasoning depth, LLM-judge score, and output format.
+   Posts the report as a PR comment.
+
+If anything moved in a statistically meaningful way, you see it
+**before** merging. If multiple things changed at once, Shadow can
+tell you **which change caused which regression** (we call this
+"bisection" — it's the bit no other tool does).
+
+## Try it
+
+```bash
+git clone https://github.com/manav8498/Shadow && cd Shadow
+just setup    # installs rust + python deps, builds the native extension
+just demo     # runs an end-to-end diff in < 10 seconds, no API key needed
 ```
 
-Five stages — record (Python SDK), store (content-addressed FS +
-SQLite), replay (pluggable backend), diff (nine axes, bootstrap CI,
-severity classification), bisect (LASSO over a Plackett-Burman design).
+You'll see a table like this:
 
-### Record → Replay → Diff
-
-```mermaid
-sequenceDiagram
-    participant Agent
-    participant Session as shadow.sdk.Session
-    participant LLM as Anthropic/OpenAI
-    participant Replay as shadow replay
-    participant Diff as shadow diff
-
-    Note over Session: redaction on by default
-    Agent->>LLM: request (config A)
-    LLM-->>Agent: response
-    Agent->>Session: record_chat(request, response)
-    Session->>Session: canonical JSON + SHA-256 → .agentlog
-    Note over Replay: later, in CI
-    Replay->>Replay: load baseline + candidate config B
-    Replay->>LLM: replay requests under B (or MockLLM)
-    LLM-->>Replay: new responses
-    Replay->>Diff: baseline.agentlog, candidate.agentlog
-    Diff->>Diff: 9 axes × bootstrap CI × severity
-    Diff-->>Agent: PR comment (severity table)
+```
+axis         baseline  candidate     delta     severity
+─────────────────────────────────────────────────────────
+semantic        1.000      0.435    -0.565     severe
+trajectory      0.000      0.000    +0.000     none
+safety          0.000      0.333    +0.333     severe
+verbosity      26.000     52.000   +26.000     minor
+latency        98.000    412.000  +314.000     severe
+cost            0.000      0.000    +0.000     none
+reasoning       0.000      0.000    +0.000     none
+judge           0.000      0.000    +0.000     none
+conformance     1.000      0.000    -1.000     severe
 ```
 
-### Bisection
+Four severe regressions — meaning the agent is behaving very
+differently, even if both versions still technically "work."
 
-```mermaid
-flowchart TB
-    A[config A vs config B] --> B[typed deltas<br/>model, params, prompt,<br/>tool schemas]
-    B --> C{k ≤ 6?}
-    C -->|yes| D[2^k full factorial]
-    C -->|no| E[Plackett-Burman<br/>next multiple of 4 ≥ k+1]
-    D --> F[replay at each corner]
-    E --> F
-    F --> G[per-axis divergence<br/>matrix runs × 9]
-    G --> H[LASSO fit per axis<br/>sklearn]
-    H --> I[ranked attribution<br/>86% trajectory ← tool schema<br/>12% ← system prompt<br/>2% ← model swap]
+## Instrument your own agent
+
+```python
+from shadow.sdk import Session
+
+with Session(output_path="trace.agentlog"):
+    # Your existing Anthropic / OpenAI code. No changes.
+    client.messages.create(model="claude-sonnet-4-6", messages=[...])
 ```
 
-## CLI
+That's it. Shadow automatically patches the Anthropic and OpenAI Python
+SDKs (and their TypeScript equivalents) to capture every request and
+response. Secrets are redacted by default.
 
-| Command | What it does |
+Then in CI:
+
+```bash
+shadow replay new-config.yaml --baseline trace.agentlog
+shadow diff trace.agentlog candidate.agentlog
+shadow bisect old-config.yaml new-config.yaml --traces trace.agentlog
+```
+
+## How it compares
+
+|  | Langfuse | Braintrust | LangSmith | **Shadow** |
+|---|:---:|:---:|:---:|:---:|
+| Raw trace logging | ✅ | ✅ | ✅ | ✅ |
+| Dashboard UI | ✅ | ✅ | ✅ | — *(by design)* |
+| Self-hostable | ✅ | — | — | ✅ |
+| PR comment from CI | ~ | ~ | ~ | ✅ |
+| **9 pre-built behavioural axes** | — | — | — | ✅ |
+| **Causal bisection** (which change broke which axis) | — | — | — | ✅ |
+| **Content-addressed trace format** (open spec) | — | — | — | ✅ |
+
+Shadow is narrower than a full observability platform — no hosted UI,
+no cross-org trace sharing. It's focused on the specific question:
+"did this PR make my agent worse?"
+
+## The nine axes
+
+Each axis is measured independently with a bootstrap 95% confidence
+interval and a severity (none / minor / moderate / severe):
+
+| # | Axis | What it measures |
+|--:|---|---|
+| 1 | `semantic` | How different are the outputs' meanings? |
+| 2 | `trajectory` | Did the agent use a different sequence of tools? |
+| 3 | `safety` | Did refusal rates change? |
+| 4 | `verbosity` | Are outputs longer or shorter? |
+| 5 | `latency` | Is it slower or faster? |
+| 6 | `cost` | Are token costs up or down? |
+| 7 | `reasoning` | Is the agent thinking less / more? |
+| 8 | `judge` | Your own LLM-judge rubric (optional). |
+| 9 | `conformance` | Does the output still match the expected structure? |
+
+Full details in [`SPEC.md`](SPEC.md).
+
+## Examples to learn from
+
+Every example runs offline from committed fixtures. No API key required:
+
+| Example | What it shows |
 |---|---|
-| `shadow init` | Scaffold `.shadow/` with config, sharded trace dir, SQLite index |
-| `shadow record -- <cmd>` | Run `<cmd>` with `SHADOW_SESSION_OUTPUT` set, subprocess captures |
-| `shadow replay <cfg> --baseline <trace>` | Replay baseline requests against `<cfg>`; writes a candidate `.agentlog` |
-| `shadow diff <baseline> <candidate>` | Nine-axis diff with bootstrap CIs; optional `--output-json` |
-| `shadow bisect <cfg-a> <cfg-b> --traces <set> [--backend anthropic\|openai\|positional]` | Causal attribution. With `--backend` runs full LASSO-over-corners (real replay per corner); otherwise heuristic allocator. |
-| `shadow report <report.json> --format {terminal,markdown,github-pr}` | Re-render a saved DiffReport |
+| [`examples/demo/`](examples/demo/) | Fastest working example — `just demo` |
+| [`examples/customer-support/`](examples/customer-support/) | Refund bot that regresses after a prompt edit |
+| [`examples/devops-agent/`](examples/devops-agent/) | Prod-DB agent with a tool-ordering bug |
+| [`examples/er-triage/`](examples/er-triage/) | High-stakes clinical-style agent |
+| [`examples/edge-cases/`](examples/edge-cases/) | 20 adversarial cases — permanent regression guard |
+| [`examples/acme-extreme/`](examples/acme-extreme/) | End-to-end scenario exercising every Shadow feature |
+| [`examples/integrations/`](examples/integrations/) | Push traces to Datadog, Splunk, and any OTel collector |
 
-See `CLAUDE.md` §Coding conventions for the exact error-message format
-(every error ends with a `hint:` line).
+## Current limitations (v0.1)
 
-## The `.agentlog` format
+Up-front honesty is better than surprises later:
 
-Open spec in [`SPEC.md`](SPEC.md) — Apache-2.0, dual-licensed separately
-from the MIT-licensed implementation. Headlines:
+- **Local-only** — traces live on your disk. No cloud, no cross-team sharing.
+- **Embeddings are optional** — the semantic axis uses a fast TF-IDF
+  default; for real embeddings install `shadow[embeddings]`.
+- **Judge axis is opt-in** — you bring your own rubric. Shadow doesn't
+  ship a default one (it'd be domain-specific and therefore wrong).
+- **CI tested on Linux + macOS only** — Windows isn't tested in v0.1.
 
-- **JSON Lines**, one record per line, streaming-safe.
-- **Content-addressed**: `id = sha256(canonical_json(payload))`
-  (RFC 8785 JCS + Unicode NFC). Two identical requests dedupe to one
-  blob (§6.1).
-- **OpenTelemetry GenAI compatible** — every field maps onto the OTel
-  semantic conventions (§7).
-- **Redaction-by-default** at record boundaries, with a per-key
-  allowlist (§9).
-- **Known-vector conformance test** (§5.6): `{"hello":"world"}` →
-  `sha256:93a23971…681588`.
+## CLI reference
 
-## GitHub Action
-
-Composite action under [`.github/actions/shadow-action/`](.github/actions/shadow-action/).
-Post a nine-axis PR comment on every PR that touches your prompts or
-configs:
-
-```yaml
-- uses: manav8498/Shadow/.github/actions/shadow-action@v0.1.0
-  with:
-    baseline: path/to/baseline.agentlog
-    candidate: path/to/candidate.agentlog   # produced earlier in the workflow
-    pricing: path/to/pricing.json           # optional
-```
-
-Sample PR comment in [`docs/sample-pr-comment.md`](docs/sample-pr-comment.md).
-
-## Worked examples
-
-Five scenarios, all runnable offline from committed fixtures:
-
-| Directory | What it shows |
+| Command | Does |
 |---|---|
-| [`examples/demo/`](examples/demo/) | `just demo` — the 1-second smoke test. |
-| [`examples/customer-support/`](examples/customer-support/) | Acme refund bot; PR drops confirm-before-refund. |
-| [`examples/er-triage/`](examples/er-triage/) | Clinical triage (5 patients); high-stakes. |
-| [`examples/devops-agent/`](examples/devops-agent/) | Prod-DB agent (10 tools); tests tool-ORDER reversal. |
-| [`examples/edge-cases/`](examples/edge-cases/) | 20-case adversarial probe — permanent regression guard. |
+| `shadow init` | Scaffold a `.shadow/` folder in the current repo |
+| `shadow record -- <cmd>` | Run `<cmd>`, auto-capture its LLM calls |
+| `shadow replay <cfg> --baseline <trace>` | Replay baseline through new config |
+| `shadow diff <baseline> <candidate>` | Nine-axis behavioural diff |
+| `shadow bisect <cfg-a> <cfg-b> --traces <set>` | Which config delta caused which axis to move |
+| `shadow report <report.json>` | Re-render a diff as terminal / markdown / PR-comment |
 
-Each has its own `WALKTHROUGH.md` narrating what it demonstrates and,
-honestly, what Shadow doesn't catch. See [`examples/README.md`](examples/README.md)
-for the full tour.
+## Project layout
 
-## Limitations (v0.1)
-
-Deliberate scope cuts — honesty up front beats discovering them after
-you've adopted:
-
-- **Local-only.** Traces live on disk + SQLite; no cloud, no remote
-  sharing. Exporters for Langfuse / Braintrust / LangSmith map cleanly
-  from the `.agentlog` format but aren't shipped in v0.1 (SPEC §11).
-- **Semantic axis uses a hash surrogate in pure-Rust tests.**
-  Production embeddings (`sentence-transformers/all-MiniLM-L6-v2`) live
-  in the Python layer and require the `[embeddings]` extra.
-- **Bisection has three modes.** With `--backend {anthropic,openai}`,
-  Shadow runs the real **LASSO-over-corners** scorer: build a 2^k
-  full-factorial design across the differing config categories
-  (`model`, `prompt`, `params`, `tools`), replay the baseline through
-  the live backend at each corner, compute the nine-axis divergence,
-  and fit LASSO per axis. With `--candidate-traces <path>` (no
-  backend), Shadow falls back to a heuristic kind-based allocator that
-  maps each delta-category to axes it can plausibly affect. With
-  neither, it returns zero weights and warns.
-- **No auto-instrumentation** of `anthropic` / `openai` Python clients.
-  Users instrument manually with `shadow.sdk.Session.record_chat()`.
-- **Judge axis is a Protocol, no default implementation.** Users
-  supply their own rubric. This is deliberate: defaulting to any
-  particular rubric would be domain hardcoding.
-- **CI: Ubuntu + macOS only.** Windows isn't tested in v0.1.
-- **Redaction is record-boundary, not token-level** (SPEC §1.2).
-
-## Contributing
-
-- New contributor? Start with [`CONTRIBUTING.md`](CONTRIBUTING.md) —
-  setup, inner loop, how a PR gets reviewed.
-- Proposing a new diff axis or a domain-specific detector? Read
-  [`CONTRIBUTING.md §The Judge axis and domain rules`](CONTRIBUTING.md#the-judge-axis-and-domain-rules)
-  first; the answer is often "this belongs in a Judge, not the core."
-- [`CLAUDE.md`](CLAUDE.md) is the architecture + conventions
-  source-of-truth for maintainers and deeper contributors.
-- [`ROADMAP.md`](ROADMAP.md) is where v0.2+ plans live; pick an item
-  and open a PR or issue.
-
-We follow the [Contributor Covenant v2.1](CODE_OF_CONDUCT.md).
-
-## Security
-
-Please do NOT file security issues publicly — see
-[`SECURITY.md`](SECURITY.md) for the private reporting channel and what's
-in scope.
+```
+Shadow/
+├── SPEC.md                    Open spec for the .agentlog format
+├── crates/shadow-core/        Rust: parser, differ, replay, bisect
+├── python/src/shadow/         Python SDK + CLI (wraps the Rust core)
+├── typescript/                TypeScript SDK (same wire protocol)
+├── examples/                  Runnable scenarios
+└── .github/actions/           Reusable GitHub Action for PR comments
+```
 
 ## License
 
-- Implementation code: **MIT** (see [`LICENSE`](LICENSE)).
-- `SPEC.md` (the `.agentlog` format): **Apache-2.0** (see
-  [`docs/SPEC-LICENSE.md`](docs/SPEC-LICENSE.md)).
+- **Code** (Rust + Python + TypeScript): dual **[MIT](LICENSE-MIT) OR
+  [Apache-2.0](LICENSE-APACHE)** — pick either, matching the Rust
+  ecosystem default.
+- **Spec** (`SPEC.md`): **[Apache-2.0](LICENSE-SPEC)** only — so anyone
+  can build a compatible `.agentlog` reader or writer without patent
+  risk.
+- **Name "Shadow" and logo**: see [TRADEMARK.md](TRADEMARK.md).
 
-Dual-licensing is deliberate: anyone can re-implement the `.agentlog`
-format under any license, while the reference implementation stays
-MIT.
+## Community
+
+- **Questions / help**: [GitHub Discussions](https://github.com/manav8498/Shadow/discussions)
+- **Bugs / features**: [GitHub Issues](https://github.com/manav8498/Shadow/issues)
+- **Security**: [SECURITY.md](SECURITY.md) (private disclosure via GitHub)
+- **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Governance**: [GOVERNANCE.md](GOVERNANCE.md) · [MAINTAINERS.md](MAINTAINERS.md)
+- **Code of Conduct**: [Contributor Covenant v2.1](CODE_OF_CONDUCT.md)
+- **Changelog**: [CHANGELOG.md](CHANGELOG.md) · **Roadmap**: [ROADMAP.md](ROADMAP.md)
+
+## Citing
+
+If you use Shadow in academic work, see [`CITATION.cff`](CITATION.cff) or
+click "Cite this repository" at the top of the GitHub page.

@@ -262,7 +262,7 @@ with `abi3-py311`), `pythonize 0.22.0`.
 `pyyaml 6.0.2`. Optional extras: `anthropic 0.40.0`, `openai 1.58.1`,
 `sentence-transformers 3.3.1`. Dev: `hypothesis 6.122.1`, `mypy 1.14.0`,
 `ruff 0.8.4`, `pytest 8.3.4`, `pytest-asyncio 0.25.0`, `pytest-cov 6.0.0`,
-`maturin 1.7.8`.
+`maturin 1.13.1`.
 
 ## §12 Where things live
 

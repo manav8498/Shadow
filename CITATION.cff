@@ -1,0 +1,52 @@
+cff-version: 1.2.0
+message: "If you use Shadow in academic work or reproducible research, please cite it as below."
+title: "Shadow: Git-native behavioral diff and shadow deployment for LLM agents"
+abstract: >-
+  Shadow is an open-source tool for detecting, quantifying, and
+  causally attributing behavioral drift in LLM-based agents. It
+  provides a content-addressed trace format (.agentlog), nine
+  pre-defined behavioral axes with bootstrap 95% confidence intervals,
+  and LASSO-over-corners causal attribution with Meinshausen-Bühlmann
+  stability selection — all runnable locally with no cloud dependency.
+type: software
+version: 0.1.0
+date-released: 2026-04-23
+license:
+  - MIT
+  - Apache-2.0
+repository-code: "https://github.com/manav8498/Shadow"
+url: "https://github.com/manav8498/Shadow"
+keywords:
+  - large-language-models
+  - llm-agents
+  - behavioral-diff
+  - regression-testing
+  - llm-observability
+  - causal-attribution
+  - bootstrap-confidence-intervals
+  - stability-selection
+authors:
+  - alias: manav8498
+preferred-citation:
+  type: software
+  title: "Shadow: Git-native behavioral diff and shadow deployment for LLM agents"
+  version: 0.1.0
+  year: 2026
+  url: "https://github.com/manav8498/Shadow"
+  authors:
+    - alias: manav8498
+references:
+  - type: article
+    title: "Stability selection"
+    authors:
+      - family-names: "Meinshausen"
+        given-names: "Nicolai"
+      - family-names: "Bühlmann"
+        given-names: "Peter"
+    journal: "Journal of the Royal Statistical Society: Series B (Statistical Methodology)"
+    year: 2010
+    volume: 72
+    issue: 4
+    start: 417
+    end: 473
+    doi: "10.1111/j.1467-9868.2010.00740.x"

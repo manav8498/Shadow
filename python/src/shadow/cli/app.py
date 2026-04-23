@@ -7,7 +7,7 @@ import json
 import os
 import subprocess
 import sys
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -99,7 +99,7 @@ app.info.context_settings = {"allow_extra_args": True, "ignore_unknown_options":
 # ---- replay ----------------------------------------------------------------
 
 
-class BackendKind(str, Enum):
+class BackendKind(StrEnum):
     """Supported replay backends."""
 
     mock = "mock"
@@ -161,6 +161,28 @@ def _default_replay_output() -> Path:
 # ---- diff ------------------------------------------------------------------
 
 
+class SemanticMode(StrEnum):
+    """Semantic-axis backend for `shadow diff --semantic`."""
+
+    bm25 = "bm25"
+    embeddings = "embeddings"
+
+
+class JudgeKind(StrEnum):
+    """Judges available for the `diff --judge` flag."""
+
+    none = "none"
+    sanity = "sanity"
+
+
+class JudgeBackend(StrEnum):
+    """LLM backends the SanityJudge can run against."""
+
+    mock = "mock"
+    anthropic = "anthropic"
+    openai = "openai"
+
+
 @app.command("diff")
 def diff_cmd(
     baseline: Annotated[Path, typer.Argument(help="Baseline .agentlog file")],
@@ -174,6 +196,29 @@ def diff_cmd(
         Path | None,
         typer.Option("--output-json", help="Write DiffReport JSON to this path"),
     ] = None,
+    semantic: Annotated[
+        SemanticMode,
+        typer.Option(
+            "--semantic",
+            help="Semantic-axis backend. `bm25` (default) = TF-IDF cosine; "
+            "`embeddings` = sentence-transformers/all-MiniLM-L6-v2 (requires [embeddings] extra).",
+        ),
+    ] = SemanticMode.bm25,
+    judge: Annotated[
+        JudgeKind,
+        typer.Option(
+            "--judge",
+            help="Populate axis 8 with a judge. `sanity` uses a domain-agnostic A/B prompt.",
+        ),
+    ] = JudgeKind.none,
+    judge_backend: Annotated[
+        JudgeBackend,
+        typer.Option("--judge-backend", help="LLM backend the judge runs against"),
+    ] = JudgeBackend.mock,
+    judge_model: Annotated[
+        str | None,
+        typer.Option("--judge-model", help="Override the model name the judge uses"),
+    ] = None,
 ) -> None:
     """Compute a nine-axis diff between two traces and print the report."""
     from shadow.report import render_terminal
@@ -184,8 +229,20 @@ def diff_cmd(
         price_map: dict[str, tuple[float, float]] | None = None
         if pricing is not None:
             raw = json.loads(pricing.read_text())
-            price_map = {k: (float(v[0]), float(v[1])) for k, v in raw.items()}
+            price_map = _parse_pricing_table(raw)
         report = _core.compute_diff_report(b, c, price_map, seed)
+        if semantic is SemanticMode.embeddings:
+            report = _apply_embeddings_semantic(report, baseline=b, candidate=c, seed=seed)
+        if judge is not JudgeKind.none:
+            report = _apply_judge(
+                report,
+                baseline_records=b,
+                candidate_records=c,
+                judge_kind=judge,
+                judge_backend=judge_backend,
+                judge_model=judge_model,
+                seed=seed,
+            )
         render_terminal(report, console=console)
         if output_json is not None:
             output_json.parent.mkdir(parents=True, exist_ok=True)
@@ -196,10 +253,131 @@ def diff_cmd(
         _fail(e)
 
 
+def _parse_pricing_table(raw: dict[str, Any]) -> dict[str, Any]:
+    """Accept either legacy [input, output] tuple form or rich dict form.
+
+    Rich form:
+        "claude-opus-4-7": {
+            "input": 0.000015,
+            "output": 0.000075,
+            "cached_input": 0.0000015,
+            "reasoning": 0.0,
+            "batch_discount": 0.5
+        }
+    """
+    out: dict[str, Any] = {}
+    for model, value in raw.items():
+        if isinstance(value, list | tuple) and len(value) == 2:
+            out[model] = (float(value[0]), float(value[1]))
+        elif isinstance(value, dict):
+            out[model] = {
+                "input": float(value.get("input", 0.0)),
+                "output": float(value.get("output", 0.0)),
+                "cached_input": float(value.get("cached_input", 0.0)),
+                "cached_write_5m": float(value.get("cached_write_5m", 0.0)),
+                "cached_write_1h": float(value.get("cached_write_1h", 0.0)),
+                "reasoning": float(value.get("reasoning", 0.0)),
+                "batch_discount": float(value.get("batch_discount", 0.0)),
+            }
+        else:
+            raise ShadowError(f"pricing entry for {model!r} must be [input, output] or a dict")
+    return out
+
+
+def _apply_embeddings_semantic(
+    report: dict[str, Any],
+    *,
+    baseline: list[dict[str, Any]],
+    candidate: list[dict[str, Any]],
+    seed: int,
+) -> dict[str, Any]:
+    """Swap axis 1 (semantic) with a real sentence-transformer result."""
+    try:
+        from shadow.embeddings import SemanticEmbedder, recompute_semantic_axis
+    except ImportError:
+        err_console.print(
+            "[yellow]warning[/]: --semantic embeddings requested but "
+            "`shadow[embeddings]` isn't installed; falling back to BM25."
+        )
+        return report
+    try:
+        embedder = SemanticEmbedder()
+    except ShadowError as e:
+        err_console.print(f"[yellow]warning[/]: {e}; falling back to BM25.")
+        return report
+    new_row = recompute_semantic_axis(baseline, candidate, embedder, seed=seed)
+    new_rows = [new_row if r.get("axis") == "semantic" else r for r in report.get("rows", [])]
+    return {**report, "rows": new_rows}
+
+
+def _apply_judge(
+    report: dict[str, Any],
+    *,
+    baseline_records: list[dict[str, Any]],
+    candidate_records: list[dict[str, Any]],
+    judge_kind: JudgeKind,
+    judge_backend: JudgeBackend,
+    judge_model: str | None,
+    seed: int,
+) -> dict[str, Any]:
+    from shadow.judge import SanityJudge, aggregate_scores
+    from shadow.llm import get_backend
+
+    if judge_kind is not JudgeKind.sanity:
+        return report
+
+    pairs = _pair_responses(baseline_records, candidate_records)
+    if not pairs:
+        return report
+
+    backend = get_backend(judge_backend.value)
+    sanity = SanityJudge(backend, model=judge_model)
+
+    async def _run() -> list[float]:
+        out: list[float] = []
+        for b_resp, c_resp, req_ctx in pairs:
+            verdict = await sanity.score_pair(b_resp, c_resp, req_ctx)
+            out.append(verdict["score"])
+        return out
+
+    scores = asyncio.run(_run())
+    new_row = aggregate_scores(scores, seed=seed)
+    new_rows = [new_row if r.get("axis") == "judge" else r for r in report.get("rows", [])]
+    return {**report, "rows": new_rows}
+
+
+def _pair_responses(
+    baseline_records: list[dict[str, Any]],
+    candidate_records: list[dict[str, Any]],
+) -> list[tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]]:
+    """Pair the i-th chat_response from baseline with the i-th from candidate.
+
+    Each tuple also carries the baseline chat_request that preceded it (if
+    any) so the judge has task context.
+    """
+    b_resps: list[dict[str, Any]] = []
+    b_reqs_before: list[dict[str, Any] | None] = []
+    last_req: dict[str, Any] | None = None
+    for r in baseline_records:
+        kind = r.get("kind")
+        if kind == "chat_request":
+            last_req = r.get("payload")
+        elif kind == "chat_response":
+            b_resps.append(r.get("payload") or {})
+            b_reqs_before.append(last_req)
+    c_resps: list[dict[str, Any]] = [
+        r.get("payload") or {} for r in candidate_records if r.get("kind") == "chat_response"
+    ]
+    paired: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]] = []
+    for i in range(min(len(b_resps), len(c_resps))):
+        paired.append((b_resps[i], c_resps[i], b_reqs_before[i]))
+    return paired
+
+
 # ---- bisect ----------------------------------------------------------------
 
 
-class BisectBackend(str, Enum):
+class BisectBackend(StrEnum):
     """Backends available for live-replay corner bisection."""
 
     none = "none"
@@ -311,7 +489,7 @@ def _json_safe(obj: Any) -> Any:
 # ---- report ----------------------------------------------------------------
 
 
-class ReportFormat(str, Enum):
+class ReportFormat(StrEnum):
     """Supported report render formats."""
 
     terminal = "terminal"
@@ -337,6 +515,206 @@ def report(
             sys.stdout.write(render_markdown(data))
         else:
             sys.stdout.write(render_github_pr(data))
+    except Exception as e:
+        _fail(e)
+
+
+# ---- join -----------------------------------------------------------------
+
+
+@app.command()
+def join(
+    inputs: Annotated[
+        list[Path], typer.Argument(help="Input .agentlog files to merge", metavar="INPUTS...")
+    ],
+    output: Annotated[Path, typer.Option("--output", "-o", help="Merged output path")],
+) -> None:
+    """Merge multiple `.agentlog` files (one per Session) into one logical trace.
+
+    Records must carry `meta.trace_id` so we can group them; Sessions
+    started under the same `SHADOW_TRACE_ID` env var share one. Parent
+    links across files are rewired so the merged log is a single DAG.
+    """
+    try:
+        all_records: list[dict[str, Any]] = []
+        for p in inputs:
+            all_records.extend(_core.parse_agentlog(p.read_bytes()))
+        merged = _merge_by_trace(all_records)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(_core.write_agentlog(merged))
+        err_console.print(
+            f"[green]✓[/] merged {len(inputs)} file(s), {len(merged)} records → {output}"
+        )
+    except Exception as e:
+        _fail(e)
+
+
+def _merge_by_trace(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group by trace_id; chain parent-span records before their children."""
+    by_trace: dict[str, list[dict[str, Any]]] = {}
+    orphans: list[dict[str, Any]] = []
+    for r in records:
+        tid = (r.get("meta") or {}).get("trace_id")
+        if tid is None:
+            orphans.append(r)
+        else:
+            by_trace.setdefault(str(tid), []).append(r)
+    out: list[dict[str, Any]] = []
+    # Orphans first (no trace context), then per-trace groups in
+    # arrival order to keep output deterministic.
+    out.extend(orphans)
+    for tid in sorted(by_trace.keys()):
+        # Within a trace: sort by timestamp to preserve causality.
+        group = sorted(by_trace[tid], key=lambda r: r.get("ts", ""))
+        out.extend(group)
+    return out
+
+
+# ---- import ---------------------------------------------------------------
+
+
+class ImportFormat(StrEnum):
+    """Formats `shadow import` can read."""
+
+    langfuse = "langfuse"
+    braintrust = "braintrust"
+    otel = "otel"
+    langsmith = "langsmith"
+    openai_evals = "openai-evals"
+
+
+@app.command("import")
+def import_cmd(
+    source: Annotated[Path, typer.Argument(help="Foreign-format export file (.json or .jsonl)")],
+    fmt: Annotated[
+        ImportFormat,
+        typer.Option("--format", "-f", help="Source format"),
+    ],
+    output: Annotated[Path, typer.Option("--output", "-o", help="Output .agentlog path")],
+) -> None:
+    """Convert a Langfuse or Braintrust export into a Shadow `.agentlog`.
+
+    Turns Shadow's open spec into a bridge format: if you've already
+    instrumented with another observability tool, `shadow import` lets
+    you run Shadow's differ over traces you already have.
+    """
+    from shadow.importers import (
+        braintrust_to_agentlog,
+        langfuse_to_agentlog,
+        langsmith_to_agentlog,
+        openai_evals_to_agentlog,
+        otel_to_agentlog,
+    )
+
+    try:
+        text = source.read_text()
+        if fmt is ImportFormat.langfuse:
+            data = json.loads(text)
+            records = langfuse_to_agentlog(data)
+        elif fmt is ImportFormat.braintrust:
+            rows = _parse_braintrust_input(text)
+            records = braintrust_to_agentlog(rows)
+        elif fmt is ImportFormat.otel:
+            data = json.loads(text)
+            records = otel_to_agentlog(data)
+        elif fmt is ImportFormat.langsmith:
+            data = json.loads(text)
+            records = langsmith_to_agentlog(data)
+        elif fmt is ImportFormat.openai_evals:
+            rows = _parse_jsonl_or_array(text)
+            records = openai_evals_to_agentlog(rows)
+        else:  # pragma: no cover — enum is exhaustive
+            raise ValueError(f"unknown import format: {fmt}")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(_core.write_agentlog(records))
+        err_console.print(
+            f"[green]✓[/] imported {len(records)} records from {fmt.value} → {output}"
+        )
+    except ShadowError as e:
+        _fail(e)
+    except Exception as e:
+        _fail(e)
+
+
+def _parse_braintrust_input(text: str) -> list[dict[str, Any]]:
+    """Braintrust exports may be a JSON array or JSONL. Accept either."""
+    return _parse_jsonl_or_array(text, "Braintrust")
+
+
+def _parse_jsonl_or_array(text: str, label: str = "input") -> list[dict[str, Any]]:
+    """Accept either a JSON array or newline-delimited JSON."""
+    stripped = text.lstrip()
+    if stripped.startswith("["):
+        parsed = json.loads(text)
+        if not isinstance(parsed, list):
+            raise ShadowError(f"{label} JSON input must be an array of rows")
+        return parsed
+    rows: list[dict[str, Any]] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        rows.append(json.loads(line))
+    return rows
+
+
+# ---- export ---------------------------------------------------------------
+
+
+class ExportFormat(StrEnum):
+    """Formats `shadow export` can emit."""
+
+    otel = "otel"
+
+
+@app.command()
+def export(
+    trace: Annotated[Path, typer.Argument(help="Input .agentlog file")],
+    fmt: Annotated[
+        ExportFormat, typer.Option("--format", "-f", help="Output format")
+    ] = ExportFormat.otel,
+    output: Annotated[
+        Path | None, typer.Option("--output", "-o", help="Write to file (else stdout)")
+    ] = None,
+) -> None:
+    """Export a Shadow `.agentlog` to a standard observability format.
+
+    Currently ships `otel` — OpenTelemetry OTLP/JSON using the GenAI
+    semantic conventions. Pipe into `otel-cli` or post to any collector's
+    `/v1/traces` endpoint.
+    """
+    from shadow.otel import agentlog_to_otel
+
+    try:
+        records = _core.parse_agentlog(trace.read_bytes())
+        if fmt is ExportFormat.otel:
+            result = agentlog_to_otel(records)
+        else:
+            raise ValueError(f"unknown export format: {fmt}")
+        payload = json.dumps(result, indent=2)
+        if output is not None:
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(payload)
+        else:
+            sys.stdout.write(payload + "\n")
+    except Exception as e:
+        _fail(e)
+
+
+# ---- serve ----------------------------------------------------------------
+
+
+@app.command()
+def serve(
+    root: Annotated[str, typer.Option("--root", help="Shadow root dir to tail")] = ".shadow",
+    host: Annotated[str, typer.Option("--host", help="Listen host")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", help="Listen port")] = 8765,
+) -> None:
+    """Start the live diff dashboard (requires `shadow[serve]` extra)."""
+    try:
+        from shadow.serve import serve as _serve
+
+        _serve(root=Path(root), host=host, port=port)
     except Exception as e:
         _fail(e)
 
