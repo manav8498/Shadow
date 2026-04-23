@@ -53,7 +53,7 @@ extension = ["python", "pyo3/extension-module"]
 [dependencies]
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.133", features = ["preserve_order"] }
-sha2 = "=0.10.9"
+sha2 = "=0.11.0"
 tokio = { version = "=1.41.1", features = ["rt-multi-thread", "macros", "sync", "fs", "io-util"] }
 async-trait = "=0.1.89"
 rusqlite = { version = "=0.32.1", features = ["bundled"] }
