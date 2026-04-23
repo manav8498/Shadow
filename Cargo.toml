@@ -17,7 +17,7 @@ categories = ["development-tools::testing", "command-line-utilities"]
 # NOTE: `readme` is set per-crate (not inherited) because cargo resolves
 # readme paths relative to each crate's Cargo.toml, not the workspace root.
 
-# See CLAUDE.md §Coding conventions. Clippy lints that forbid panics in
+# See CONTRIBUTING.md. Clippy lints that forbid panics in
 # non-test code are applied per-crate via inner attributes (lib.rs) rather
 # than workspace-wide, because tests are allowed to panic.
 

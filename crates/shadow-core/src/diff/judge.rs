@@ -4,7 +4,7 @@
 //! in Python — see `python/src/shadow/llm/`). The Rust side only provides
 //! the trait and the aggregation logic; no Rust-side default evaluator
 //! is included, because calling an LLM from Rust is out of scope for v0.1
-//! (SDKs are Python-first per CLAUDE.md D6).
+//! (SDKs are Python-first per CONTRIBUTING.md).
 
 use async_trait::async_trait;
 

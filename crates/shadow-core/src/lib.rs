@@ -1,6 +1,6 @@
 //! `shadow-core` — the Rust core of the Shadow tool.
 //!
-//! See `SPEC.md` for the `.agentlog` format and `CLAUDE.md` §Architecture for
+//! See `SPEC.md` for the `.agentlog` format and `CONTRIBUTING.md` §Architecture for
 //! how the modules in this crate compose into the end-to-end pipeline.
 //!
 //! Phase-0 stub: only the module tree is declared. Each module's public

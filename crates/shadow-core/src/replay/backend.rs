@@ -3,7 +3,7 @@
 //!
 //! Keeping the trait payload-in / payload-out (rather than record-in /
 //! record-out) lets the engine own the envelope (ts, parent, id) while the
-//! backend only implements the LLM call itself. See CLAUDE.md §Replay
+//! backend only implements the LLM call itself. See SPEC.md §10
 //! lifecycle.
 
 use async_trait::async_trait;

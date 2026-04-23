@@ -1,7 +1,7 @@
 //! Axis 1: final-output semantic similarity.
 //!
 //! The production-grade path uses `sentence-transformers/all-MiniLM-L6-v2`
-//! from Python (see CLAUDE.md D5). The Rust-side default is a **TF-IDF
+//! from Python (see CONTRIBUTING.md). The Rust-side default is a **TF-IDF
 //! cosine similarity** over the corpus of response texts being compared.
 //! This is genuinely lexical — it reflects word-level overlap weighted by
 //! how common each token is in the corpus, so two responses that share

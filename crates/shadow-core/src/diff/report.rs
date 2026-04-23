@@ -30,7 +30,7 @@ impl DiffReport {
     }
 
     /// Render as a markdown table (one row per axis, columns as in
-    /// CLAUDE.md §4).
+    /// the nine axes in README.md).
     pub fn to_markdown(&self) -> String {
         let mut out = String::new();
         writeln!(
