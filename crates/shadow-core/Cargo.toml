@@ -5,8 +5,27 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Core parser, writer, content-addressed store, replay engine, and nine-axis behavioral differ for the Shadow tool."
+documentation = "https://docs.rs/shadow-core"
+# Point at the workspace-root README via a relative path (cargo resolves
+# `readme` relative to the crate's Cargo.toml, not the workspace root).
+readme = "../../README.md"
+# Allowlist keeps the published crate small and reproducible. Anything
+# not listed is excluded from `cargo publish`.
+include = [
+    "src/**/*.rs",
+    "Cargo.toml",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+]
+
+[package.metadata.docs.rs]
+features = ["python"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 name = "shadow_core"

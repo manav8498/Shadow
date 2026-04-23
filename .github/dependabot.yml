@@ -1,0 +1,59 @@
+# Dependabot configuration — https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# Weekly scan across all three ecosystems the repo uses. Minor + patch
+# updates are grouped per-ecosystem to cut notification noise by ~80%
+# (the 2024+ `groups` feature). Major updates stay separate — they are
+# where the breakage is.
+
+version: 2
+updates:
+  # Rust (Cargo workspace)
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "area:rust"]
+    open-pull-requests-limit: 5
+    groups:
+      rust-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Python (maturin-backed pyproject.toml)
+  - package-ecosystem: "pip"
+    directory: "/python"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "area:python"]
+    open-pull-requests-limit: 5
+    groups:
+      python-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # TypeScript SDK
+  - package-ecosystem: "npm"
+    directory: "/typescript"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "area:typescript"]
+    open-pull-requests-limit: 5
+    groups:
+      typescript-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions workflows — high-leverage to keep current (supply chain).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "area:ci"]
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
