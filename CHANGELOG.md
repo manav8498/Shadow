@@ -8,6 +8,24 @@ All notable changes to Shadow are documented here. Format follows
 
 ### Added
 
+- **First-divergence detection** (`shadow.diff.alignment`). Given two
+  traces, identifies the first turn at which the candidate diverged
+  from the baseline and classifies the divergence as
+  `style_drift` / `decision_drift` / `structural_drift`. Uses a
+  Needleman-Wunsch global alignment with Gotoh affine gap penalties
+  over the chat-response sequence; per-cell cost combines Jaccard
+  distance on tool-shape, character-shingle text similarity, arg-
+  value diff, and stop-reason mismatch. Surfaces in every report
+  renderer (terminal / markdown / github-pr) as a one-line root-
+  cause summary like
+  *"tool set changed: removed `search(query)`, added `search(limit,query)`"*.
+  Exposed on the `DiffReport` dict as the new `first_divergence` key
+  (documented by the `FirstDivergence` TypedDict in `_core.pyi`);
+  `None` when the traces agree end-to-end. 14 new Rust tests + 6 new
+  Python renderer tests.
+
+
+
 - Live LLM backends: `shadow.llm.AnthropicLLM` wraps
   `anthropic.AsyncAnthropic`, `shadow.llm.OpenAILLM` wraps
   `openai.AsyncOpenAI`. Both implement the `LlmBackend` Protocol and

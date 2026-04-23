@@ -36,6 +36,24 @@ def render_markdown(report: dict[str, Any]) -> str:
         )
     lines.append("")
     lines.append(f"**Worst severity:** {_sev_label(worst)}")
+    fd = report.get("first_divergence")
+    if fd:
+        kind = fd.get("kind", "")
+        axis = fd.get("primary_axis", "")
+        bt = fd.get("baseline_turn", 0)
+        ct = fd.get("candidate_turn", 0)
+        conf = fd.get("confidence", 0.0)
+        exp = fd.get("explanation", "")
+        lines.append("")
+        lines.append("### First divergence")
+        lines.append("")
+        lines.append(
+            f"**Turn** baseline `#{bt}` ↔ candidate `#{ct}` &nbsp; · &nbsp; "
+            f"**Kind** `{kind}` &nbsp; · &nbsp; **Axis** `{axis}` &nbsp; · &nbsp; "
+            f"**Confidence** {conf * 100:.0f}%"
+        )
+        lines.append("")
+        lines.append(f"> {exp}")
     return "\n".join(lines) + "\n"
 
 

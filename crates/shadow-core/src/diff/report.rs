@@ -4,6 +4,7 @@ use std::fmt::Write as _;
 
 use serde::{Deserialize, Serialize};
 
+use crate::diff::alignment::FirstDivergence;
 use crate::diff::axes::{AxisStat, Severity};
 
 /// Top-level diff result.
@@ -17,6 +18,11 @@ pub struct DiffReport {
     pub candidate_trace_id: String,
     /// Number of paired responses the report is based on.
     pub pair_count: usize,
+    /// The first turn at which the candidate meaningfully diverged from
+    /// the baseline, with a classification (style / decision / structural).
+    /// `None` when the two traces agree end-to-end.
+    #[serde(default)]
+    pub first_divergence: Option<FirstDivergence>,
 }
 
 impl DiffReport {
@@ -81,6 +87,19 @@ impl DiffReport {
             short(&self.candidate_trace_id),
         )
         .ok();
+        if let Some(fd) = &self.first_divergence {
+            writeln!(
+                out,
+                "\n### First divergence\n\n**Turn** baseline `#{}` ↔ candidate `#{}` &nbsp; · &nbsp; **Kind** `{}` &nbsp; · &nbsp; **Axis** `{}` &nbsp; · &nbsp; **Confidence** {:.0}%\n\n> {}",
+                fd.baseline_turn,
+                fd.candidate_turn,
+                fd.kind.label(),
+                fd.primary_axis.label(),
+                fd.confidence * 100.0,
+                fd.explanation,
+            )
+            .ok();
+        }
         out
     }
 
@@ -121,6 +140,24 @@ impl DiffReport {
             .ok();
         }
         writeln!(out, "\nworst severity: {}", self.worst_severity().label()).ok();
+        if let Some(fd) = &self.first_divergence {
+            writeln!(out).ok();
+            writeln!(
+                out,
+                "first divergence: baseline turn #{}  ↔  candidate turn #{}",
+                fd.baseline_turn, fd.candidate_turn,
+            )
+            .ok();
+            writeln!(
+                out,
+                "  kind: {}  ·  axis: {}  ·  confidence: {:.0}%",
+                fd.kind.label(),
+                fd.primary_axis.label(),
+                fd.confidence * 100.0,
+            )
+            .ok();
+            writeln!(out, "  explanation: {}", fd.explanation).ok();
+        }
         out
     }
 }
@@ -160,6 +197,7 @@ mod tests {
             candidate_trace_id:
                 "sha256:0000aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666aaaa7777".to_string(),
             pair_count: 10,
+            first_divergence: None,
         }
     }
 

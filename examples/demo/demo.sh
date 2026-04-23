@@ -43,7 +43,7 @@ echo "→ shadow bisect (config_a vs config_b)"
   --output-json "$WORK/bisect.json" >/dev/null
 
 echo "→ shadow report --format markdown (preview)"
-"$SHADOW_BIN" report "$WORK/report.json" --format markdown | head -n 15
+"$SHADOW_BIN" report "$WORK/report.json" --format markdown | head -n 22
 
 echo
 echo "Artefacts in $WORK/"
