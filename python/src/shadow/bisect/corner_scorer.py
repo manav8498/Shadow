@@ -46,7 +46,11 @@ from shadow.bisect.apply import (
     apply_config_to_request,
     build_intermediate_config,
 )
-from shadow.bisect.attribution import AXIS_NAMES, rank_attributions_with_ci
+from shadow.bisect.attribution import (
+    AXIS_NAMES,
+    rank_attributions_with_ci,
+    rank_attributions_with_interactions,
+)
 from shadow.bisect.design import full_factorial
 from shadow.errors import ShadowBackendError, ShadowConfigError
 from shadow.llm.base import LlmBackend
@@ -170,14 +174,27 @@ async def score_corners(
     backend: LlmBackend,
     seed: int = 42,
     alpha: float = 0.01,
+    include_interactions: bool = True,
 ) -> dict[str, Any]:
     """Run the LASSO-over-corners scorer and return an attribution report.
 
+    Parameters
+    ----------
+    include_interactions :
+        When True (default), also fit pairwise interaction effects
+        (delta A x delta B) via `rank_attributions_with_interactions`
+        and include them in the report under `attributions_with_interactions`.
+        Adds ~500 LASSO refits per axis for bootstrap CIs; usually
+        worth it at k ≤ 5 design sizes.
+
     Returns a dict with keys:
-        `categories`        List of active category names (columns of the design matrix).
-        `design`            (runs x k) ndarray in {-1, +1}.
-        `divergence`        (runs x 9) ndarray, abs(delta) per axis per corner.
-        `attributions`      dict[axis_name → list[{"category": str, "weight": float}]]
+        `categories`                  List of active category names.
+        `design`                      (runs x k) ndarray in {-1, +1}.
+        `divergence`                  (runs x 9) ndarray, abs(delta) per axis per corner.
+        `attributions`                Per-axis list of main-effect rows (legacy-compat shape).
+        `attributions_with_interactions` (optional)
+                                     Per-axis dict of {main_effects, interactions}
+                                     with bootstrap CIs; present iff include_interactions.
     """
     categories = active_categories(config_a, config_b)
     if not categories:
@@ -217,7 +234,7 @@ async def score_corners(
         ]
         for axis, ranked in attributions_ci.items()
     }
-    return {
+    result: dict[str, Any] = {
         "categories": categories,
         "design": design,
         "divergence": divergence,
@@ -225,6 +242,15 @@ async def score_corners(
         # Legacy key — kept for v0.1 callers that used it. Same content.
         "attributions_ci": unified_rows,
     }
+    # Second-pass: interaction-aware attribution with residual bootstrap.
+    # Only runs when opted-in because it adds ~k*(k-1)/2 extra features
+    # and n_bootstrap (500) LASSO refits per axis — noticeable at k=5+.
+    if include_interactions:
+        hardened = rank_attributions_with_interactions(
+            design, divergence, categories, alpha=alpha, seed=seed
+        )
+        result["attributions_with_interactions"] = hardened
+    return result
 
 
 def run_sync(
