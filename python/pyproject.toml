@@ -6,16 +6,42 @@ build-backend = "maturin"
 name = "shadow"
 version = "0.1.0"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
-license = { text = "MIT" }
+# Dual-licensed to match the Rust community convention (tokio, serde,
+# ruff, uv). MIT keeps embedding frictionless; Apache-2.0 adds an
+# explicit patent grant.
+license = "MIT OR Apache-2.0"
+# LICENSE files live at the workspace root; we copy them into the Python
+# build context at wheel-build time (see justfile `build-wheel`) rather
+# than referencing them here, because PEP 639's `license-files` glob
+# doesn't support `..` paths.
+readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "manav8498" }]
+keywords = [
+    "llm",
+    "agents",
+    "testing",
+    "observability",
+    "diff",
+    "regression-testing",
+    "causal-attribution",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
     "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Typing :: Typed",
 ]
 dependencies = [
     "typer==0.13.0",
@@ -26,6 +52,16 @@ dependencies = [
     "numpy==2.2.0",
     "pyyaml==6.0.2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/manav8498/Shadow"
+Documentation = "https://github.com/manav8498/Shadow#readme"
+Repository = "https://github.com/manav8498/Shadow"
+Issues = "https://github.com/manav8498/Shadow/issues"
+Changelog = "https://github.com/manav8498/Shadow/blob/main/CHANGELOG.md"
+Discussions = "https://github.com/manav8498/Shadow/discussions"
+"Source Code" = "https://github.com/manav8498/Shadow"
+Specification = "https://github.com/manav8498/Shadow/blob/main/SPEC.md"
 
 [project.optional-dependencies]
 anthropic = ["anthropic==0.40.0"]
