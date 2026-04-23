@@ -8,6 +8,19 @@ All notable changes to Shadow are documented here. Format follows
 
 ### Added
 
+- **Top-K divergence ranking** on top of first-divergence detection.
+  The diff report now carries a `divergences` list (up to
+  `DEFAULT_K=5` entries) in addition to the backward-compatible
+  `first_divergence` field. Divergences are sorted by importance:
+  Structural > Decision > Style (by class), then by confidence
+  within a class, with walk order as the stable tiebreaker.
+  Renderers show the top 3 inline and collapse any extras (#4 and
+  beyond) into a `<details>` section in markdown / github-pr, or a
+  "+N more" line in terminal. `first_divergence` remains walk-order-
+  first for back-compat; `divergences[0]` is severity-rank-first.
+  Validated end-to-end with the benchmark harness at 27/27 cases
+  (real committed fixtures + adversarial stress + top-K-specific
+  coverage).
 - **First-divergence detection** (`shadow.diff.alignment`). Given two
   traces, identifies the first turn at which the candidate diverged
   from the baseline and classifies the divergence as

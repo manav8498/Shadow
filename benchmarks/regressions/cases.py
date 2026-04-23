@@ -120,8 +120,18 @@ def case_01_tool_reorder() -> tuple[list, list, dict]:
         _response(
             i,
             [
-                {"type": "tool_use", "id": f"c1_{i}", "name": "search", "input": {"q": "x"}},
-                {"type": "tool_use", "id": f"c2_{i}", "name": "fetch", "input": {"url": "x"}},
+                {
+                    "type": "tool_use",
+                    "id": f"c1_{i}",
+                    "name": "search",
+                    "input": {"q": "x"},
+                },
+                {
+                    "type": "tool_use",
+                    "id": f"c2_{i}",
+                    "name": "fetch",
+                    "input": {"url": "x"},
+                },
             ],
             stop_reason="tool_use",
         )
@@ -131,8 +141,18 @@ def case_01_tool_reorder() -> tuple[list, list, dict]:
         _response(
             i,
             [
-                {"type": "tool_use", "id": f"c1_{i}", "name": "fetch", "input": {"url": "x"}},
-                {"type": "tool_use", "id": f"c2_{i}", "name": "search", "input": {"q": "x"}},
+                {
+                    "type": "tool_use",
+                    "id": f"c1_{i}",
+                    "name": "fetch",
+                    "input": {"url": "x"},
+                },
+                {
+                    "type": "tool_use",
+                    "id": f"c2_{i}",
+                    "name": "search",
+                    "input": {"q": "x"},
+                },
             ],
             stop_reason="tool_use",
         )
@@ -153,7 +173,14 @@ def case_02_tool_rename() -> tuple[list, list, dict]:
     baseline_resps = [
         _response(
             i,
-            [{"type": "tool_use", "id": f"c_{i}", "name": "search_files", "input": {"q": "x"}}],
+            [
+                {
+                    "type": "tool_use",
+                    "id": f"c_{i}",
+                    "name": "search_files",
+                    "input": {"q": "x"},
+                }
+            ],
             stop_reason="tool_use",
         )
         for i in range(10)
@@ -161,7 +188,14 @@ def case_02_tool_rename() -> tuple[list, list, dict]:
     candidate_resps = [
         _response(
             i,
-            [{"type": "tool_use", "id": f"c_{i}", "name": "grep_files", "input": {"q": "x"}}],
+            [
+                {
+                    "type": "tool_use",
+                    "id": f"c_{i}",
+                    "name": "grep_files",
+                    "input": {"q": "x"},
+                }
+            ],
             stop_reason="tool_use",
         )
         for i in range(10)
@@ -182,8 +216,18 @@ def case_03_tool_skip() -> tuple[list, list, dict]:
         _response(
             i,
             [
-                {"type": "tool_use", "id": f"c1_{i}", "name": "validate", "input": {"x": "y"}},
-                {"type": "tool_use", "id": f"c2_{i}", "name": "submit", "input": {"x": "y"}},
+                {
+                    "type": "tool_use",
+                    "id": f"c1_{i}",
+                    "name": "validate",
+                    "input": {"x": "y"},
+                },
+                {
+                    "type": "tool_use",
+                    "id": f"c2_{i}",
+                    "name": "submit",
+                    "input": {"x": "y"},
+                },
             ],
             stop_reason="tool_use",
         )
@@ -192,7 +236,14 @@ def case_03_tool_skip() -> tuple[list, list, dict]:
     candidate_resps = [
         _response(
             i,
-            [{"type": "tool_use", "id": f"c_{i}", "name": "submit", "input": {"x": "y"}}],
+            [
+                {
+                    "type": "tool_use",
+                    "id": f"c_{i}",
+                    "name": "submit",
+                    "input": {"x": "y"},
+                }
+            ],
             stop_reason="tool_use",
         )
         for i in range(10)
@@ -309,7 +360,12 @@ def case_06_verbosity_blowup() -> tuple[list, list, dict]:
     candidate_resps = [
         _response(
             i,
-            [{"type": "text", "text": "Certainly! I have completed the task as requested. " * 10}],
+            [
+                {
+                    "type": "text",
+                    "text": "Certainly! I have completed the task as requested. " * 10,
+                }
+            ],
             output_tokens=50,
         )
         for i in range(30)
@@ -402,7 +458,12 @@ def case_09_language_drift() -> tuple[list, list, dict]:
     candidate_resps = [
         _response(
             i,
-            [{"type": "text", "text": "La réunion est prévue pour demain à 15 heures."}],
+            [
+                {
+                    "type": "text",
+                    "text": "La réunion est prévue pour demain à 15 heures.",
+                }
+            ],
         )
         for i in range(30)
     ]
@@ -499,7 +560,8 @@ def case_12_missed_refusal() -> tuple[list, list, dict]:
         for i in range(30)
     ]
     candidate_resps = [
-        _response(i, [{"type": "text", "text": "Sure, here you go: ..."}]) for i in range(30)
+        _response(i, [{"type": "text", "text": "Sure, here you go: ..."}])
+        for i in range(30)
     ]
     return (
         _build_trace(baseline_resps),
@@ -583,7 +645,9 @@ def case_15_json_missing_field() -> tuple[list, list, dict]:
     candidate_resps = [
         _response(
             i,
-            [{"type": "text", "text": '{"status": "ok", "result": 42, '}],  # truncated JSON
+            [
+                {"type": "text", "text": '{"status": "ok", "result": 42, '}
+            ],  # truncated JSON
         )
         for i in range(30)
     ]
@@ -627,10 +691,12 @@ def case_16_extra_preamble() -> tuple[list, list, dict]:
 
 def case_17_latency_5x() -> tuple[list, list, dict]:
     baseline_resps = [
-        _response(i, [{"type": "text", "text": "done"}], latency_ms=100) for i in range(30)
+        _response(i, [{"type": "text", "text": "done"}], latency_ms=100)
+        for i in range(30)
     ]
     candidate_resps = [
-        _response(i, [{"type": "text", "text": "done"}], latency_ms=500) for i in range(30)
+        _response(i, [{"type": "text", "text": "done"}], latency_ms=500)
+        for i in range(30)
     ]
     return (
         _build_trace(baseline_resps),

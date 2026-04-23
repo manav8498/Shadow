@@ -36,25 +36,49 @@ def render_markdown(report: dict[str, Any]) -> str:
         )
     lines.append("")
     lines.append(f"**Worst severity:** {_sev_label(worst)}")
-    fd = report.get("first_divergence")
-    if fd:
-        kind = fd.get("kind", "")
-        axis = fd.get("primary_axis", "")
-        bt = fd.get("baseline_turn", 0)
-        ct = fd.get("candidate_turn", 0)
-        conf = fd.get("confidence", 0.0)
-        exp = fd.get("explanation", "")
+    # Prefer the top-K `divergences` list when present; fall back to the
+    # scalar `first_divergence` field for backward compat with callers
+    # that were built before top-K landed.
+    divergences = report.get("divergences") or []
+    if not divergences and report.get("first_divergence"):
+        divergences = [report["first_divergence"]]
+    if divergences:
         lines.append("")
-        lines.append("### First divergence")
+        total = len(divergences)
+        header = "### Top divergences" if total > 1 else "### First divergence"
+        lines.append(header)
         lines.append("")
-        lines.append(
-            f"**Turn** baseline `#{bt}` ↔ candidate `#{ct}` &nbsp; · &nbsp; "
-            f"**Kind** `{kind}` &nbsp; · &nbsp; **Axis** `{axis}` &nbsp; · &nbsp; "
-            f"**Confidence** {conf * 100:.0f}%"
-        )
-        lines.append("")
-        lines.append(f"> {exp}")
+        # Show top 3 inline. Remaining go into a collapsible section.
+        inline_count = min(3, total)
+        for idx, dv in enumerate(divergences[:inline_count]):
+            lines.append(_render_divergence_markdown(dv, idx + 1, total))
+        if total > inline_count:
+            lines.append("")
+            lines.append("<details>")
+            lines.append(
+                f"<summary>+{total - inline_count} more (ranks "
+                f"{inline_count + 1}-{total})</summary>\n"
+            )
+            for idx, dv in enumerate(divergences[inline_count:], start=inline_count):
+                lines.append(_render_divergence_markdown(dv, idx + 1, total))
+            lines.append("</details>")
     return "\n".join(lines) + "\n"
+
+
+def _render_divergence_markdown(dv: dict[str, Any], rank: int, total: int) -> str:
+    """One divergence as a markdown block with a rank header."""
+    kind = dv.get("kind", "")
+    axis = dv.get("primary_axis", "")
+    bt = dv.get("baseline_turn", 0)
+    ct = dv.get("candidate_turn", 0)
+    conf = dv.get("confidence", 0.0)
+    exp = dv.get("explanation", "")
+    rank_prefix = f"**#{rank}" + (f" of {total}**" if total > 1 else "**")
+    return (
+        f"\n{rank_prefix} &nbsp; **Turn** baseline `#{bt}` ↔ candidate `#{ct}` "
+        f"&nbsp; · &nbsp; **Kind** `{kind}` &nbsp; · &nbsp; **Axis** `{axis}` "
+        f"&nbsp; · &nbsp; **Confidence** {conf * 100:.0f}%\n\n> {exp}"
+    )
 
 
 _RANK = {"none": 0, "minor": 1, "moderate": 2, "severe": 3}

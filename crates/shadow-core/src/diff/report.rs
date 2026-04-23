@@ -21,8 +21,20 @@ pub struct DiffReport {
     /// The first turn at which the candidate meaningfully diverged from
     /// the baseline, with a classification (style / decision / structural).
     /// `None` when the two traces agree end-to-end.
+    ///
+    /// Preserved for backward compatibility; equivalent to the first
+    /// element of [`Self::divergences`] sorted by alignment order (not
+    /// by importance rank).
     #[serde(default)]
     pub first_divergence: Option<FirstDivergence>,
+    /// Top-ranked divergences between the two traces, sorted by
+    /// importance (Structural > Decision > Style by class, then by
+    /// confidence within a class). Empty when the traces agree
+    /// end-to-end. Capped at `DEFAULT_K` entries in standard reports;
+    /// renderers typically show the top 3 inline and hide the rest in
+    /// a collapsible details section.
+    #[serde(default)]
+    pub divergences: Vec<FirstDivergence>,
 }
 
 impl DiffReport {
@@ -198,6 +210,7 @@ mod tests {
                 "sha256:0000aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666aaaa7777".to_string(),
             pair_count: 10,
             first_divergence: None,
+            divergences: Vec::new(),
         }
     }
 

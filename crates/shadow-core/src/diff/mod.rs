@@ -79,12 +79,14 @@ pub fn compute_report(
         conformance::compute(&pairs, seed),
     ];
     let first_divergence = alignment::detect(baseline, candidate);
+    let divergences = alignment::detect_top_k(baseline, candidate, alignment::DEFAULT_K);
     DiffReport {
         rows,
         baseline_trace_id: baseline.first().map(|r| r.id.clone()).unwrap_or_default(),
         candidate_trace_id: candidate.first().map(|r| r.id.clone()).unwrap_or_default(),
         pair_count: pairs.len(),
         first_divergence,
+        divergences,
     }
 }
 

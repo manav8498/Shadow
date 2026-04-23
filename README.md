@@ -65,16 +65,25 @@ reasoning       0.000      0.000    +0.000     none
 judge           0.000      0.000    +0.000     none
 conformance     1.000      0.000    -1.000     severe
 
-first divergence: baseline turn #0 ↔ candidate turn #0
-  kind: structural  ·  axis: trajectory  ·  confidence: 56%
-  tool set changed: removed `search_files(query)`,
-                    added `search_files(limit,query)`
+top divergences (3 shown):
+  #1  baseline turn #0 ↔ candidate turn #0
+      kind: structural_drift  ·  axis: trajectory  ·  confidence: 56%
+      tool set changed: removed `search_files(query)`,
+                        added `search_files(limit,query)`
+  #2  baseline turn #2 ↔ candidate turn #2
+      kind: decision_drift    ·  axis: safety      ·  confidence: 32%
+      stop_reason changed: `end_turn` → `content_filter`
+  #3  baseline turn #1 ↔ candidate turn #1
+      kind: decision_drift    ·  axis: semantic    ·  confidence: 9%
+      response text diverged (text similarity 0.21); same tool sequence
 ```
 
 Each row is one behavioural dimension. The severity column makes it
-obvious where to look — and the **first-divergence line** names the
-exact change responsible: the candidate's `search_files` tool schema
-gained a `limit` parameter. One-line root cause, no dashboard needed.
+obvious where to look — and the **top divergences** list names the
+exact changes responsible, ranked by severity: the candidate's
+`search_files` tool schema gained a `limit` parameter, a later turn
+started refusing, and a third had a semantic shift. Root-cause
+attribution in one glance, no dashboard needed.
 
 ## Instrument your own agent
 
