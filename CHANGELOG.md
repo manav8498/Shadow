@@ -40,6 +40,59 @@ All notable changes to Shadow are documented here. Format follows
   described as "heuristic-only in v0.1". The heuristic remains as a
   no-credentials fallback, with the live-backend LASSO scorer as the
   primary path.
+- **README rewritten in plain English**, ~200 lines, one quickstart,
+  no jargon before it's introduced. Matches the actual `just demo`
+  output verbatim.
+- **License**: migrated to dual **MIT OR Apache-2.0** (Rust-community
+  standard). `LICENSE-MIT`, `LICENSE-APACHE` added; `LICENSE` is now
+  the meta-pointer. `SPEC.md` keeps a separate Apache-2.0-only
+  `LICENSE-SPEC` so re-implementers have an explicit patent grant.
+
+### Fixed
+
+- **Severity classifier false negative on rate-bounded axes** — a
+  CI like `[0.0, 1.0]` was treated as straddling zero and downgraded
+  the severity to `Minor`. Now `ci_straddles_zero` is strict
+  (`ci_low < -epsilon && ci_high > +epsilon`) and a boundary-touching
+  CI does not trigger the downgrade. A unanimous `+1.0` trajectory
+  delta is now correctly classified `Severe`.
+- **Conformance axis dead on tool-use-only agents** — agents whose
+  final answer is a `tool_use` block (the common pattern) got `n=0`
+  and the axis was effectively disabled. The axis now also fires on
+  tool-use intent and scores by top-level key-set match.
+- **Delta-extractor "50-delta explosion" on any non-trivial tool
+  edit** — a typical PR touching a tool schema produced dozens of
+  atomic leaf deltas, swamping LASSO. `diff_configs(coalesce=True)`
+  (default) now collapses each tool to a single delta keyed by tool
+  name. Legacy leaf-level output still available via `coalesce=False`.
+- **Attribution schema inconsistency across bisect modes** —
+  heuristic, placeholder, and live-replay modes emitted different
+  row shapes; downstream consumers could `KeyError` depending on
+  which mode triggered. All three modes now emit the same keys
+  (`delta`, `weight`, `ci95_low`, `ci95_high`, `significant`,
+  `selection_frequency`).
+- **Rust `DELTA_KIND_AFFECTS`** — `tools` was missing from the
+  `conformance` axis set despite tool schema changes being an
+  obvious conformance driver. Added.
+
+### Added (OSS-readiness)
+
+- `SUPPORT.md`, `GOVERNANCE.md`, `MAINTAINERS.md`, `TRADEMARK.md`,
+  `CITATION.cff` (Meinshausen-Bühlmann ref included).
+- `.github/FUNDING.yml`, `.github/dependabot.yml` (weekly grouped
+  updates across Cargo, pip, npm, GitHub Actions).
+- `AxisStat` + `DiffReport` `TypedDict`s in `shadow/_core.pyi` so
+  downstream Python consumers get real types.
+- `shadow/__init__.py` wraps abi3-mismatch ImportError with a
+  "requires Python 3.11+" hint. `AnthropicLLM.__init__` fails fast
+  with a branded error if no API key is present.
+- Crate metadata: `keywords`, `categories`, `homepage`,
+  `documentation`, explicit `include` allowlist. PyPI metadata: 7
+  keywords, 8 `project.urls`, 15 trove classifiers, `Typing :: Typed`
+  backed by `py.typed`.
+- Cleanup: deleted duplicated `docs/SPEC-LICENSE.md`, dev caches.
+  Fixed 11 pre-existing `ruff` lints (converted `class X(str, Enum)`
+  → `class X(StrEnum)`, removed unused import, minor cleanups).
 
 ## [0.1.0] — 2026-04-22
 

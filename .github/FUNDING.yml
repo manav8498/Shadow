@@ -1,0 +1,14 @@
+# Funding configuration — https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+#
+# Uncomment and fill in the channels you want GitHub to advertise on the
+# "Sponsor" button. Leaving this file as comment-only renders NO sponsor
+# button — which is the correct state until there's a real way to accept
+# funds.
+
+# github: [manav8498]
+# open_collective: shadow
+# patreon:
+# ko_fi:
+# tidelift:
+# thanks_dev: gh/manav8498
+# custom: ["https://example.com/donate"]
