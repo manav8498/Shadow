@@ -37,16 +37,32 @@ class AnthropicLLM:
         backend_id: str = "anthropic",
     ) -> None:
         try:
-            import anthropic  # type: ignore[import-not-found]
+            import anthropic  # type: ignore[import-not-found, unused-ignore]
         except ImportError as e:
             raise ShadowBackendError(
                 "anthropic SDK not installed\n"
                 "hint: pip install 'shadow[anthropic]' (or add anthropic==0.40.0)"
             ) from e
         self._anthropic = anthropic
+        # Fail fast with a branded error if neither an explicit key nor the
+        # standard env var is set. The SDK's default error on this surface
+        # is deep in the HTTP layer and hard to recognise.
+        import os
+
+        if api_key is None and not os.environ.get("ANTHROPIC_API_KEY"):
+            raise ShadowBackendError(
+                "no Anthropic API key — set ANTHROPIC_API_KEY in the env "
+                "or pass api_key= explicitly.\n"
+                "hint: `export ANTHROPIC_API_KEY=sk-ant-...` before running "
+                "`shadow replay` / `shadow bisect --backend anthropic`."
+            )
         kwargs: dict[str, Any] = {}
         if api_key is not None:
             kwargs["api_key"] = api_key
+        # Explicit timeout prevents one hung request from stalling a whole
+        # replay / bisect. The anthropic SDK default (600s) is too generous
+        # for production workloads.
+        kwargs.setdefault("timeout", 60.0)
         self._client = anthropic.AsyncAnthropic(**kwargs)
         self._model_override = model_override
         self._id = backend_id
@@ -121,17 +137,38 @@ class AnthropicLLM:
             # Unknown part types are dropped; Shadow's SPEC allows the
             # four types above.
         usage = getattr(response, "usage", None)
-        thinking_tokens = 0
+        # Anthropic's `cache_read_input_tokens` is prompt-cache READS — not
+        # extended-thinking output. With the richer cost formula that bills
+        # `thinking_tokens` at the output/reasoning rate (~$75/Mtok on Opus)
+        # vs. cache-reads at ~$1.50/Mtok, routing cache-reads into
+        # `thinking_tokens` would over-bill by ~50x per cache-read token.
+        # The correct Shadow field is `cached_input_tokens`.
+        cached_input_tokens = 0
+        cached_write_5m = 0
+        cached_write_1h = 0
         if usage is not None:
-            thinking_tokens = getattr(usage, "cache_read_input_tokens", 0) or 0
+            cached_input_tokens = getattr(usage, "cache_read_input_tokens", 0) or 0
+            # Anthropic's `usage.cache_creation` exposes the 5m vs 1h
+            # ephemeral write breakdown, priced at 1.25x vs 2.0x input.
+            cc = getattr(usage, "cache_creation", None)
+            if cc is not None:
+                cached_write_5m = getattr(cc, "ephemeral_5m_input_tokens", 0) or 0
+                cached_write_1h = getattr(cc, "ephemeral_1h_input_tokens", 0) or 0
+        usage_out: dict[str, Any] = {
+            "input_tokens": getattr(usage, "input_tokens", 0) if usage else 0,
+            "output_tokens": getattr(usage, "output_tokens", 0) if usage else 0,
+            "thinking_tokens": 0,
+        }
+        if cached_input_tokens:
+            usage_out["cached_input_tokens"] = cached_input_tokens
+        if cached_write_5m:
+            usage_out["cached_write_5m_tokens"] = cached_write_5m
+        if cached_write_1h:
+            usage_out["cached_write_1h_tokens"] = cached_write_1h
         return {
             "model": getattr(response, "model", ""),
             "content": content,
             "stop_reason": getattr(response, "stop_reason", "end_turn"),
             "latency_ms": latency_ms,
-            "usage": {
-                "input_tokens": getattr(usage, "input_tokens", 0) if usage else 0,
-                "output_tokens": getattr(usage, "output_tokens", 0) if usage else 0,
-                "thinking_tokens": thinking_tokens,
-            },
+            "usage": usage_out,
         }

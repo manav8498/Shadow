@@ -11,6 +11,7 @@ __pycache__/
 *.so
 .Python
 .venv/
+.venv-*/
 venv/
 env/
 build/
@@ -26,27 +27,71 @@ wheels/
 htmlcov/
 coverage.xml
 .tox/
-.coverage
-.coverage.*
-coverage.xml
-htmlcov/
+.ipynb_checkpoints/
+
+# Node.js / TypeScript
+node_modules/
+*.tsbuildinfo
+.parcel-cache/
+.turbo/
+.next/
+.cache/
+coverage/
+.npm/
+.pnpm-store/
+.yarn/
+.yarn-integrity
 
 # maturin
 .maturin/
 
-# shadow local state (projects using shadow ignore this; we commit examples/demo/fixtures/ explicitly)
+# Shadow local state (projects using shadow ignore this;
+# we commit examples/demo/fixtures/ explicitly)
 .shadow/
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
 
 # Editor
 .idea/
 .vscode/
 *.swp
 *.swo
+*.iml
+*.ipr
+*.iws
+*~
 
-# local dev
+# Local dev
 .direnv/
 .envrc
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.production.local
+.env.test.local
+examples/*/.out/
+benchmarks/realworld/.out/
+
+# Coding agent state (Claude Code, Codex, Aider, etc.)
+.claude/
+.aider*
+.continue/
+.cursor/
+
+# Logs + crash dumps
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# SBOM outputs (generated per release, not tracked)
+sbom.json
+sbom.xml
+*.sbom.json
+*.sbom.xml
