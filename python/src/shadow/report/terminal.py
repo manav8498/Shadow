@@ -46,6 +46,29 @@ def render_terminal(report: dict[str, Any], console: Console | None = None) -> N
         )
     con.print(table)
     con.print(f"\nworst severity: [{_sev_style(worst)}]{worst}[/]")
+    fd = report.get("first_divergence")
+    if fd:
+        kind = fd.get("kind", "")
+        axis = fd.get("primary_axis", "")
+        bt = fd.get("baseline_turn", 0)
+        ct = fd.get("candidate_turn", 0)
+        conf = fd.get("confidence", 0.0)
+        exp = fd.get("explanation", "")
+        style = {
+            "style_drift": "dim",
+            "decision_drift": "yellow",
+            "structural_drift": "bold red",
+        }.get(kind, "default")
+        con.print()
+        con.print(
+            f"[bold]first divergence[/]: baseline turn [cyan]#{bt}[/] "
+            f"↔ candidate turn [cyan]#{ct}[/]"
+        )
+        con.print(
+            f"  kind: [{style}]{kind}[/]  ·  axis: [magenta]{axis}[/]  "
+            f"·  confidence: {conf * 100:.0f}%"
+        )
+        con.print(f"  [italic]{exp}[/]")
 
 
 _RANK = {"none": 0, "minor": 1, "moderate": 2, "severe": 3}
