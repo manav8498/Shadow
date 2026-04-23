@@ -5,7 +5,7 @@
 //! default), and return the 2.5 / 50 / 97.5 percentile of the resulting
 //! distribution.
 //!
-//! Every axis in CLAUDE.md §4 uses this primitive to turn a sample into a
+//! Every axis in the nine axes in README.md uses this primitive to turn a sample into a
 //! median + 95% CI — implemented once here instead of per-axis.
 
 use rand::rngs::StdRng;

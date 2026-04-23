@@ -1,4 +1,4 @@
-//! Shared types for the nine-axis behavioral diff (CLAUDE.md §4).
+//! Shared types for the nine-axis behavioral diff.
 
 use serde::{Deserialize, Serialize};
 
