@@ -119,11 +119,15 @@ jobs:
       - name: Generate Rust SBOM (CycloneDX)
         run: |
           cargo install cargo-cyclonedx --version 0.5.7 --locked
-          cargo cyclonedx --format json --output-pattern package
+          # `cargo cyclonedx` 0.5.7 writes to `<crate>.cdx.json` in each
+          # crate dir by default. The `--output-pattern` flag we used
+          # earlier was removed upstream and failed the job.
+          cargo cyclonedx --format json
           ls crates/shadow-core/
-          # If cargo-cyclonedx's output path shifts, emit a VALID minimal
-          # CycloneDX 1.5 document instead of garbage JSON — Dependency-Track
-          # and similar ingestors reject anything that isn't schema-valid.
+          # If cargo-cyclonedx's output path shifts in a future release,
+          # emit a VALID minimal CycloneDX 1.5 document instead of
+          # garbage JSON — Dependency-Track and similar ingestors reject
+          # anything that isn't schema-valid.
           cp crates/shadow-core/shadow-core.cdx.json sbom-rust.cdx.json || \
             printf '%s' '{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[],"metadata":{"component":{"type":"library","name":"shadow-core"}}}' \
               > sbom-rust.cdx.json
@@ -192,7 +196,7 @@ jobs:
     # deliberate config change to reroute.
     environment:
       name: pypi
-      url: https://pypi.org/p/shadow
+      url: https://pypi.org/p/shadow-diff
     permissions:
       # OIDC token that PyPI exchanges for a short-lived upload token.
       # No long-lived API token is stored anywhere.
