@@ -6,6 +6,69 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-04-24
+
+### Added — session-cost attribution (Phase C)
+
+New `shadow.cost_attribution` module + CLI integration. Shadow's
+existing per-response `cost` axis says *whether* a PR moved cost.
+This answers the follow-up question a CFO or eng lead always asks:
+**why, and by how much per user-facing session?**
+
+- **Session partitioning.** A "session" is the span between two
+  `metadata` records in an `.agentlog` — one user-facing
+  conversation including all follow-up tool calls. Shadow rolls
+  up per-session input / output / cached / reasoning token counts
+  and USD spend.
+
+- **Attribution decomposition.** Cost delta between a baseline
+  session and its candidate decomposes into three independent
+  sources:
+
+    total_delta = model_swap + token_movement + mix_residual
+
+  - `model_swap`: how much of the delta is the candidate model's
+    price-per-token vs the baseline's, holding tokens constant at
+    candidate levels.
+  - `token_movement`: how much is the token-count change, holding
+    price at baseline.
+  - `mix_residual`: non-additive interaction (simultaneous model
+    swap + token movement). When `|residual| > 10% of |total_delta|`
+    the decomposition is flagged as "less trustworthy" so the user
+    knows the simple two-factor story is incomplete.
+
+- **Pricing table compatibility.** Uses the same rich-dict pricing
+  shape the Rust `cost` axis accepts — input / output /
+  cached_input / cached_write_5m / cached_write_1h / reasoning
+  rates. Unknown models contribute $0 (no crash).
+
+- **Rendering.** `shadow diff` prints the attribution section
+  after the nine-axis table when the cost delta is non-zero:
+
+  ```
+  cost attribution (per session):
+    session #0: $0.0870 → $0.0174 (Δ $-0.0696, -80.0%)
+      model swap claude-opus-4-7→claude-sonnet-4-6: $-0.0696 (+100%)
+      token movement:            $+0.0000 (-0%)
+    total: $0.0870 → $0.0174 (Δ $-0.0696)
+  ```
+
+  Markdown renderer emits a GitHub-flavoured table when callers
+  attach a `cost_attribution` key to the `DiffReport` dict they
+  pass to `render_markdown` / `render_github_pr`.
+
+### Tests
+
+- 21 new `test_cost_attribution.py` tests: session partitioning,
+  per-session roll-up, pricing-shape tolerance (rich dict + legacy
+  tuple), cached-input / reasoning token rates, fundamental
+  identity (`swap + move + residual == delta` across every
+  scenario), noisy flag, multi-session alignment, mismatched
+  session counts, both renderers.
+- Hero harness: 64 → **73 assertions.** New stage
+  (`stage_session_cost_attribution`) synthesises pure-swap and
+  mixed scenarios to lock the attribution arithmetic.
+
 ## [0.5.0] - 2026-04-24
 
 ### Added — MCP (Model Context Protocol) importer (Phase B)

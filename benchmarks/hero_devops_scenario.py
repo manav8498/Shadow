@@ -991,6 +991,100 @@ def stage_mcp_importer() -> None:
         )
 
 
+def stage_session_cost_attribution() -> None:
+    """Phase C: per-session cost attribution on synthetic cost-moving trace.
+
+    The devops-agent fixture has zero usage data (mocked), so cost is
+    identically zero — we use a synthetic pair that isolates a pure
+    model swap and asserts the attribution math correctly identifies
+    it.
+    """
+    _heading("9. Phase C — session-cost attribution")
+    from shadow.cost_attribution import attribute_cost, render_terminal
+
+    def _resp(model: str, it: int, ot: int) -> dict[str, Any]:
+        return {
+            "version": "0.1",
+            "id": f"sha256:r{it}{ot}{model}",
+            "kind": "chat_response",
+            "ts": "t",
+            "parent": None,
+            "payload": {
+                "model": model,
+                "usage": {"input_tokens": it, "output_tokens": ot},
+            },
+        }
+
+    def _meta(i: int) -> dict[str, Any]:
+        return {
+            "version": "0.1",
+            "id": f"sha256:m{i}",
+            "kind": "metadata",
+            "ts": "t",
+            "parent": None,
+            "payload": {},
+        }
+
+    pricing = {
+        "claude-opus-4-7": {"input": 15e-6, "output": 75e-6},
+        "claude-sonnet-4-6": {"input": 3e-6, "output": 15e-6},
+    }
+    # Pure model swap: identical tokens under different model.
+    baseline_trace = [
+        _meta(0),
+        _resp("claude-opus-4-7", 1000, 500),
+        _resp("claude-opus-4-7", 800, 300),
+    ]
+    candidate_trace = [
+        _meta(0),
+        _resp("claude-sonnet-4-6", 1000, 500),
+        _resp("claude-sonnet-4-6", 800, 300),
+    ]
+    report = attribute_cost(baseline_trace, candidate_trace, pricing)
+    s = report.per_session[0]
+    _assert(
+        abs(s.delta_usd) > 1e-6,
+        f"cost attribution detects a real delta (|Δ| = ${abs(s.delta_usd):.4f})",
+    )
+    _assert(
+        abs(s.model_swap_usd - s.delta_usd) < 1e-9,
+        "pure-model-swap scenario: model_swap_usd == total delta",
+    )
+    _assert(
+        abs(s.token_movement_usd) < 1e-9,
+        "pure-model-swap scenario: token_movement_usd == 0",
+    )
+    _assert(
+        abs(s.mix_residual_usd) < 1e-9,
+        "pure-model-swap scenario: mix_residual_usd == 0",
+    )
+    _assert(
+        report.attribution_is_noisy is False,
+        "pure-model-swap scenario: attribution is NOT flagged noisy",
+    )
+
+    # Combined change: model swap + 2x tokens.
+    candidate_both = [
+        _meta(0),
+        _resp("claude-sonnet-4-6", 2000, 1000),
+        _resp("claude-sonnet-4-6", 1600, 600),
+    ]
+    report2 = attribute_cost(baseline_trace, candidate_both, pricing)
+    s2 = report2.per_session[0]
+    # Fundamental identity: components must sum to total delta.
+    decomp = s2.model_swap_usd + s2.token_movement_usd + s2.mix_residual_usd
+    _assert(
+        abs(decomp - s2.delta_usd) < 1e-9,
+        "decomposition sums to total delta (fundamental identity)",
+    )
+
+    # Renderer sanity.
+    rendered = render_terminal(report)
+    _assert("cost attribution" in rendered, "terminal renderer produces output")
+    _assert("opus" in rendered, "renderer names the baseline model")
+    _assert("sonnet" in rendered, "renderer names the candidate model")
+
+
 def main() -> int:
     print("Hero end-to-end: DevOps-agent PR safety review")
     print(f"  baseline: {BASELINE_LOG.relative_to(REPO_ROOT)}")
@@ -1006,6 +1100,7 @@ def main() -> int:
         stage_zero_friction_adoption()
         stage_first_real_diff_experience()
         stage_mcp_importer()
+        stage_session_cost_attribution()
     except Exception as e:  # noqa: BLE001
         print(f"\nEXCEPTION: {type(e).__name__}: {e}", file=sys.stderr)
         FAILURES.append(f"uncaught: {e}")

@@ -29,7 +29,7 @@ except ImportError as _e:  # pragma: no cover - tested via a subprocess
         ) from _e
     raise
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 SPEC_VERSION: str = _core.SPEC_VERSION
 
 __all__ = [
