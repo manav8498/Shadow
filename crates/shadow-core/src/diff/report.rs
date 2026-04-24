@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::diff::alignment::FirstDivergence;
 use crate::diff::axes::{AxisStat, Severity};
+use crate::diff::drill_down::PairDrilldown;
 use crate::diff::recommendations::Recommendation;
 
 /// Top-level diff result.
@@ -43,6 +44,14 @@ pub struct DiffReport {
     /// and the turn it targets. Empty when nothing is actionable.
     #[serde(default)]
     pub recommendations: Vec<Recommendation>,
+    /// Top-K most-regressive response pairs with per-axis breakdown,
+    /// ranked by an aggregate regression score. Surfaces *which*
+    /// specific turns drove the aggregate axis deltas — without this,
+    /// a reviewer looking at a PR with many paired traces has to
+    /// hand-audit each pair. Empty when no pairs are in the report.
+    /// Capped at `drill_down::DEFAULT_K` entries.
+    #[serde(default)]
+    pub drill_down: Vec<PairDrilldown>,
 }
 
 impl DiffReport {
@@ -120,6 +129,60 @@ impl DiffReport {
             )
             .ok();
         }
+        if !self.drill_down.is_empty() {
+            writeln!(out, "\n### Top regressive pairs").ok();
+            let shown = self.drill_down.len().min(3);
+            for row in &self.drill_down[..shown] {
+                writeln!(
+                    out,
+                    "\n- **pair `#{i}`** &nbsp;·&nbsp; dominant: `{axis}` &nbsp;·&nbsp; score `{score:.2}`",
+                    i = row.pair_index,
+                    axis = row.dominant_axis.label(),
+                    score = row.regression_score,
+                )
+                .ok();
+                let mut contributions: Vec<_> = row.axis_scores.iter().collect();
+                contributions.sort_by(|a, b| {
+                    b.normalized_delta
+                        .partial_cmp(&a.normalized_delta)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                for score in contributions.iter().take(2) {
+                    if score.normalized_delta < 0.05 {
+                        break;
+                    }
+                    writeln!(
+                        out,
+                        "  - `{axis}`: {bv:.2} → {cv:.2} &nbsp;(delta `{d:+.2}`, norm `{n:.2}`)",
+                        axis = score.axis.label(),
+                        bv = score.baseline_value,
+                        cv = score.candidate_value,
+                        d = score.delta,
+                        n = score.normalized_delta,
+                    )
+                    .ok();
+                }
+            }
+            if self.drill_down.len() > shown {
+                writeln!(
+                    out,
+                    "\n<details><summary>+ {} more regressive pair(s)</summary>\n",
+                    self.drill_down.len() - shown
+                )
+                .ok();
+                for row in &self.drill_down[shown..] {
+                    writeln!(
+                        out,
+                        "- pair `#{i}` &nbsp;·&nbsp; `{axis}` &nbsp;·&nbsp; score `{score:.2}`",
+                        i = row.pair_index,
+                        axis = row.dominant_axis.label(),
+                        score = row.regression_score,
+                    )
+                    .ok();
+                }
+                writeln!(out, "\n</details>").ok();
+            }
+        }
         out
     }
 
@@ -178,6 +241,51 @@ impl DiffReport {
             .ok();
             writeln!(out, "  explanation: {}", fd.explanation).ok();
         }
+        if !self.drill_down.is_empty() {
+            writeln!(out).ok();
+            let shown = self.drill_down.len().min(3);
+            writeln!(
+                out,
+                "top regressive pairs ({shown} shown of {total}):",
+                total = self.drill_down.len(),
+            )
+            .ok();
+            for row in &self.drill_down[..shown] {
+                writeln!(
+                    out,
+                    "  pair #{i}  ·  dominant axis: {axis}  ·  score: {score:.2}",
+                    i = row.pair_index,
+                    axis = row.dominant_axis.label(),
+                    score = row.regression_score,
+                )
+                .ok();
+                // Show the top 2 contributing axes inline.
+                let mut contributions: Vec<_> = row.axis_scores.iter().collect();
+                contributions.sort_by(|a, b| {
+                    b.normalized_delta
+                        .partial_cmp(&a.normalized_delta)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                for score in contributions.iter().take(2) {
+                    if score.normalized_delta < 0.05 {
+                        break;
+                    }
+                    writeln!(
+                        out,
+                        "    {axis}: {bv:.2} → {cv:.2} (delta {d:+.2}, norm {n:.2})",
+                        axis = score.axis.label(),
+                        bv = score.baseline_value,
+                        cv = score.candidate_value,
+                        d = score.delta,
+                        n = score.normalized_delta,
+                    )
+                    .ok();
+                }
+            }
+            if self.drill_down.len() > shown {
+                writeln!(out, "  +{} more", self.drill_down.len() - shown).ok();
+            }
+        }
         out
     }
 }
@@ -220,6 +328,7 @@ mod tests {
             first_divergence: None,
             divergences: Vec::new(),
             recommendations: Vec::new(),
+            drill_down: Vec::new(),
         }
     }
 

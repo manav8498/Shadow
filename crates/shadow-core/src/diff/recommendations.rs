@@ -433,6 +433,7 @@ mod tests {
             first_divergence: None,
             divergences: Vec::new(),
             recommendations: Vec::new(),
+            drill_down: Vec::new(),
         }
     }
 

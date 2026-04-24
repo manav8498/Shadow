@@ -93,6 +93,49 @@ class DiffReport(TypedDict):
     first_divergence: FirstDivergence | None
     divergences: list[FirstDivergence]
     recommendations: list[Recommendation]
+    drill_down: list[PairDrilldown]
+
+class PairAxisScore(TypedDict):
+    """One axis's contribution to a per-pair drill-down row.
+
+    `baseline_value` and `candidate_value` are in raw axis units (ms,
+    tokens, USD, similarity ratio, …). `delta` is candidate - baseline.
+    `normalized_delta` is `|delta| / axis_scale` clamped to `[0, 4]` —
+    1.0 corresponds roughly to one severity-severe-sized movement on
+    that axis, so values are summable across axes into a single
+    regression score.
+    """
+
+    axis: str
+    baseline_value: float
+    candidate_value: float
+    delta: float
+    normalized_delta: float
+
+class PairDrilldown(TypedDict):
+    """Per-pair breakdown of which axes regressed on a single turn.
+
+    `pair_index` is the 0-based position in the paired-responses list
+    (baseline and candidate turn numbers are kept separately for
+    future cases where the alignment is non-identity).
+
+    `axis_scores` carries one `PairAxisScore` per axis (Judge excluded
+    — the Rust core never populates it).
+
+    `regression_score` is the sum of per-axis `normalized_delta` and is
+    the ranking key used to produce the top-K drill-down list.
+
+    `dominant_axis` is the single axis that contributed the most to
+    `regression_score`; useful for one-line headlines like
+    "the regression at pair #3 was trajectory-driven."
+    """
+
+    pair_index: int
+    baseline_turn: int
+    candidate_turn: int
+    axis_scores: list[PairAxisScore]
+    regression_score: float
+    dominant_axis: str
 
 class Recommendation(TypedDict):
     """A prescriptive fix recommendation derived from a divergence.

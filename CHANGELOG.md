@@ -8,6 +8,42 @@ All notable changes to Shadow are documented here. Format follows
 
 ### Added
 
+- **Per-pair drill-down** — `DiffReport` gains a `drill_down` field
+  ranking the top-K most-regressive response pairs in a trace set
+  by an aggregate regression score, with a per-axis breakdown for
+  each. Surfaces *which* specific turns drove each aggregate axis
+  delta, so a reviewer scanning a PR with many paired traces can
+  click-in to the single worst pair instead of hand-auditing them
+  all.
+
+  Each row carries `pair_index`, `baseline_turn`, `candidate_turn`,
+  `regression_score`, `dominant_axis`, and an `axis_scores` list of
+  8 `PairAxisScore` entries (Judge excluded — the Rust core never
+  populates it). Per-axis `normalized_delta` is `|delta| /
+  axis_scale` clamped to `[0, 4]`; scales are calibrated against the
+  existing `Severity::Severe` thresholds so a value of 1.0
+  corresponds to one severity-severe-sized movement on that axis
+  and scores sum coherently across axes.
+
+  On the real devops-agent fixture: top pair is pair #1 with
+  regression score 9.32 — verbosity collapsed (402→128 output
+  tokens) and trajectory flipped (baseline had 0 tool-divergence,
+  candidate had 100%). A reviewer spots the regression without
+  opening any raw `.agentlog` bytes.
+
+  Rendered by every report format: terminal (one line per pair with
+  the top 2 contributing axes indented), markdown / github-pr
+  (`### Top regressive pairs` section with the top 3 inline and the
+  rest under a collapsible `<details>` block).
+
+  Tests: 8 new Rust unit tests in `diff::drill_down::tests` + 7
+  Python renderer/integration tests. Hero harness extended to
+  assert `drill_down` surfaces ≥ 3 regressive pairs on the real
+  devops-agent scenario (now 34/34 end-to-end assertions).
+
+  Closes the last open v0.2 ROADMAP item ("Per-pair drill-down in
+  the diff report").
+
 - **Hero end-to-end real-world scenario.** New harness
   `benchmarks/hero_devops_scenario.py` that exercises every Shadow
   feature (schema-watch, nine-axis diff, first-divergence,
