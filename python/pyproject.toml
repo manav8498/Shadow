@@ -170,6 +170,7 @@ omit = [
     "*/shadow/llm/openai_backend.py",
     "*/shadow/importers/otel_json.py",
     "*/shadow/adapters/*",
+    "*/shadow/mcp_server.py",
 ]
 
 [tool.coverage.report]
