@@ -201,6 +201,46 @@ def test_autostart_doesnt_crash_when_shadow_import_fails(monkeypatch: pytest.Mon
     assert "_BOOTSTRAP_DONE" in src
 
 
+def test_shadow_record_fails_fast_on_unwritable_output_path(tmp_path: Path) -> None:
+    """A read-only output location must fail *before* the agent runs.
+
+    The new user's worst nightmare: `shadow record -o /bad/path/foo.agentlog
+    -- python my_agent.py` silently loses the recording after burning LLM
+    tokens. Fail at CLI boot instead, with an actionable error.
+    """
+    ro_dir = tmp_path / "ro"
+    ro_dir.mkdir()
+    ro_dir.chmod(0o500)  # read + execute, no write
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "shadow.cli.app",
+                "record",
+                "-o",
+                str(ro_dir / "trace.agentlog"),
+                "--",
+                sys.executable,
+                "-c",
+                "raise SystemExit(99)",  # should never run
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        # The check-before-spawn should fail with exit 2 (CLI/arg error)
+        # without ever running the -c "raise SystemExit(99)" child.
+        assert result.returncode == 2, (
+            f"expected exit 2, got {result.returncode}. "
+            f"stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+        combined = (result.stdout + result.stderr).lower()
+        assert "not writable" in combined or "write permission" in combined
+    finally:
+        ro_dir.chmod(0o700)
+
+
 def test_shadow_record_rejects_empty_command_with_exit_2() -> None:
     """`shadow record` with no command after `--` should error out cleanly."""
     result = subprocess.run(

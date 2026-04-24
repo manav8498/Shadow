@@ -6,6 +6,22 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-24
+
+### Fixed
+
+- **`shadow record` now fails fast on an unwritable output path.**
+  An in-depth real-world verification of v0.3.0 caught one
+  behavioural bug: if `-o` pointed at a read-only directory,
+  `shadow record` would launch the wrapped agent anyway (burning
+  real LLM tokens), then quietly emit a warning on atexit when the
+  flush failed. The recording was silently lost. `shadow record`
+  now probes the output path's writability before spawning the
+  child and exits with code 2 + a human-actionable error if the
+  write would fail. New ground-truth test
+  `test_shadow_record_fails_fast_on_unwritable_output_path`
+  guards the invariant.
+
 ## [0.3.0] - 2026-04-24
 
 ### Added — zero-friction adoption
