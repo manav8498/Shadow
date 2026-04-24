@@ -4,7 +4,7 @@ Every Shadow release artifact is:
 
 1. **Built by GitHub Actions** on `release.yml` (pinned runners, pinned actions).
 2. **Signed with sigstore cosign** via keyless OIDC, no long-lived signing keys to rotate, leak, or lose. The certificate chains back to Fulcio, rooted in the Sigstore Public Good trust root.
-3. **Attested with SLSA build provenance** (level 2) via `actions/attest-build-provenance`, recording the GitHub Actions workflow run, commit SHA, and inputs. Level 3 requires builds to take place in a reusable workflow shared across the org (so the build process is isolated from the calling workflow); Shadow does not yet meet that criterion, this is a documented gap and a v0.3 goal.
+3. **Attested with SLSA build provenance** (level 2) via `actions/attest-build-provenance`, recording the GitHub Actions workflow run, commit SHA, and inputs. Level 3 requires builds to take place in a reusable workflow shared across the org (so the build process is isolated from the calling workflow). Shadow does not meet that criterion today.
 4. **Shipped with a CycloneDX 1.5 SBOM** per language surface:
    - `sbom-python.cdx.json`, the Python wheel's transitive deps
    - `sbom-typescript.cdx.json`, the npm package's tree

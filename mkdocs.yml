@@ -1,5 +1,5 @@
 site_name: Shadow
-site_description: Behavioural code review for LLM agents
+site_description: Behavior testing for LLM agents, in the pull request
 site_url: https://manav8498.github.io/Shadow/
 repo_url: https://github.com/manav8498/Shadow
 repo_name: manav8498/Shadow
@@ -59,15 +59,21 @@ nav:
       - Wire into CI: quickstart/ci.md
   - Features:
       - Nine-axis diff: features/nine-axis.md
-      - Judges: features/judges.md
-      - Causal bisection: features/bisect.md
-      - Schema watch: features/schema-watch.md
-      - MCP importer: features/mcp.md
-      - Cost attribution: features/cost-attribution.md
       - Hierarchical diff: features/hierarchical.md
+      - Causal bisection: features/bisect.md
+      - Judges: features/judges.md
+      - Schema watch: features/schema-watch.md
+      - Cost attribution: features/cost-attribution.md
+      - MCP importer: features/mcp.md
   - Reference:
       - CLI: reference/cli.md
       - agentlog format: reference/agentlog.md
       - Pricing table: reference/pricing.md
-  - Security: security.md
+      - Sample PR comment: sample-pr-comment.md
+  - Security and supply chain:
+      - Security policy: security.md
+      - Supply-chain integrity: SUPPLY-CHAIN.md
+      - SOC 2 readiness: SOC2-READINESS.md
+  - Maintainers:
+      - PyPI publishing: PYPI-PUBLISHING.md
   - Changelog: changelog.md
