@@ -1,112 +1,61 @@
 # Roadmap
 
-Where Shadow is headed after **v1.2.x**. Items are not strictly
-ordered — what lands first depends on contributor bandwidth and which
-real-world use cases surface. If something below matters to you, open
-an issue and we'll pull it forward.
+What's shipping and what we're working on. Open an issue if you want to see something added or moved up.
 
-## Shipped through v1.2
+## Shipping today (v1.2.x)
 
-### v1.0 — core format lock-in + live backends
-- `.agentlog v0.1` schema frozen; content-hash + canonicalisation
-  stable forever within `1.x`.
-- Live replay backends `shadow.llm.AnthropicLLM` + `OpenAILLM`
-  (behind `shadow[anthropic]` / `shadow[openai]` extras).
-- Auto-instrumentation of Anthropic + OpenAI Python SDKs (incl.
-  Responses API, streaming, cache tiers) + TypeScript equivalents.
-- LASSO-over-corners causal bisection with Meinshausen-Bühlmann
-  stability selection.
-- OTel GenAI exporter + importers for Langfuse, Braintrust,
-  LangSmith, OpenAI Evals, OTLP.
-- Enterprise scaffolding: SOC 2 access log, CycloneDX 1.5 SBOMs,
-  cosign keyless signing in the release workflow.
-- **10 built-in judges** including a configurable `LlmJudge` that
-  takes a rubric string.
-- PyPI Trusted-Publisher pipeline + docs site at
-  [manav8498.github.io/Shadow](https://manav8498.github.io/Shadow/).
+- Content-addressed `.agentlog` trace format
+- Nine-axis behavioural diff with bootstrap confidence intervals
+- First-divergence detection and causal bisection (LASSO over corners with Meinshausen-Bühlmann stability selection)
+- Live replay backends for Anthropic and OpenAI, plus a deterministic mock
+- Partial replay: lock a baseline prefix, replay only the suffix
+- Counterfactual replay: swap one config variable at a time
+- Auto-instrumentation for the Anthropic and OpenAI SDKs (Python and TypeScript, including the OpenAI Responses API and streaming)
+- Ten built-in judges, including a rubric-driven `LlmJudge`
+- Eight importers: Langfuse, Braintrust, LangSmith, OpenAI Evals, OTLP, MCP, Vercel AI SDK, PydanticAI
+- OTel GenAI exporter
+- Hierarchical diff at six levels: trace, session, turn, span, token, policy
+- Token-level distribution summaries and policy-rule overlays
+- LLM-assisted prescriptive fixes grounded on deterministic recommendations
+- SOC 2-oriented access log, CycloneDX 1.5 SBOMs, cosign keyless signing
+- Ubuntu, macOS, and Windows CI across Python 3.11, 3.12, 3.13
+- PyPI Trusted Publisher release pipeline
+- Docs site at [manav8498.github.io/Shadow](https://manav8498.github.io/Shadow/)
 
-### v1.1 — scale + security hardening
-- Scale verified to N=10k pair traces (`benchmarks/scale_drill_down.py`).
-- **Banded Needleman-Wunsch** alignment for long traces — fixes the
-  super-linear blow-up at N ≥ 5k.
-- Path-traversal hardening on `shadow quickstart`.
-- Parser resource bounds (16 MiB/1 GiB caps with tunable overrides).
-- Full three-OS CI matrix: Ubuntu + macOS + Windows × Python 3.11/3.12.
-- Counterfactual replay (1 of the 5 replay-as-science modes).
+## What's next
 
-### v1.2 — partial-item close-out
-- Vercel AI SDK + PydanticAI importers.
-- Token-level + policy-level hierarchical diff
-  (`--token-diff`, `--policy <yaml>`).
-- Partial replay (2nd replay-as-science slice) — prefix-locked,
-  suffix-live at a chosen branch point.
-- LLM-assisted prescriptive fixes (`--suggest-fixes`) with
-  retry/backoff and ungrounded-anchor rejection.
+### Sandboxed replay
 
-## Next up (v1.3+)
+Tool calls run inside a filesystem snapshot with network isolation and a frozen clock, so replayed agents produce the same side effects they recorded. Needs a per-tool adapter system and a lightweight sandbox runtime. This is the biggest single piece of work on the roadmap.
 
-### Replay as first-class science
+### Streaming replay
 
-Counterfactual (v1.1) and partial (v1.2) ship. Still open:
+Record and replay inter-chunk timings so a candidate that stalls between chunks looks different from one that bursts them. Needs an `.agentlog` v0.2 chunk-record addition and parser updates.
 
-- **Sandboxed replay** — tool calls run inside a deterministic
-  sandbox (filesystem snapshot, network blackhole, frozen clock) so
-  the replay produces the exact same side effects it recorded. Needs
-  a tool-sandbox trait + per-tool adapters + a lightweight runtime
-  (Linux namespaces + overlayfs v1). Honest estimate: 8-12 weeks,
-  dedicated engineer.
-- **Streaming replay** — record + replay inter-chunk timings. Needs
-  a SPEC v0.2 extension (new `chat_response_chunk` record kind) and
-  parser/writer updates. Honest estimate: 2-3 weeks + SPEC review.
-- **Multimodal replay** — image / audio inputs and outputs survive
-  record → replay → diff with a cross-modal semantic axis. Needs SPEC
-  v0.2 binary-blob addressing + perceptual-similarity research.
-  Honest estimate: 4-6 weeks.
+### Multimodal traces
+
+Images and audio in and out, with a cross-modal semantic axis. Needs blob addressing in the spec and perceptual-similarity work.
 
 ### Harness-diff instrumentation
 
-Capture retry, tool-order, and context-trim events as first-class
-diff dimensions instead of burying them in trace payloads.
+Capture retries, tool-ordering, and context-trim events as first-class diff dimensions instead of burying them in the payload.
 
 ### MCP-native replay
 
-MCP importer + examples ship today. Still open: protocol-level
-interception + server-session snapshot infra so MCP tool invocations
-can be replayed deterministically without re-running the MCP server.
-
-### Adversarial benchmark corpus
-
-Ongoing expansion of `examples/edge-cases/` into a labeled
-regression-guard corpus covering more real-world-observed failure
-modes.
+We import MCP session logs today. Next: protocol-level interception so MCP tool invocations replay deterministically without re-running the MCP server.
 
 ### Runtime policy enforcement
 
-v1.2 ships `shadow diff --policy` for post-hoc checking. v1.3+:
-`.shadowpolicy.yaml` at the repo root + enforcement at recording
-time (blocking a production run that would violate a policy rule).
-Needs security review.
+`shadow diff --policy` checks a YAML policy after the fact. The runtime version: enforce the same rules at recording time, block a run that would violate one.
 
 ## Not on the roadmap
 
-Deliberately scoped out:
+A few things we are not building:
 
-- **Hosted Shadow.** The whole point is that Shadow lives in your
-  repo and your CI, not in a third-party dashboard. Pair Shadow with
-  Langfuse / Braintrust / LangSmith if you want a UI.
-- **Domain rubrics bundled by default** (ESI adherence for medical,
-  PCI-DSS for payments). That hardcoding is what the `Judge` axis is
-  for; we ship example rubrics under `examples/judges/` but don't
-  bundle them into the core.
-- **A graphical trace viewer.** Text tools for text formats.
-  `jq < trace.agentlog` is a fine viewer.
+- **Hosted Shadow.** The whole point is that Shadow lives in your repo and your CI, not in someone else's dashboard. Pair Shadow with Langfuse, Braintrust, or LangSmith if you want a UI.
+- **Bundled domain rubrics** (ESI for medical, PCI-DSS for payments). Those are what the `Judge` axis is for. We ship example rubrics in `examples/judges/`.
+- **A graphical trace viewer.** Text tools for text formats. `jq < trace.agentlog` is a fine viewer.
 
 ## How to influence this
 
-- Open an issue with a real use case. *"We hit X with Shadow on our
-  production traffic and Y would have saved us"* is the most useful
-  feedback.
-- Draft PRs are welcome for any item above — tag the roadmap item in
-  the PR description.
-- If you want to own a roadmap item, say so in an issue so we don't
-  duplicate work.
+Open an issue with a real use case: *"We hit X with Shadow on our production traffic and Y would have saved us"* is the most useful feedback. Draft PRs welcome for anything on this page. If you want to own a roadmap item, say so in an issue first so we do not duplicate work.

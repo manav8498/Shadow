@@ -1,7 +1,7 @@
 # Causal bisection
 
-When a PR changes multiple things at once — prompt edit, model swap,
-tool-schema rename, param change — Shadow's `bisect` command tells
+When a PR changes multiple things at once, prompt edit, model swap,
+tool-schema rename, param change, Shadow's `bisect` command tells
 you which specific delta moved which axis.
 
 Under the hood: LASSO regression over a full-factorial or
@@ -63,7 +63,7 @@ Reading the signal:
   cause is ambiguous
 - Picking between rollback candidates ("is the regression from the
   prompt or the model?")
-- Post-incident retros — attributes the behaviour change to the
+- Post-incident retros, attributes the behaviour change to the
   specific commit's specific field
 
 See the paper references in the module docstring for the statistical

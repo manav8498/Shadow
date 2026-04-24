@@ -21,7 +21,7 @@ reviewers look at first.
 - [ ] If the PR touches `SPEC.md`: additive only within `0.x.y` (see
       `CONTRIBUTING.md §Writing a SPEC.md change`).
 - [ ] If the PR adds a default domain heuristic (tool-name prefix list,
-      refusal phrase list, bundled rubric, etc.) — **don't**. Such
+      refusal phrase list, bundled rubric, etc.), **don't**. Such
       checks belong in a `Judge`. Discuss in an issue first.
 - [ ] No new unpinned dependencies (Cargo + pyproject both use `=x.y.z`).
 - [ ] `mypy --strict` + `cargo clippy -D warnings` + `ruff check` all clean.

@@ -1,4 +1,4 @@
-# `.agentlog` Specification — Version 0.1
+# `.agentlog` Specification, Version 0.1
 
 > **Status:** Draft. Published with Shadow v0.1.0. Stable on `0.x.y` means
 > no breaking changes within a minor version.
@@ -15,22 +15,22 @@
 
 `.agentlog` is a file format and a semantic model for **traces produced by
 LLM-powered agents**. One `.agentlog` file represents one logical agent
-session — the full sequence of chat requests, chat responses, tool calls,
+session, the full sequence of chat requests, chat responses, tool calls,
 tool results, and errors that make up an agent's interaction with an LLM
 (and optionally, external tools).
 
 The format is:
 
-- **JSON Lines (JSONL)** — one record per line, streaming-safe.
-- **Content-addressed** — every record's `id` is the SHA-256 of a
+- **JSON Lines (JSONL)**, one record per line, streaming-safe.
+- **Content-addressed**, every record's `id` is the SHA-256 of a
   canonical serialization of its payload (§6). Identical payloads produce
   identical ids.
-- **OpenTelemetry GenAI–compatible** — every field maps cleanly onto
+- **OpenTelemetry GenAI–compatible**, every field maps cleanly onto
   [OTel GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/)
   (§7), so traces can be exported to any OTel collector.
-- **Privacy-first** — the format has first-class redaction markers (§9)
+- **Privacy-first**, the format has first-class redaction markers (§9)
   and implementations MUST redact by default.
-- **Replay-friendly** — records carry enough information (§10) that a
+- **Replay-friendly**, records carry enough information (§10) that a
   conforming replayer can re-run the session against a new model or
   config and produce a behaviorally-comparable trace.
 
@@ -48,8 +48,7 @@ The format is:
   debuggable. Compact binary formats (msgpack, CBOR) may be explored in
   v0.2 as an optional encoding.
 - **Auto-classified PII beyond regex patterns.** The default redactor is
-  deterministic regex (§9). ML-based detectors are out of scope for v0.1
-  — bring your own via the redactor plugin interface.
+  deterministic regex (§9). ML-based detectors are out of scope for v0.1, bring your own via the redactor plugin interface.
 
 ### §1.3 Relationship to Shadow
 
@@ -63,7 +62,7 @@ they satisfy §3–§6.
 | Term | Meaning |
 |------|---------|
 | **Record** | One JSON object on one line of a `.agentlog` file. |
-| **Payload** | The `payload` field of a record — the kind-specific body that is the subject of content-addressing (§6). |
+| **Payload** | The `payload` field of a record, the kind-specific body that is the subject of content-addressing (§6). |
 | **Envelope** | Everything in the record other than the payload: `version`, `id`, `kind`, `ts`, `parent`, optional `meta`. |
 | **Trace** | One complete `.agentlog` file. One logical agent session. |
 | **Trace set** | A collection of traces referred to together (e.g. "last week's prod traffic"). |
@@ -180,12 +179,12 @@ turn) or a `tool_result` (for subsequent turns after tool use).
 
 Conforming agents SHOULD populate:
 
-- `temperature` (number, 0–2) — MAY be omitted if using provider default.
+- `temperature` (number, 0–2), MAY be omitted if using provider default.
 - `top_p` (number, 0–1)
 - `max_tokens` (integer, >0)
 - `stop` (array of string \| null)
 
-Providers have extensions (`top_k`, `presence_penalty`, etc.) — these are
+Providers have extensions (`top_k`, `presence_penalty`, etc.), these are
 recorded verbatim as additional keys. Implementations MUST preserve them
 on round-trip.
 
@@ -221,7 +220,7 @@ A response from the LLM to a `chat_request`. Parent MUST be the request.
 | Field | Type | Required | Notes |
 |-------|------|:--------:|-------|
 | `model` | string | yes | Echo of the responding model. |
-| `content` | array | yes | List of content parts. Shapes: `{type: "text", text}`, `{type: "tool_use", id, name, input}`, `{type: "thinking", text}` (opt-in), `{type: "image", ...}` (future). |
+| `content` | array | yes | List of content parts. Shapes: `{type: "text", text}`, `{type: "tool_use", id, name, input}`, `{type: "thinking", text}` (opt-in), `{type: "image"...}` (future). |
 | `stop_reason` | string | yes | One of: `end_turn`, `tool_use`, `max_tokens`, `stop_sequence`, `content_filter`, `error`. |
 | `stop_sequence` | string \| null | no | The matched stop string, if any. |
 | `usage` | object | yes | Token counts. `thinking_tokens` defaults to 0. |
@@ -380,7 +379,7 @@ Divergences from RFC 8785:
    producers encoding the same logical character differently (e.g.
    precomposed vs decomposed "é") still dedup to one record.
 
-These divergences are deliberate — the UTF-8 sort simplifies the Rust
+These divergences are deliberate, the UTF-8 sort simplifies the Rust
 implementation, and NFC fixes a real dedup failure we hit early in
 v0.1. If a future spec revision removes them, content-ids would
 change, so bumping the spec `version` field from `"0.1"` is required.
@@ -481,7 +480,7 @@ serialization (§5) and content addressing (§6).
 | Step | Value |
 |---|---|
 | Input payload (JSON) | `{"hello":"world"}` |
-| Canonical bytes (UTF-8) | `{"hello":"world"}` (17 bytes, no sort needed — one key) |
+| Canonical bytes (UTF-8) | `{"hello":"world"}` (17 bytes, no sort needed, one key) |
 | SHA-256 digest (hex) | `93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588` |
 | Content id | `sha256:93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588` |
 
@@ -512,12 +511,12 @@ The envelope contains `ts` (unique per occurrence) and `parent` (varies
 by trace context). Including them in the hash would defeat the primary
 purpose of content addressing: **two semantically-identical requests
 should dedupe to the same blob**. For replay and for storage efficiency
-this matters — e.g., a 500-request prompt-cache evaluation becomes 1
+this matters, e.g., a 500-request prompt-cache evaluation becomes 1
 blob + 500 envelope references.
 
 ### §6.2 Known-vector test
 
-The single normative cross-implementation test vector lives in §5.6 —
+The single normative cross-implementation test vector lives in §5.6.
 see the "Conformance test case" table. Summary:
 
 ```
@@ -689,7 +688,7 @@ to match the baseline order before writing the candidate trace.
 
 ## §11 Compatibility with existing tools
 
-`.agentlog` is designed to be exportable to — and importable from —
+`.agentlog` is designed to be exportable to, and importable from.
 popular LLM-observability products. v0.1 does not ship these bridges;
 they are described here to inform v0.2 design.
 
@@ -718,7 +717,7 @@ LangSmith has first-class tool-call support matching §4.3/§4.4.
 
 ### §11.4 OpenTelemetry
 
-Direct — see §7. Any OTel-compatible backend (Tempo, Jaeger, Honeycomb)
+Direct, see §7. Any OTel-compatible backend (Tempo, Jaeger, Honeycomb)
 can consume exported `.agentlog` traces once Shadow's OTel exporter
 lands in v0.2.
 
@@ -776,8 +775,8 @@ Abbreviated for brevity (ids shown as `sha256:hN`).
 {"version":"0.1","id":"sha256:h1","kind":"chat_request","ts":"2026-04-21T12:00:00.100Z","parent":"sha256:h0","payload":{"messages":[{"content":"Plan a 3-step refactor.","role":"user"}],"model":"claude-opus-4-7","params":{"max_tokens":512,"temperature":0.2,"top_p":1.0}}}
 {"version":"0.1","id":"sha256:h2","kind":"chat_response","ts":"2026-04-21T12:00:00.800Z","parent":"sha256:h1","payload":{"content":[{"text":"Breaking this into three manageable steps...","type":"thinking"},{"text":"Step 1: extract the parser. Step 2: add the differ. Step 3: wire the CLI.","type":"text"}],"latency_ms":701,"model":"claude-opus-4-7","stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":48,"thinking_tokens":22}}}
 {"version":"0.1","id":"sha256:h3","kind":"chat_request","ts":"2026-04-21T12:00:01.100Z","parent":"sha256:h2","payload":{"messages":[{"content":"Plan a 3-step refactor.","role":"user"},{"content":[{"text":"Step 1: extract the parser. Step 2: add the differ. Step 3: wire the CLI.","type":"text"}],"role":"assistant"},{"content":"Expand step 2.","role":"user"}],"model":"claude-opus-4-7","params":{"max_tokens":512,"temperature":0.2,"top_p":1.0}}}
-{"version":"0.1","id":"sha256:h4","kind":"chat_response","ts":"2026-04-21T12:00:01.900Z","parent":"sha256:h3","payload":{"content":[{"text":"Step 2 — add the differ: bootstrap CI, implement the nine axes, add the markdown renderer.","type":"text"}],"latency_ms":802,"model":"claude-opus-4-7","stop_reason":"end_turn","usage":{"input_tokens":72,"output_tokens":24,"thinking_tokens":0}}}
-{"version":"0.1","id":"sha256:h5","kind":"chat_request","ts":"2026-04-21T12:00:02.100Z","parent":"sha256:h4","payload":{"messages":[{"content":"Plan a 3-step refactor.","role":"user"},{"content":[{"text":"Step 1: ... Step 3: wire the CLI.","type":"text"}],"role":"assistant"},{"content":"Expand step 2.","role":"user"},{"content":[{"text":"Step 2 — add the differ...","type":"text"}],"role":"assistant"},{"content":"Done. Thanks.","role":"user"}],"model":"claude-opus-4-7","params":{"max_tokens":64,"temperature":0.2,"top_p":1.0}}}
+{"version":"0.1","id":"sha256:h4","kind":"chat_response","ts":"2026-04-21T12:00:01.900Z","parent":"sha256:h3","payload":{"content":[{"text":"Step 2, add the differ: bootstrap CI, implement the nine axes, add the markdown renderer.","type":"text"}],"latency_ms":802,"model":"claude-opus-4-7","stop_reason":"end_turn","usage":{"input_tokens":72,"output_tokens":24,"thinking_tokens":0}}}
+{"version":"0.1","id":"sha256:h5","kind":"chat_request","ts":"2026-04-21T12:00:02.100Z","parent":"sha256:h4","payload":{"messages":[{"content":"Plan a 3-step refactor.","role":"user"},{"content":[{"text":"Step 1: ... Step 3: wire the CLI.","type":"text"}],"role":"assistant"},{"content":"Expand step 2.","role":"user"},{"content":[{"text":"Step 2, add the differ...","type":"text"}],"role":"assistant"},{"content":"Done. Thanks.","role":"user"}],"model":"claude-opus-4-7","params":{"max_tokens":64,"temperature":0.2,"top_p":1.0}}}
 {"version":"0.1","id":"sha256:h6","kind":"chat_response","ts":"2026-04-21T12:00:02.500Z","parent":"sha256:h5","payload":{"content":[{"text":"You're welcome.","type":"text"}],"latency_ms":401,"model":"claude-opus-4-7","stop_reason":"end_turn","usage":{"input_tokens":120,"output_tokens":5,"thinking_tokens":0}}}
 ```
 
@@ -818,7 +817,7 @@ safety filter.
 
 ---
 
-## Appendix A — Conformance test matrix
+## Appendix A, Conformance test matrix
 
 Implementations claiming conformance MUST pass:
 
@@ -826,7 +825,7 @@ Implementations claiming conformance MUST pass:
    to `b'{"hello":"world"}'` and hashes to
    `sha256:93a23971a914e5eacbf0a8d25154cda309c3c1c72fbb9914d47c60f3cb681588`.
 2. **Canonical round-trip**: parse any record, re-serialize its
-   payload canonically, recompute the id — the result equals the
+   payload canonically, recompute the id, the result equals the
    original id.
 3. **Envelope validation**: reject a record missing any required field
    (§3.1).
@@ -840,9 +839,9 @@ Implementations claiming conformance MUST pass:
 The `shadow-core` test suite (`cargo test --test conformance`) runs
 these tests on every commit.
 
-## Appendix B — Glossary cross-reference
+## Appendix B, Glossary cross-reference
 
-- **JCS** — RFC 8785, JSON Canonicalization Scheme. See §5.
-- **OTel GenAI** — OpenTelemetry GenAI semantic conventions. See §7.
-- **Content id** — `"sha256:" + lowercase_hex(sha256(canonical_json(payload)))`.
-- **Shadow** — the implementation that ships this spec.
+- **JCS**, RFC 8785, JSON Canonicalization Scheme. See §5.
+- **OTel GenAI**, OpenTelemetry GenAI semantic conventions. See §7.
+- **Content id**, `"sha256:" + lowercase_hex(sha256(canonical_json(payload)))`.
+- **Shadow**, the implementation that ships this spec.

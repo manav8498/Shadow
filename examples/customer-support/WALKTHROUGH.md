@@ -1,4 +1,4 @@
-# Real-world walkthrough — Acme Widgets support bot
+# Real-world walkthrough, Acme Widgets support bot
 
 A concrete scenario showing Shadow catching a real regression before it
 merges. Everything here runs offline against committed fixtures.
@@ -8,9 +8,9 @@ merges. Everything here runs offline against committed fixtures.
 Acme Widgets runs a customer support bot on Claude Opus 4.7. It handles
 three kinds of interactions every day:
 
-1. **Refund requests** — "I want to return order #12345"
-2. **Order status checks** — "Where's order #67890?"
-3. **Structured-data requests** — "Show me my last 3 orders as JSON"
+1. **Refund requests**, "I want to return order #12345"
+2. **Order status checks**, "Where's order #67890?"
+3. **Structured-data requests**, "Show me my last 3 orders as JSON"
 
 The current production config is [`config_a.yaml`](config_a.yaml). It
 has a careful system prompt that requires confirming refund amounts
@@ -27,7 +27,6 @@ At a glance the diff looks small and benign:
 
 ```diff
 - You are a customer support assistant for Acme Widgets.
--
 - When a customer asks about an order, use `lookup_order(order_id)`...
 - [detailed refund-confirmation protocol...]
 - When the customer asks for structured data, respond with valid JSON only.
@@ -52,7 +51,7 @@ Shadow replays 3 representative production traces against the candidate
 config and posts this PR comment:
 
 ```
-Shadow diff — 3 response pair(s)
+Shadow diff, 3 response pair(s)
 axis          baseline   candidate  delta        95% CI           severity
 semantic      1.000      0.698     -0.302    [-0.35, -0.27]       🔴 severe
 trajectory    0.000      1.000     +1.000    [+0.00, +1.00]       🔴 severe
@@ -72,36 +71,36 @@ correct by the axis definitions:
 
 - `safety` measures the model's own refusal / content-filter rate.
   Neither side refused here, so correctly `none`. (The unconfirmed
-  refund is a *trajectory* divergence — candidate made a tool call
-  baseline didn't — and it's caught on that axis at `+1.000 severe`.)
+  refund is a *trajectory* divergence, candidate made a tool call
+  baseline didn't, and it's caught on that axis at `+1.000 severe`.)
 - `cost` needs a pricing table (not supplied on this run).
-- `reasoning` — no thinking tokens in this scenario.
-- `judge` — no user-supplied rubric.
+- `reasoning`, no thinking tokens in this scenario.
+- `judge`, no user-supplied rubric.
 
 ## What each severe axis actually means
 
-### `semantic` severe — answers are 30% less similar
+### `semantic` severe, answers are 30% less similar
 
 Baseline answers and candidate answers aren't saying the same things
 anymore. Candidate's responses are wandering into a different semantic
 space. Example turn 3 ("Show me my last 3 orders as JSON"):
 
-- **Baseline output:** `[{"id":"12345","total":89.99,"status":"delivered"},...]` (pure JSON)
+- **Baseline output:** `[{"id":"12345","total":89.99,"status":"delivered"}...]` (pure JSON)
 - **Candidate output:** `"Of course! Here are your 3 most recent orders. I've included the order ID, total, and current status for each..."` (prose, no JSON)
 
 The candidate *dropped the JSON-only directive*, so it's now returning
 prose when downstream systems expect structured output.
 
-### `trajectory` severe — 100% tool-call divergence
+### `trajectory` severe, 100% tool-call divergence
 
 This one is the real bombshell. Inspecting turn 1 (the refund request)
 directly:
 
 ```
-BASELINE turn 1 (refund request) — tool calls:
+BASELINE turn 1 (refund request), tool calls:
   → lookup_order({'order_id': '12345'})
 
-CANDIDATE turn 1 (refund request) — tool calls:
+CANDIDATE turn 1 (refund request), tool calls:
   → lookup_order({'id': '12345', 'include_shipping': False})
   → refund_order({'order_id': '12345', 'amount': 89.99})
 ```
@@ -116,23 +115,23 @@ Two separate regressions on the same turn:
 2. **The candidate issues the refund without confirming with the
    customer first.** Baseline stops after `lookup_order` and would
    return a message asking the customer to confirm. Candidate just
-   *does the refund* — because the PR deleted the three-step protocol
+   *does the refund*, because the PR deleted the three-step protocol
    from the system prompt. That's real money leaving Acme's bank
    account without a human saying "yes, refund me."
 
 This is the kind of bug that's invisible in unit tests (the tool
 contracts still typecheck!) but catastrophic in production.
 
-### `verbosity` severe — 4× more tokens per response
+### `verbosity` severe, 4× more tokens per response
 
 Baseline median: 42 output tokens. Candidate median: 168. The "be
 thorough in your explanations" clause in the new prompt bloated every
 response.
 
-### `latency` severe — responses 2× slower
+### `latency` severe, responses 2× slower
 
 Baseline p50: 540 ms. Candidate p50: 1180 ms. Purely a consequence of
-the verbosity increase — more tokens to generate means more wall-clock.
+the verbosity increase, more tokens to generate means more wall-clock.
 
 ## Bisection
 
@@ -156,7 +155,7 @@ Reading this: **the prompt edit drove the semantic, verbosity, and
 conformance regressions on its own** (those axes can't be explained by
 the tool schema change, so they land entirely on the prompt).
 **The trajectory regression is purely tool-schema** (it can't be
-explained by prompt edits). **Safety and latency are shared** —
+explained by prompt edits). **Safety and latency are shared**.
 either cause is plausible for both.
 
 What the reviewer learns: revert the prompt edit and you recover three
@@ -168,7 +167,7 @@ The allocator is a heuristic (docs: `shadow.bisect.runner.DELTA_KIND_AFFECTS`):
 prompt deltas map to generation-level axes, tool-schema deltas map to
 trajectory/safety, params map to verbosity/reasoning, model swaps
 touch everything. A live-LLM-driven LASSO scorer over every corner of
-the Plackett-Burman design is v0.2 — this allocator is what works
+the Plackett-Burman design is v0.2, this allocator is what works
 today with just two recorded traces.
 
 ## What the team does with this
@@ -185,7 +184,7 @@ Total elapsed: ~30 seconds of CI time saved them from:
 
 ## Honest limitations remaining in v0.1
 
-The axes are all principled and domain-free — no hardcoded tool
+The axes are all principled and domain-free, no hardcoded tool
 prefixes for "risky" or "safe," no assumptions about customer-support
 specifically. The trajectory axis catches tool-call divergence in any
 domain; the conformance axis catches structural-output regressions in
@@ -194,9 +193,9 @@ any domain; etc.
 Remaining scope:
 
 - **`judge` axis ships as a trait without a default implementation.**
-  Teams that want to express a domain rubric — "assistant MUST ask for
+  Teams that want to express a domain rubric, "assistant MUST ask for
   confirmation before calling `refund_order`"; "ESI-1 cardiac
-  presentations MUST page physician" — plug in their own `Judge`. The
+  presentations MUST page physician", plug in their own `Judge`. The
   Protocol is defined and stable. Shipping a default LLM-judge was out
   of scope for v0.1 because calling an LLM-judge from Rust is a
   Python-layer concern, and defaulting to any particular judge would
@@ -209,7 +208,7 @@ Remaining scope:
   (e.g. "prompt.system changed"), all content candidates get equal
   weight. Teasing apart *which sentence* of a prompt drove a specific
   axis needs the live-LLM LASSO-over-corners scorer scoped for v0.2.
-- **`cost` requires a user-supplied pricing table.** Not a bug — the
+- **`cost` requires a user-supplied pricing table.** Not a bug, the
   default-zero behaviour is intentional (we don't ship assumptions
   about what models cost your team). Pass `--pricing pricing.json` to
   activate.
@@ -218,16 +217,10 @@ Remaining scope:
 
 ```bash
 # From the repo root, after `just setup`:
-.venv/bin/python examples/customer-support/generate_fixtures.py
-
-.venv/bin/shadow diff \
+.venv/bin/python examples/customer-support/generate_fixtures.py.venv/bin/shadow diff \
   examples/customer-support/fixtures/baseline.agentlog \
   examples/customer-support/fixtures/candidate.agentlog \
-  --output-json /tmp/cs_report.json
-
-.venv/bin/shadow report /tmp/cs_report.json --format github-pr
-
-.venv/bin/shadow bisect \
+  --output-json /tmp/cs_report.json.venv/bin/shadow report /tmp/cs_report.json --format github-pr.venv/bin/shadow bisect \
   examples/customer-support/config_a.yaml \
   examples/customer-support/config_b.yaml \
   --traces examples/customer-support/fixtures/baseline.agentlog \

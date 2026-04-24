@@ -21,7 +21,7 @@ about an agent's behaviour, not what's easy to measure.
 ## Statistical guarantees
 
 - **Bootstrap 95% CIs**: 1000 paired resamples per axis, percentile
-  method. CI bounds are emitted even on small samples — the
+  method. CI bounds are emitted even on small samples, the
   `low_power` flag fires automatically when n < 5.
 - **Severity tiers**: `none / minor / moderate / severe` computed
   from both the effect size and the CI bracket. A delta whose CI
@@ -34,7 +34,7 @@ about an agent's behaviour, not what's easy to measure.
 ### Terminal
 
 ```
-Shadow diff — 5 response pair(s)
+Shadow diff, 5 response pair(s)
 baseline : sha256:8fc9f133…
 candidate: sha256:11a5b3a2…
 
