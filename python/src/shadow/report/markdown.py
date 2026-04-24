@@ -7,16 +7,38 @@ from typing import Any
 
 def render_markdown(report: dict[str, Any]) -> str:
     """Render a DiffReport dict as a PR-friendly markdown table."""
-    pair_count = report.get("pair_count", 0)
-    lines = [
+    from shadow.report.summary import summarise_report
+
+    pair_count = int(report.get("pair_count", 0))
+    lines: list[str] = [
         f"# Shadow diff — {pair_count} response pair{'s' if pair_count != 1 else ''}",
         "",
         f"**Baseline:** `{_short(report.get('baseline_trace_id', ''))}`  ",
         f"**Candidate:** `{_short(report.get('candidate_trace_id', ''))}`  ",
         "",
-        "| axis | baseline | candidate | delta | 95% CI | severity | flags | n |",
-        "|------|---------:|----------:|------:|:-------|:---------|:------|---:|",
     ]
+
+    # What-this-means paragraph first — this is what a PR reviewer
+    # reads before clicking into the axis table.
+    summary = summarise_report(report)
+    if summary:
+        lines.append("### What this means")
+        lines.append("")
+        for s_line in summary.splitlines():
+            lines.append(f"> {s_line}")
+        lines.append("")
+
+    # Low-n banner. Matches the terminal renderer and the `LowPower`
+    # flag the Rust differ emits per-row.
+    if 0 < pair_count < 5:
+        lines.append(
+            f"> ⚠  Only {pair_count} paired response(s) — severities below are "
+            "directional, not definitive. Record 10+ turns for stable CIs."
+        )
+        lines.append("")
+
+    lines.append("| axis | baseline | candidate | delta | 95% CI | severity | flags | n |")
+    lines.append("|------|---------:|----------:|------:|:-------|:---------|:------|---:|")
     worst = "none"
     for row in report.get("rows", []):
         sev = row.get("severity", "none")
