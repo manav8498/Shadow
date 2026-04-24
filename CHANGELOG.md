@@ -6,6 +6,110 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-04-24
+
+### Added — partial-completion close-out
+
+Five partial items from the strategic roadmap closed out this release,
+each shipped with implementation + unit tests + CLI wiring.
+
+#### 1. Vercel AI SDK importer
+
+New `shadow.importers.vercel_ai` + `shadow import --format vercel-ai`.
+Accepts both OTLP-style `{spans: [...]}` (the AI SDK telemetry exporter)
+and dashboard-style `{events: [...]}` (the Vercel AI Observability JSON
+export). Maps the full `ai.*` attribute namespace: `ai.prompt.messages`,
+`ai.response.text`, `ai.response.toolCalls`, `ai.tools`, `ai.settings.*`,
+`ai.usage.*`, `ai.finishReason`. Tool invocations surface as
+Anthropic-shape `tool_use` content blocks so the rest of the differ
+works unchanged. Error spans map to a synthetic `error` stop-reason.
+16 unit tests + CLI integration.
+
+#### 2. PydanticAI importer
+
+New `shadow.importers.pydantic_ai` + `shadow import --format pydantic-ai`.
+Accepts the native `all_messages_json()` output, wrapped
+`{messages: [...]}` dumps, and Logfire span exports that carry the
+message history under `attributes.all_messages_json`. Handles the full
+part-kind set: `system-prompt`, `user-prompt`, `text`, `tool-call`,
+`tool-return`, `retry-prompt`, both snake-case and CamelCase variants
+across PydanticAI versions. Tool schemas from `model_request_parameters`
+propagate to every downstream request. 11 unit tests + CLI integration.
+
+#### 3. Token-level + policy-level hierarchical diff
+
+Two new layers in `shadow.hierarchical` complete the strategic-plan
+hierarchy (trace → session → turn → span → **token** → **policy**):
+
+- **Token-level** — `token_diff(baseline, candidate)` produces
+  per-dimension distribution summaries (median, p25, p75, p95, max,
+  total) for `input_tokens` / `output_tokens` / `thinking_tokens`,
+  plus a per-pair delta list ranked by absolute shift. Surfaces via
+  `shadow diff --token-diff`. Handles zero-median baseline without
+  blowing up (returns `+inf` normalised shift).
+- **Policy-level** — declarative YAML overlay with eight rule kinds:
+  `must_call_before`, `must_call_once`, `no_call`, `max_turns`,
+  `required_stop_reason`, `max_total_tokens`, `must_include_text`,
+  `forbidden_text`. `policy_diff(baseline, candidate, rules)` classifies
+  each violation as pre-existing, a regression, or a fix. Surfaces via
+  `shadow diff --policy path/to/policy.yaml`.
+
+21 new unit tests covering both layers + CLI wiring.
+
+#### 4. Partial replay
+
+New `shadow.replay.run_partial_replay(baseline, branch_at, backend)`
+— the 2nd of the replay-as-science slices (after counterfactual in
+v1.0). Locks the baseline prefix verbatim (turns `0..branch_at-1`),
+then switches to live replay at the branch point. Isolates behaviour
+change to a specific turn so reviewers can ask "if we diverged at turn
+3, what happens from turn 4 onwards under config B?" without
+confounding earlier turns. Surfaces via
+`shadow replay --partial --branch-at <idx>`. Clamps gracefully when
+`branch_at` exceeds the trace length (full-baseline copy). Preserves
+parent DAG consistency under all three modes (zero = fully live,
+mid = split, end = pure copy). 10 unit tests.
+
+#### 5. LLM-assisted prescriptive fixes
+
+New `shadow.suggest_fixes` module + `shadow diff --suggest-fixes` flag.
+Layers an LLM pass on top of the deterministic recommendation engine to
+produce concrete code-level fix proposals. The module:
+
+- Collects up to 6 anchors from the deterministic `Recommendation` list,
+  prioritised by severity.
+- Builds a bounded evidence window (top axes + first-divergence +
+  flagged-turn request/response payloads, truncated to
+  `MAX_EVIDENCE_CHARS = 1800` per record).
+- Calls the configured LLM backend with a strict JSON schema.
+- **Rejects ungrounded suggestions** — if the model invents an anchor
+  id not in the deterministic set, that suggestion is dropped. This
+  keeps the LLM from inventing fixes for problems that don't exist.
+- Tolerates markdown fences, trailing chatter, malformed JSON (returns
+  empty gracefully), and out-of-range confidence values.
+- Flags suggestions with `confidence < 0.3` as `[speculative]` rather
+  than dropping them silently.
+
+Opt-in only (~1-2k output tokens per diff, same backend selection rules
+as `--judge` / `--explain`). 13 unit tests covering anchor-grounding
+enforcement, JSON robustness, and evidence-truncation safety.
+
+### Upgraded
+
+- Rust workspace version `1.1.0 → 1.2.0`.
+- Python package `1.1.0 → 1.2.0` (ABI-compatible with 1.1 consumers).
+- `shadow.importers` now exports 8 formats:
+  Braintrust, Langfuse, LangSmith, MCP, OpenAI Evals, OTel,
+  **Vercel AI**, **PydanticAI**.
+
+### Testing
+
+- **70 new unit tests** across the five modules.
+- **Full suite: 468 passed** (up from 398) — no regressions.
+- `cargo test --workspace`: 201 passed.
+- `ruff check`, `ruff format --check`, `mypy --strict`, `cargo clippy
+  -- -D warnings`, `cargo fmt --check`: all clean.
+
 ## [1.1.0] - 2026-04-24
 
 ### Added — scale, correctness, ops hardening

@@ -501,11 +501,537 @@ def render_spans(spans: list[SpanDiff]) -> str:
     return "\n".join(lines)
 
 
+# ---- token-level diff ----------------------------------------------------
+
+
+@dataclass
+class TokenPairDelta:
+    """Per-pair token usage delta (one entry per baseline/candidate turn).
+
+    Zero-ish deltas on every pair is the normal case. Large deltas on a
+    few pairs is the signal we care about — that's where a prompt edit
+    or a model swap changed generation length.
+    """
+
+    pair_index: int
+    baseline: dict[str, int]  # {input_tokens, output_tokens, thinking_tokens}
+    candidate: dict[str, int]
+    delta: dict[str, int]
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class TokenDistSummary:
+    """Distribution summary for one token dimension across a trace."""
+
+    median: float
+    p25: float
+    p75: float
+    p95: float
+    maximum: int
+    total: int
+
+
+@dataclass
+class TokenDiff:
+    """Full token-level report: aggregated distributions + per-pair deltas."""
+
+    dimensions: list[str]  # ["input_tokens", "output_tokens", "thinking_tokens"]
+    baseline: dict[str, TokenDistSummary]
+    candidate: dict[str, TokenDistSummary]
+    pair_count: int
+    # Per-dimension shift: candidate median - baseline median, normalised
+    # by baseline median (fraction, e.g. 0.42 = 42% increase).
+    normalised_shift: dict[str, float]
+    # Individual per-pair deltas, sorted by worst absolute shift first
+    # (so callers can `[:k]` the top-k offenders).
+    worst_pairs: list[TokenPairDelta]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "dimensions": list(self.dimensions),
+            "baseline": {k: asdict(v) for k, v in self.baseline.items()},
+            "candidate": {k: asdict(v) for k, v in self.candidate.items()},
+            "pair_count": self.pair_count,
+            "normalised_shift": dict(self.normalised_shift),
+            "worst_pairs": [p.to_dict() for p in self.worst_pairs],
+        }
+
+
+_TOKEN_DIMS = ("input_tokens", "output_tokens", "thinking_tokens")
+
+
+def token_diff(
+    baseline_records: list[dict[str, Any]],
+    candidate_records: list[dict[str, Any]],
+    top_k_pairs: int = 10,
+) -> TokenDiff:
+    """Token-level breakdown: per-pair input/output/thinking token deltas.
+
+    Aligned by index on `chat_response` records — the Rust differ uses
+    the same alignment, so the resulting `pair_index` here matches the
+    one in the main DiffReport's drill-down.
+    """
+    base_usages = _extract_usages(baseline_records)
+    cand_usages = _extract_usages(candidate_records)
+    pair_count = min(len(base_usages), len(cand_usages))
+
+    base_summary = {dim: _summarise(base_usages, dim) for dim in _TOKEN_DIMS}
+    cand_summary = {dim: _summarise(cand_usages, dim) for dim in _TOKEN_DIMS}
+
+    normalised: dict[str, float] = {}
+    for dim in _TOKEN_DIMS:
+        b_med = base_summary[dim].median
+        c_med = cand_summary[dim].median
+        if b_med == 0 and c_med == 0:
+            normalised[dim] = 0.0
+        elif b_med == 0:
+            normalised[dim] = float("inf") if c_med > 0 else 0.0
+        else:
+            normalised[dim] = (c_med - b_med) / b_med
+
+    pair_deltas: list[TokenPairDelta] = []
+    for i in range(pair_count):
+        b_use = base_usages[i]
+        c_use = cand_usages[i]
+        delta = {dim: c_use[dim] - b_use[dim] for dim in _TOKEN_DIMS}
+        pair_deltas.append(
+            TokenPairDelta(pair_index=i, baseline=b_use, candidate=c_use, delta=delta)
+        )
+    # Rank by absolute sum of delta across dimensions (bigger = more surprising).
+    pair_deltas.sort(key=lambda p: -sum(abs(v) for v in p.delta.values()))
+
+    return TokenDiff(
+        dimensions=list(_TOKEN_DIMS),
+        baseline=base_summary,
+        candidate=cand_summary,
+        pair_count=pair_count,
+        normalised_shift=normalised,
+        worst_pairs=pair_deltas[: max(0, top_k_pairs)],
+    )
+
+
+def _extract_usages(records: list[dict[str, Any]]) -> list[dict[str, int]]:
+    out: list[dict[str, int]] = []
+    for rec in records:
+        if rec.get("kind") != "chat_response":
+            continue
+        usage = (rec.get("payload") or {}).get("usage") or {}
+        out.append({dim: int(usage.get(dim) or 0) for dim in _TOKEN_DIMS})
+    return out
+
+
+def _summarise(values: list[dict[str, int]], dim: str) -> TokenDistSummary:
+    series = sorted(v[dim] for v in values)
+    if not series:
+        return TokenDistSummary(median=0.0, p25=0.0, p75=0.0, p95=0.0, maximum=0, total=0)
+
+    def _pct(p: float) -> float:
+        if len(series) == 1:
+            return float(series[0])
+        # Linear interpolation, matching numpy.percentile default.
+        idx = (len(series) - 1) * p
+        lo = int(idx)
+        hi = min(lo + 1, len(series) - 1)
+        frac = idx - lo
+        return series[lo] * (1 - frac) + series[hi] * frac
+
+    return TokenDistSummary(
+        median=_pct(0.5),
+        p25=_pct(0.25),
+        p75=_pct(0.75),
+        p95=_pct(0.95),
+        maximum=series[-1],
+        total=sum(series),
+    )
+
+
+def render_token_diff(diff: TokenDiff) -> str:
+    """Human-readable summary for the token-level report."""
+    if diff.pair_count == 0:
+        return "token-level diff: no paired chat_response records"
+    lines = [f"Token-level diff — {diff.pair_count} pair(s):"]
+    for dim in diff.dimensions:
+        b = diff.baseline[dim]
+        c = diff.candidate[dim]
+        shift = diff.normalised_shift[dim]
+        shift_str = "+inf" if shift == float("inf") else f"{shift:+.2%}"
+        lines.append(
+            f"  {dim:<18}  baseline median {b.median:>8.1f} "
+            f"p95 {b.p95:>8.1f}  →  candidate median {c.median:>8.1f} "
+            f"p95 {c.p95:>8.1f}  shift {shift_str}"
+        )
+    if diff.worst_pairs:
+        lines.append("  worst pairs (by absolute token delta):")
+        for p in diff.worst_pairs[:5]:
+            lines.append(
+                f"    · turn #{p.pair_index}: "
+                f"input {p.delta['input_tokens']:+d}, "
+                f"output {p.delta['output_tokens']:+d}, "
+                f"thinking {p.delta['thinking_tokens']:+d}"
+            )
+    return "\n".join(lines)
+
+
+# ---- policy-level diff ---------------------------------------------------
+
+
+@dataclass
+class PolicyRule:
+    """One declarative constraint a policy can check against a trace."""
+
+    id: str  # e.g. "call-backup-before-migration"
+    kind: str  # see _POLICY_KINDS
+    params: dict[str, Any]
+    severity: str = "error"  # "warning" | "error" | "critical"
+    description: str = ""
+
+
+@dataclass
+class PolicyViolation:
+    """One concrete failure of a `PolicyRule` against a trace."""
+
+    rule_id: str
+    kind: str
+    severity: str
+    pair_index: int | None  # None for whole-trace violations
+    detail: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class PolicyDiff:
+    """Per-trace policy check output + the candidate-vs-baseline delta."""
+
+    baseline_violations: list[PolicyViolation]
+    candidate_violations: list[PolicyViolation]
+    # `regressions` = violations present in candidate but not baseline.
+    # `fixes` = the reverse — no longer violated in candidate.
+    regressions: list[PolicyViolation]
+    fixes: list[PolicyViolation]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "baseline_violations": [v.to_dict() for v in self.baseline_violations],
+            "candidate_violations": [v.to_dict() for v in self.candidate_violations],
+            "regressions": [v.to_dict() for v in self.regressions],
+            "fixes": [v.to_dict() for v in self.fixes],
+        }
+
+
+_POLICY_KINDS = {
+    "must_call_before",
+    "must_call_once",
+    "no_call",
+    "max_turns",
+    "required_stop_reason",
+    "max_total_tokens",
+    "must_include_text",
+    "forbidden_text",
+}
+
+
+def load_policy(data: Any) -> list[PolicyRule]:
+    """Parse a policy overlay (dict or list) into a list of rules.
+
+    Accepts either:
+    - `{"rules": [ {...rule...}, ... ]}` — typical YAML overlay shape.
+    - `[ {...rule...}, ... ]` — bare rule list.
+    """
+    from shadow.errors import ShadowConfigError
+
+    if isinstance(data, dict):
+        raw_rules = data.get("rules")
+        if not isinstance(raw_rules, list):
+            raise ShadowConfigError(
+                "policy YAML must have a top-level `rules:` list (or be a list itself)"
+            )
+    elif isinstance(data, list):
+        raw_rules = data
+    else:
+        raise ShadowConfigError(
+            f"policy input must be a mapping or list; got {type(data).__name__}"
+        )
+
+    out: list[PolicyRule] = []
+    for i, raw in enumerate(raw_rules):
+        if not isinstance(raw, dict):
+            raise ShadowConfigError(f"policy rule #{i} must be a mapping")
+        kind = raw.get("kind")
+        if kind not in _POLICY_KINDS:
+            raise ShadowConfigError(
+                f"policy rule #{i} has unknown kind {kind!r}.\n"
+                f"hint: supported kinds are {sorted(_POLICY_KINDS)}"
+            )
+        out.append(
+            PolicyRule(
+                id=str(raw.get("id") or f"rule-{i}"),
+                kind=kind,
+                params=dict(raw.get("params") or {}),
+                severity=str(raw.get("severity") or "error"),
+                description=str(raw.get("description") or ""),
+            )
+        )
+    return out
+
+
+def check_policy(records: list[dict[str, Any]], rules: list[PolicyRule]) -> list[PolicyViolation]:
+    """Run every rule against one trace; return the flat violation list."""
+    violations: list[PolicyViolation] = []
+    tool_calls = _extract_tool_call_sequence(records)
+    responses = [r for r in records if r.get("kind") == "chat_response"]
+
+    for rule in rules:
+        violations.extend(_check_single_rule(rule, records, tool_calls, responses))
+    return violations
+
+
+def _extract_tool_call_sequence(
+    records: list[dict[str, Any]],
+) -> list[tuple[int, str, dict[str, Any]]]:
+    """Return [(pair_index, tool_name, args), ...] in call order."""
+    out: list[tuple[int, str, dict[str, Any]]] = []
+    pair_idx = -1
+    for rec in records:
+        if rec.get("kind") != "chat_response":
+            continue
+        pair_idx += 1
+        payload = rec.get("payload") or {}
+        for block in payload.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                out.append((pair_idx, str(block.get("name") or ""), dict(block.get("input") or {})))
+    return out
+
+
+def _check_single_rule(
+    rule: PolicyRule,
+    records: list[dict[str, Any]],
+    tool_calls: list[tuple[int, str, dict[str, Any]]],
+    responses: list[dict[str, Any]],
+) -> list[PolicyViolation]:
+    ps = rule.params
+    if rule.kind == "must_call_before":
+        first = ps.get("first")
+        then = ps.get("then")
+        if not isinstance(first, str) or not isinstance(then, str):
+            return [_whole_trace_violation(rule, "missing `first`/`then` params")]
+        first_idx = next((i for i, (_, n, _) in enumerate(tool_calls) if n == first), -1)
+        then_idx = next((i for i, (_, n, _) in enumerate(tool_calls) if n == then), -1)
+        if then_idx == -1:
+            return []  # rule doesn't apply if `then` never called
+        if first_idx == -1 or first_idx >= then_idx:
+            pair = tool_calls[then_idx][0]
+            return [
+                PolicyViolation(
+                    rule_id=rule.id,
+                    kind=rule.kind,
+                    severity=rule.severity,
+                    pair_index=pair,
+                    detail=(
+                        f"`{first}` must be called before `{then}` "
+                        f"(was: {first_idx=}, {then_idx=})"
+                    ),
+                )
+            ]
+        return []
+
+    if rule.kind == "must_call_once":
+        name = ps.get("tool")
+        if not isinstance(name, str):
+            return [_whole_trace_violation(rule, "missing `tool` param")]
+        count = sum(1 for _, n, _ in tool_calls if n == name)
+        if count != 1:
+            return [
+                _whole_trace_violation(
+                    rule, f"tool `{name}` called {count} times; expected exactly 1"
+                )
+            ]
+        return []
+
+    if rule.kind == "no_call":
+        name = ps.get("tool")
+        if not isinstance(name, str):
+            return [_whole_trace_violation(rule, "missing `tool` param")]
+        return [
+            PolicyViolation(
+                rule_id=rule.id,
+                kind=rule.kind,
+                severity=rule.severity,
+                pair_index=pair,
+                detail=f"forbidden tool `{name}` called",
+            )
+            for pair, n, _ in tool_calls
+            if n == name
+        ]
+
+    if rule.kind == "max_turns":
+        limit = ps.get("limit")
+        if not isinstance(limit, int):
+            return [_whole_trace_violation(rule, "missing integer `limit` param")]
+        if len(responses) > limit:
+            return [
+                _whole_trace_violation(rule, f"trace has {len(responses)} turns; max is {limit}")
+            ]
+        return []
+
+    if rule.kind == "required_stop_reason":
+        allowed = ps.get("allowed")
+        if not isinstance(allowed, list) or not responses:
+            return [] if responses else [_whole_trace_violation(rule, "trace has no responses")]
+        last = (responses[-1].get("payload") or {}).get("stop_reason")
+        if last not in allowed:
+            return [
+                _whole_trace_violation(
+                    rule,
+                    f"final stop_reason {last!r} not in allowed set {allowed}",
+                )
+            ]
+        return []
+
+    if rule.kind == "max_total_tokens":
+        limit = ps.get("limit")
+        if not isinstance(limit, int):
+            return [_whole_trace_violation(rule, "missing integer `limit` param")]
+        total = 0
+        for resp in responses:
+            usage = (resp.get("payload") or {}).get("usage") or {}
+            total += int(usage.get("input_tokens") or 0)
+            total += int(usage.get("output_tokens") or 0)
+            total += int(usage.get("thinking_tokens") or 0)
+        if total > limit:
+            return [_whole_trace_violation(rule, f"total token usage {total} exceeds max {limit}")]
+        return []
+
+    if rule.kind == "must_include_text":
+        needle = ps.get("text")
+        if not isinstance(needle, str) or not responses:
+            return (
+                [_whole_trace_violation(rule, "missing `text` param or empty trace")]
+                if not isinstance(needle, str)
+                else []
+            )
+        haystack = _gather_response_text(responses)
+        if needle not in haystack:
+            return [
+                _whole_trace_violation(rule, f"required text {needle!r} not found in any response")
+            ]
+        return []
+
+    if rule.kind == "forbidden_text":
+        needle = ps.get("text")
+        if not isinstance(needle, str) or not responses:
+            return (
+                [_whole_trace_violation(rule, "missing `text` param")]
+                if not isinstance(needle, str)
+                else []
+            )
+        out: list[PolicyViolation] = []
+        for i, resp in enumerate(responses):
+            text = _gather_response_text([resp])
+            if needle in text:
+                out.append(
+                    PolicyViolation(
+                        rule_id=rule.id,
+                        kind=rule.kind,
+                        severity=rule.severity,
+                        pair_index=i,
+                        detail=f"forbidden text {needle!r} present in response",
+                    )
+                )
+        return out
+
+    # pragma: no cover — unreachable given load_policy validation
+    return [_whole_trace_violation(rule, f"unhandled rule kind {rule.kind!r}")]
+
+
+def _whole_trace_violation(rule: PolicyRule, detail: str) -> PolicyViolation:
+    return PolicyViolation(
+        rule_id=rule.id,
+        kind=rule.kind,
+        severity=rule.severity,
+        pair_index=None,
+        detail=detail,
+    )
+
+
+def _gather_response_text(responses: list[dict[str, Any]]) -> str:
+    out: list[str] = []
+    for resp in responses:
+        payload = resp.get("payload") or {}
+        for block in payload.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text")
+                if isinstance(text, str):
+                    out.append(text)
+    return "\n".join(out)
+
+
+def policy_diff(
+    baseline_records: list[dict[str, Any]],
+    candidate_records: list[dict[str, Any]],
+    rules: list[PolicyRule],
+) -> PolicyDiff:
+    """Apply a policy overlay to both traces; classify regressions vs fixes."""
+    base_v = check_policy(baseline_records, rules)
+    cand_v = check_policy(candidate_records, rules)
+
+    def _key(v: PolicyViolation) -> tuple[str, int | None, str]:
+        return (v.rule_id, v.pair_index, v.detail)
+
+    base_keys = {_key(v) for v in base_v}
+    cand_keys = {_key(v) for v in cand_v}
+    regressions = [v for v in cand_v if _key(v) not in base_keys]
+    fixes = [v for v in base_v if _key(v) not in cand_keys]
+    return PolicyDiff(
+        baseline_violations=base_v,
+        candidate_violations=cand_v,
+        regressions=regressions,
+        fixes=fixes,
+    )
+
+
+def render_policy_diff(diff: PolicyDiff) -> str:
+    """Human-readable policy-diff summary."""
+    lines = [
+        f"Policy diff — {len(diff.baseline_violations)} baseline "
+        f"violation(s), {len(diff.candidate_violations)} candidate violation(s)"
+    ]
+    if diff.regressions:
+        lines.append(f"  regressions ({len(diff.regressions)}):")
+        for v in diff.regressions:
+            scope = f"turn #{v.pair_index}" if v.pair_index is not None else "trace"
+            lines.append(f"    ✗ [{v.severity}] {v.rule_id} @ {scope}: {v.detail}")
+    if diff.fixes:
+        lines.append(f"  fixes ({len(diff.fixes)}):")
+        for v in diff.fixes:
+            scope = f"turn #{v.pair_index}" if v.pair_index is not None else "trace"
+            lines.append(f"    ✓ [{v.severity}] {v.rule_id} @ {scope}: {v.detail}")
+    if not diff.regressions and not diff.fixes:
+        lines.append("  (no change in policy outcomes)")
+    return "\n".join(lines)
+
+
 __all__ = [
+    "PolicyDiff",
+    "PolicyRule",
+    "PolicyViolation",
     "SessionDiff",
     "SpanDiff",
+    "TokenDiff",
+    "TokenDistSummary",
+    "TokenPairDelta",
+    "check_policy",
     "diff_by_session",
+    "load_policy",
+    "policy_diff",
+    "render_policy_diff",
     "render_session_summary",
     "render_spans",
+    "render_token_diff",
     "span_diff",
+    "token_diff",
 ]
