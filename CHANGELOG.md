@@ -6,6 +6,28 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-23
+
+### Fixed
+
+- **Release pipeline** — `cargo package -p shadow-core` failed in
+  the v0.2.0 release run because the crate's `include` allowlist
+  matched only `src/**/*.rs`; `src/store/schema.sql`, which is read
+  via `include_str!()`, was excluded and the verify-build inside the
+  published tarball broke. Added `src/**/*.sql` to the allowlist.
+- **Release pipeline** — the Python SBOM step wrote to `dist/` at
+  the repo root (which didn't exist) while wheels landed in
+  `python/dist/`; redirected SBOM output to match.
+
+### Added
+
+- **PyPI publish job** (`publish-pypi` in `release.yml`) using OIDC
+  Trusted Publisher — no API token required. Bound to a `pypi`
+  GitHub Environment so the trust link is (repo, workflow,
+  environment)-scoped. See `docs/PYPI-PUBLISHING.md` for the
+  one-time setup (pypi.org pending publisher + GitHub Environment
+  creation).
+
 ## [0.2.0] - 2026-04-23
 
 ### Fixed
