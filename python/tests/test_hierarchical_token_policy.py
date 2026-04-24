@@ -288,3 +288,402 @@ def test_render_policy_diff_has_labels() -> None:
     rendered = render_policy_diff(diff)
     assert "regressions" in rendered
     assert "no-rm" in rendered
+
+
+# ---- session-scoped rules ------------------------------------------------
+#
+# Multi-session traces (many tickets concatenated — the common production
+# shape) require per-session evaluation. The tests below are written against
+# a realistic multi-ticket shape: each ticket starts with a chat_request
+# whose messages[-1].role == "user", followed by possibly multiple
+# (tool_use → tool_result) response turns, then ends with a terminal
+# chat_response. Session boundaries are inferred purely from record
+# topology — no manual markers needed.
+
+
+def _request(user_text: str, follow_up_tool_results: list[str] | None = None) -> dict[str, Any]:
+    """Build a chat_request. If follow_up_tool_results is non-empty this
+    request is a mid-session turn (last message role = tool)."""
+    msgs: list[dict[str, Any]] = [{"role": "system", "content": "sys"}]
+    msgs.append({"role": "user", "content": user_text})
+    for tr in follow_up_tool_results or []:
+        msgs.append({"role": "assistant", "content": "thinking"})
+        msgs.append({"role": "tool", "content": tr})
+    return {"kind": "chat_request", "payload": {"model": "m", "messages": msgs}}
+
+
+def _session_start_req(user_text: str) -> dict[str, Any]:
+    """A pristine session-starting request (last message = user)."""
+    return _request(user_text, follow_up_tool_results=None)
+
+
+def _mid_session_req(user_text: str, tool_result: str) -> dict[str, Any]:
+    """A mid-session continuation request (last message = tool result)."""
+    return _request(user_text, follow_up_tool_results=[tool_result])
+
+
+def _ticket(user_text: str, response_contents: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Build one full user-initiated ticket: the first request carries the
+    user message; each response may be followed by a tool-result continuation
+    before the next response. Turn count = len(response_contents).
+    """
+    out: list[dict[str, Any]] = [_session_start_req(user_text)]
+    for i, content in enumerate(response_contents):
+        stop = "tool_use" if any(b.get("type") == "tool_use" for b in content) else "end_turn"
+        out.append(
+            {
+                "kind": "chat_response",
+                "payload": {
+                    "content": content,
+                    "stop_reason": stop,
+                    "usage": {"input_tokens": 100, "output_tokens": 50, "thinking_tokens": 0},
+                },
+            }
+        )
+        if i < len(response_contents) - 1:
+            out.append(_mid_session_req(user_text, "tool-result-text"))
+    return out
+
+
+def test_session_scope_must_call_before_catches_every_violating_session() -> None:
+    """The canonical adversarial case from the real-world test.
+
+    Ten support tickets. Four correctly call `search_kb` then `escalate`.
+    Six skip the KB and escalate directly. Trace-scoped `must_call_before`
+    is satisfied by ticket #1 and reports zero violations — that's the bug.
+    Session-scoped reports exactly six, one per offending session.
+    """
+    correct = _ticket(
+        "kb-able",
+        [
+            [_tool_use("search_kb")],
+            [_tool_use("escalate")],
+        ],
+    )
+    skip_kb = _ticket("urgent", [[_tool_use("escalate")]])
+    trace: list[dict[str, Any]] = []
+    # 4 correct tickets, then 6 KB-skippers — matches the real candidate run.
+    for _ in range(4):
+        trace.extend(correct)
+    for _ in range(6):
+        trace.extend(skip_kb)
+
+    rule_trace = load_policy(
+        [
+            {
+                "id": "kb-before-escalate",
+                "kind": "must_call_before",
+                "params": {"first": "search_kb", "then": "escalate"},
+                "scope": "trace",
+            }
+        ]
+    )
+    rule_session = load_policy(
+        [
+            {
+                "id": "kb-before-escalate",
+                "kind": "must_call_before",
+                "params": {"first": "search_kb", "then": "escalate"},
+                "scope": "session",
+            }
+        ]
+    )
+
+    assert check_policy(trace, rule_trace) == []  # the old behavior (the bug)
+    vs = check_policy(trace, rule_session)
+    assert len(vs) == 6
+    assert all(v.rule_id == "kb-before-escalate" for v in vs)
+
+
+def test_session_scope_max_turns_counts_per_session() -> None:
+    """max_turns with session scope is a per-ticket turn cap.
+
+    A 5-turn ticket (four mid-session tool-use turns + one terminal
+    text reply — the realistic shape of a long agentic loop) bundled
+    with three 1-turn tickets should violate a cap of 3 only for the
+    5-turn ticket. Intermediate turns must carry ``stop="tool_use"``
+    so session-boundary detection recognises them as continuations.
+    """
+    big_ticket = _ticket(
+        "huge",
+        [
+            [_tool_use("step1")],
+            [_tool_use("step2")],
+            [_tool_use("step3")],
+            [_tool_use("step4")],
+            [{"type": "text", "text": "done"}],
+        ],
+    )
+    small = _ticket("s", [[{"type": "text", "text": "t"}]])
+    trace = big_ticket + small + small + small
+    rules = load_policy(
+        [
+            {
+                "id": "turn-cap",
+                "kind": "max_turns",
+                "params": {"limit": 3},
+                "scope": "session",
+            }
+        ]
+    )
+    vs = check_policy(trace, rules)
+    assert len(vs) == 1
+    assert "5 turns" in vs[0].detail
+
+
+def test_session_scope_must_call_once_is_per_session() -> None:
+    """must_call_once with session scope = called exactly once per session."""
+    ok = _ticket("t", [[_tool_use("login")], [{"type": "text", "text": "done"}]])
+    dup = _ticket("t", [[_tool_use("login")], [_tool_use("login")]])
+    trace = ok + dup + ok  # only middle ticket violates
+    rules = load_policy(
+        [
+            {
+                "id": "one-login",
+                "kind": "must_call_once",
+                "params": {"tool": "login"},
+                "scope": "session",
+            }
+        ]
+    )
+    vs = check_policy(trace, rules)
+    assert len(vs) == 1
+    assert "2 times" in vs[0].detail
+
+
+def test_session_scope_required_stop_reason_checks_each_session_last() -> None:
+    """required_stop_reason under session scope must check the final
+    response of *each* session, not only the final response of the trace."""
+    good = _ticket("a", [[{"type": "text", "text": "hi"}]])  # end_turn
+    bad_ticket = [
+        _session_start_req("b"),
+        {
+            "kind": "chat_response",
+            "payload": {
+                "content": [{"type": "text", "text": "oops"}],
+                "stop_reason": "content_filter",
+                "usage": {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0},
+            },
+        },
+    ]
+    trace = good + bad_ticket + good  # middle ticket ends with refusal
+    rules = load_policy(
+        [
+            {
+                "id": "clean-stop",
+                "kind": "required_stop_reason",
+                "params": {"allowed": ["end_turn"]},
+                "scope": "session",
+            }
+        ]
+    )
+    vs = check_policy(trace, rules)
+    assert len(vs) == 1
+    assert "content_filter" in vs[0].detail
+
+
+def test_session_scope_max_total_tokens_is_per_session_budget() -> None:
+    """Session scope on max_total_tokens = per-session budget (fair
+    comparison of one heavy ticket against many light ones)."""
+    light = [
+        _session_start_req("l"),
+        {
+            "kind": "chat_response",
+            "payload": {
+                "content": [{"type": "text", "text": "a"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 50, "output_tokens": 50, "thinking_tokens": 0},
+            },
+        },
+    ]
+    heavy = [
+        _session_start_req("h"),
+        {
+            "kind": "chat_response",
+            "payload": {
+                "content": [{"type": "text", "text": "a"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 5000, "output_tokens": 5000, "thinking_tokens": 0},
+            },
+        },
+    ]
+    trace = light + heavy + light
+    rules = load_policy(
+        [
+            {
+                "id": "budget",
+                "kind": "max_total_tokens",
+                "params": {"limit": 500},
+                "scope": "session",
+            }
+        ]
+    )
+    vs = check_policy(trace, rules)
+    assert len(vs) == 1
+    assert "10000" in vs[0].detail
+
+
+def test_session_scope_preserves_absolute_pair_index_in_violations() -> None:
+    """Violations emitted from session scope should still carry the
+    trace-absolute pair_index, so reviewers can locate the failing turn."""
+    trace = _ticket(
+        "t1",
+        [
+            [_tool_use("escalate")],  # pair_index 0
+        ],
+    ) + _ticket(
+        "t2",
+        [
+            [_tool_use("escalate")],  # pair_index 1
+        ],
+    )
+    rules = load_policy(
+        [
+            {
+                "id": "kb-before-escalate",
+                "kind": "must_call_before",
+                "params": {"first": "search_kb", "then": "escalate"},
+                "scope": "session",
+            }
+        ]
+    )
+    vs = check_policy(trace, rules)
+    assert sorted(v.pair_index for v in vs if v.pair_index is not None) == [0, 1]
+
+
+def test_session_scope_rejects_invalid_value() -> None:
+    with pytest.raises(ShadowConfigError):
+        load_policy(
+            [
+                {
+                    "id": "x",
+                    "kind": "no_call",
+                    "params": {"tool": "rm_rf"},
+                    "scope": "weekly",
+                }
+            ]
+        )
+
+
+def test_trace_scope_default_preserves_legacy_behavior() -> None:
+    """Rules without explicit scope behave exactly as before (trace-wide).
+
+    This is the contract existing users depend on; a session-start
+    detector must not change the answer for rules that never asked for
+    session scope.
+    """
+    correct = _ticket(
+        "c",
+        [[_tool_use("search_kb")], [_tool_use("escalate")]],
+    )
+    skip_kb = _ticket("u", [[_tool_use("escalate")]])
+    trace = correct + skip_kb  # session-scope would flag the 2nd ticket
+    rules = load_policy(
+        [
+            {
+                "id": "kb-before-escalate",
+                "kind": "must_call_before",
+                "params": {"first": "search_kb", "then": "escalate"},
+                # no scope — defaults to "trace"
+            }
+        ]
+    )
+    assert check_policy(trace, rules) == []
+
+
+def test_session_scope_recovers_boundaries_from_terminal_stop_reason() -> None:
+    """Even when message history is abbreviated or corrupted — so the
+    role-based session-start detector fails — a prior response with a
+    non-``tool_use`` stop_reason still marks a session boundary.
+
+    This models imports from foreign tracers that don't preserve the
+    full message history and trace-harness bugs where ``messages`` got
+    mutated post-recording. Without this fallback, session scope would
+    silently degrade to trace scope — the exact bug that hid the
+    original 6 violations.
+    """
+
+    def _abbreviated_req() -> dict[str, Any]:
+        # Last role is "tool" (mid-session marker) — role-based detector
+        # won't flag a session start. The stop_reason of the preceding
+        # response is the only signal left.
+        return {
+            "kind": "chat_request",
+            "payload": {
+                "model": "m",
+                "messages": [
+                    {"role": "system", "content": "s"},
+                    {"role": "user", "content": "ambiguous"},
+                    {"role": "assistant", "content": ""},
+                    {"role": "tool", "content": "t"},
+                ],
+            },
+        }
+
+    def _session_block(tools: list[str]) -> list[dict[str, Any]]:
+        """One mid-session-shaped ticket: all requests look like
+        continuations, each response calls the listed tool and ends
+        with end_turn on the final response."""
+        out: list[dict[str, Any]] = []
+        for i, t in enumerate(tools):
+            out.append(_abbreviated_req())
+            stop = "end_turn" if i == len(tools) - 1 else "tool_use"
+            out.append(
+                {
+                    "kind": "chat_response",
+                    "payload": {
+                        "content": [_tool_use(t)]
+                        if t != "text"
+                        else [{"type": "text", "text": "ok"}],
+                        "stop_reason": stop,
+                        "usage": {"input_tokens": 10, "output_tokens": 5, "thinking_tokens": 0},
+                    },
+                }
+            )
+        return out
+
+    # Three tickets: correct, skip-kb (violation), correct.
+    trace = (
+        _session_block(["search_kb", "escalate", "text"])
+        + _session_block(["escalate", "text"])
+        + _session_block(["search_kb", "text"])
+    )
+
+    rules = load_policy(
+        [
+            {
+                "id": "kb-before-escalate",
+                "kind": "must_call_before",
+                "params": {"first": "search_kb", "then": "escalate"},
+                "scope": "session",
+            }
+        ]
+    )
+    vs = check_policy(trace, rules)
+    assert len(vs) == 1, (
+        f"expected 1 violation (ticket 2), got {len(vs)}: "
+        f"{[(v.rule_id, v.pair_index, v.detail) for v in vs]}"
+    )
+
+
+def test_session_scope_falls_back_to_single_session_when_no_requests() -> None:
+    """Fixture-style traces (just responses, no requests) have no session
+    markers; scope=session should degrade to single-session (trace-like)
+    behavior rather than crash."""
+    records = [
+        _response(content=[_tool_use("escalate")], stop_reason="tool_use"),
+        _response(content=[_tool_use("search_kb")], stop_reason="tool_use"),
+    ]
+    rules = load_policy(
+        [
+            {
+                "id": "kb-first",
+                "kind": "must_call_before",
+                "params": {"first": "search_kb", "then": "escalate"},
+                "scope": "session",
+            }
+        ]
+    )
+    # same output as trace-scope on this shape (one violation at pair 0).
+    vs = check_policy(records, rules)
+    assert len(vs) == 1

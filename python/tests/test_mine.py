@@ -184,8 +184,12 @@ def test_to_agentlog_produces_valid_trace() -> None:
     blob = _core.write_agentlog(recs)
     parsed = _core.parse_agentlog(blob)
     assert len(parsed) == len(recs)
-    # metadata has mining stats
-    assert "mining" in recs[0]["payload"]
+    # metadata has mining stats with the documented key schema — all three
+    # stat keys follow noun_past-participle ordering (total_input_pairs,
+    # clusters_found, cases_selected) so consumers can predict them.
+    mining = recs[0]["payload"]["mining"]
+    assert set(mining) == {"total_input_pairs", "clusters_found", "cases_selected"}
+    assert mining["cases_selected"] == len(result.cases)
 
 
 def test_multi_trace_input() -> None:

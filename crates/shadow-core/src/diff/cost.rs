@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::agentlog::Record;
-use crate::diff::axes::{Axis, AxisStat};
+use crate::diff::axes::{Axis, AxisStat, Flag};
 use crate::diff::bootstrap::{median, paired_ci};
 
 /// Per-model pricing in USD per token.
@@ -151,24 +151,68 @@ pub(crate) fn cost_of(r: &Record, pricing: &Pricing) -> Option<f64> {
     Some(cost)
 }
 
+/// True iff both records in the pair reference models that appear in
+/// the pricing table. Unknown models make `cost_of` fall back to 0.0
+/// (so the bootstrap stays numerically clean), but for the purpose of
+/// deciding whether the axis has real signal we need to distinguish
+/// "priced at zero" from "model not in table."
+fn pair_is_priced(br: &Record, cr: &Record, pricing: &Pricing) -> bool {
+    fn model_in_table(r: &Record, pricing: &Pricing) -> bool {
+        r.payload
+            .get("model")
+            .and_then(|m| m.as_str())
+            .is_some_and(|m| pricing.contains_key(m))
+    }
+    model_in_table(br, pricing) && model_in_table(cr, pricing)
+}
+
 /// Compute the cost axis.
+///
+/// Silent zeros are a footgun: if no pricing table is supplied, or the
+/// table has no entries for the traced models, every pair prices at
+/// `0.0` and the naive implementation reports `delta=0,
+/// severity=None` — indistinguishable from "both sides are genuinely
+/// free." To prevent that, we track how many pairs had both models
+/// present in the pricing table. When that count is zero (or below
+/// half of `pairs.len()`), we attach [`Flag::NoPricing`] so downstream
+/// renderers and reviewers see a caveat instead of a spurious clean
+/// bill of health.
 pub fn compute(pairs: &[(&Record, &Record)], pricing: &Pricing, seed: Option<u64>) -> AxisStat {
     let mut b = Vec::with_capacity(pairs.len());
     let mut c = Vec::with_capacity(pairs.len());
+    let mut priced_pairs = 0usize;
     for (br, cr) in pairs {
         if let (Some(bv), Some(cv)) = (cost_of(br, pricing), cost_of(cr, pricing)) {
             b.push(bv);
             c.push(cv);
+            if pair_is_priced(br, cr, pricing) {
+                priced_pairs += 1;
+            }
         }
     }
     if b.is_empty() {
-        return AxisStat::empty(Axis::Cost);
+        let mut stat = AxisStat::empty(Axis::Cost);
+        // An empty pair list means "nothing to compare" (n=0 already
+        // surfaces that). A non-empty list with no costable entries
+        // means malformed records — still worth flagging.
+        if !pairs.is_empty() {
+            stat.flags.push(Flag::NoPricing);
+        }
+        return stat;
     }
     let bm = median(&b);
     let cm = median(&c);
     let delta = cm - bm;
     let ci = paired_ci(&b, &c, |bs, cs| median(cs) - median(bs), 0, seed);
-    AxisStat::new_value(Axis::Cost, bm, cm, delta, ci.low, ci.high, b.len())
+    let mut stat = AxisStat::new_value(Axis::Cost, bm, cm, delta, ci.low, ci.high, b.len());
+    // Flag whenever fewer than half of the input pairs had both models
+    // priced — the median is unreliable and the user likely forgot
+    // pricing for a subset of models. `priced_pairs == 0` means no
+    // pricing at all; the flag covers both cases.
+    if priced_pairs * 2 < pairs.len() {
+        stat.flags.push(Flag::NoPricing);
+    }
+    stat
 }
 
 #[cfg(test)]
@@ -231,6 +275,59 @@ mod tests {
         let pairs = [(&r, &r)];
         let stat = compute(&pairs, &pricing, Some(1));
         assert_eq!(stat.baseline_median, 0.0);
+    }
+
+    #[test]
+    fn no_pricing_flag_when_table_is_empty_but_pairs_exist() {
+        // Pairs present, pricing absent → flag so reviewers know the
+        // delta=0 is "unknown" and not "equal cost".
+        let pricing = Pricing::new();
+        let r = response("mystery", 1000, 500);
+        let pairs = [(&r, &r), (&r, &r), (&r, &r)];
+        let stat = compute(&pairs, &pricing, Some(1));
+        assert!(stat.flags.contains(&Flag::NoPricing));
+        assert_eq!(stat.delta, 0.0);
+    }
+
+    #[test]
+    fn no_pricing_flag_when_most_models_unpriced() {
+        // Pricing provided for one of three traced models → too many
+        // pairs unpriced, flag still fires (median is unreliable).
+        let mut pricing = Pricing::new();
+        pricing.insert("opus".to_string(), ModelPricing::simple(0.000015, 0.000075));
+        let priced = response("opus", 1000, 500);
+        let unpriced1 = response("sonnet-unlisted", 1000, 500);
+        let unpriced2 = response("gpt-x-unlisted", 1000, 500);
+        let pairs = [
+            (&priced, &priced),
+            (&unpriced1, &unpriced1),
+            (&unpriced2, &unpriced2),
+        ];
+        let stat = compute(&pairs, &pricing, Some(1));
+        // Only 1 of 3 pairs priced; half-or-more unpriced → flag fires.
+        assert!(stat.flags.contains(&Flag::NoPricing));
+    }
+
+    #[test]
+    fn no_pricing_flag_absent_when_all_pairs_priced() {
+        let mut pricing = Pricing::new();
+        pricing.insert("opus".to_string(), ModelPricing::simple(0.000015, 0.000075));
+        let r = response("opus", 1000, 500);
+        let pairs = [(&r, &r), (&r, &r)];
+        let stat = compute(&pairs, &pricing, Some(1));
+        assert!(!stat.flags.contains(&Flag::NoPricing));
+    }
+
+    #[test]
+    fn no_pricing_flag_absent_when_pairs_empty() {
+        // Empty pairs is a different story (nothing to compare), and the
+        // NoPricing flag would be misleading there — n=0 already says
+        // "no data." Assert we don't spuriously flag that case.
+        let pricing = Pricing::new();
+        let pairs: Vec<(&Record, &Record)> = Vec::new();
+        let stat = compute(&pairs, &pricing, Some(1));
+        assert!(!stat.flags.contains(&Flag::NoPricing));
+        assert_eq!(stat.n, 0);
     }
 
     #[test]

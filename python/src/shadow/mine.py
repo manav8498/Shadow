@@ -74,7 +74,7 @@ class MiningResult:
             "mining": {
                 "total_input_pairs": self.total_input_pairs,
                 "clusters_found": self.clusters_found,
-                "selected_cases": len(self.cases),
+                "cases_selected": len(self.cases),
             },
         }
         meta_id = _core.content_id(meta_payload)

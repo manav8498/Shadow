@@ -97,6 +97,96 @@ def test_partition_empty_input() -> None:
     assert partition_sessions([]) == []
 
 
+def test_partition_falls_back_to_implicit_boundaries() -> None:
+    """When a single metadata record wraps multiple user-initiated
+    sub-sessions (the typical shape of an imported A2A or MCP log),
+    partition_sessions must recover the sub-session boundaries rather
+    than returning one giant session. Otherwise ``diff_by_session``
+    would silently collapse an N-ticket import into a single axis row.
+    """
+
+    def _req(last_role: str) -> dict[str, Any]:
+        msgs = [{"role": "system", "content": "s"}]
+        if last_role == "user":
+            msgs.append({"role": "user", "content": "ticket"})
+        else:  # continuation
+            msgs.append({"role": "user", "content": "ticket"})
+            msgs.append({"role": "assistant", "content": ""})
+            msgs.append({"role": "tool", "content": "result"})
+        return {
+            "version": "0.1",
+            "id": "sha256:req",
+            "kind": "chat_request",
+            "ts": "t",
+            "parent": None,
+            "payload": {"model": "opus", "messages": msgs},
+        }
+
+    def _resp_stop(stop: str) -> dict[str, Any]:
+        r = _resp("opus", 100, 50)
+        r["payload"]["stop_reason"] = stop  # type: ignore[index]
+        return r
+
+    # Three tickets under one metadata: each ticket has two turns
+    # (tool_use then end_turn).
+    records = [_meta(0)]
+    for _ in range(3):
+        records.extend(
+            [
+                _req("user"),
+                _resp_stop("tool_use"),
+                _req("tool"),
+                _resp_stop("end_turn"),
+            ]
+        )
+    sessions = partition_sessions(records)
+    assert len(sessions) == 3, f"expected 3 sub-sessions, got {len(sessions)}"
+    # First sub-session carries the metadata; later sub-sessions don't.
+    assert sessions[0][0]["kind"] == "metadata"
+    # Each sub-session has its two turns (2 requests + 2 responses = 4 recs).
+    assert all(
+        sum(1 for r in s if r["kind"] in ("chat_request", "chat_response")) == 4 for s in sessions
+    )
+
+
+def test_partition_single_user_initiated_session_stays_intact() -> None:
+    """A trace with only one user-initiated session (the normal case)
+    must not be spuriously split by the fallback — we only override
+    the primary partition when we find genuinely multiple boundaries."""
+    records = [
+        _meta(0),
+        {
+            "version": "0.1",
+            "id": "sha256:req",
+            "kind": "chat_request",
+            "ts": "t",
+            "parent": None,
+            "payload": {
+                "model": "opus",
+                "messages": [
+                    {"role": "system", "content": "s"},
+                    {"role": "user", "content": "hi"},
+                ],
+            },
+        },
+        {
+            "version": "0.1",
+            "id": "sha256:resp",
+            "kind": "chat_response",
+            "ts": "t",
+            "parent": None,
+            "payload": {
+                "model": "opus",
+                "content": [{"type": "text", "text": "hi"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 10, "output_tokens": 5, "thinking_tokens": 0},
+            },
+        },
+    ]
+    sessions = partition_sessions(records)
+    assert len(sessions) == 1
+
+
 # ---- session_cost --------------------------------------------------------
 
 
