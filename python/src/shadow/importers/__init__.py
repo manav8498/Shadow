@@ -29,6 +29,8 @@ from shadow.importers.langsmith import LANGSMITH_FORMAT, langsmith_to_agentlog
 from shadow.importers.mcp import MCP_FORMAT, mcp_to_agentlog
 from shadow.importers.openai_evals import OPENAI_EVALS_FORMAT, openai_evals_to_agentlog
 from shadow.importers.otel import OTEL_FORMAT, otel_to_agentlog
+from shadow.importers.pydantic_ai import PYDANTIC_AI_FORMAT, pydantic_ai_to_agentlog
+from shadow.importers.vercel_ai import VERCEL_AI_FORMAT, vercel_ai_to_agentlog
 
 __all__ = [
     "BRAINTRUST_FORMAT",
@@ -37,10 +39,14 @@ __all__ = [
     "MCP_FORMAT",
     "OPENAI_EVALS_FORMAT",
     "OTEL_FORMAT",
+    "PYDANTIC_AI_FORMAT",
+    "VERCEL_AI_FORMAT",
     "braintrust_to_agentlog",
     "langfuse_to_agentlog",
     "langsmith_to_agentlog",
     "mcp_to_agentlog",
     "openai_evals_to_agentlog",
     "otel_to_agentlog",
+    "pydantic_ai_to_agentlog",
+    "vercel_ai_to_agentlog",
 ]
