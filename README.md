@@ -223,12 +223,29 @@ Every example runs offline from committed fixtures. No API key required:
 
 ```
 Shadow/
-├── SPEC.md                    Open spec for the .agentlog format
-├── crates/shadow-core/        Rust: parser, differ, replay, bisect
-├── python/src/shadow/         Python SDK + CLI
-├── typescript/                TypeScript SDK
-├── examples/                  Runnable scenarios
-└── .github/actions/           Reusable GitHub Action for PR comments
+├── crates/shadow-core/         Rust core: parser, differ, replay, bisect
+├── python/                     Python SDK + CLI (maturin-built, ships as shadow-diff on PyPI)
+│   ├── src/shadow/
+│   └── tests/
+├── typescript/                 TypeScript SDK
+├── docs/                       mkdocs site (published at manav8498.github.io/Shadow)
+├── examples/                   Runnable scenarios (demo, customer-support, devops-agent, er-triage, etc.)
+├── benchmarks/                 Scale and correctness benchmarks
+├── scripts/                    One-off build and release helpers
+├── .github/
+│   ├── actions/shadow-action/  Reusable composite action for PR comments
+│   ├── workflows/              ci.yml, docs.yml, release.yml
+│   └── ISSUE_TEMPLATE/
+├── SPEC.md                     The .agentlog format specification (Apache-2.0)
+├── CHANGELOG.md                Release notes
+├── ROADMAP.md                  What's shipped and what's next
+├── SECURITY.md                 Security policy and vulnerability reporting
+├── CONTRIBUTING.md             How to contribute
+├── GOVERNANCE.md               Project governance
+├── Cargo.toml                  Rust workspace manifest
+├── justfile                    Common dev tasks (just setup, just test, just demo)
+├── mkdocs.yml                  Docs site config
+└── pricing.json                Per-model token pricing for cost attribution
 ```
 
 ## License
