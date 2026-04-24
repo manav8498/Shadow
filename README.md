@@ -131,6 +131,64 @@ with Session(output_path="trace.agentlog", tags={"env": "prod"}):
 
 Secrets (API keys, emails, credit cards) are redacted by default. The TypeScript SDK works the same way.
 
+## Record from agent frameworks
+
+If your agent runs on a framework, Shadow has a direct hook for each of the three most common ones. Install the matching extra and drop the handler in; no monkey-patch, nothing to rewrite in the agent.
+
+**LangGraph / LangChain**
+
+```python
+from shadow.sdk import Session
+from shadow.adapters.langgraph import ShadowLangChainHandler
+
+with Session(output_path="trace.agentlog") as s:
+    handler = ShadowLangChainHandler(s)
+    graph.invoke(
+        {"messages": [HumanMessage("...")]},
+        config={"callbacks": [handler],
+                "configurable": {"thread_id": "t-42"}},
+    )
+```
+
+`pip install 'shadow-diff[langgraph]'`. Works under `invoke` and `ainvoke`. The `thread_id` from the config carries through as the session boundary, so one `invoke` is one session even across tool loops and fan-outs.
+
+**CrewAI**
+
+```python
+from shadow.sdk import Session
+from shadow.adapters.crewai import ShadowCrewAIListener
+
+with Session(output_path="trace.agentlog") as s:
+    ShadowCrewAIListener(s)
+    crew.kickoff(inputs={"topic": "..."})
+```
+
+`pip install 'shadow-diff[crewai]'`. One `Crew.kickoff()` is one session, even when it triggers many LLM calls; the adapter marks the boundary on `CrewKickoffStartedEvent`.
+
+**AG2 (formerly AutoGen)**
+
+```python
+from shadow.sdk import Session
+from shadow.adapters.ag2 import ShadowAG2Adapter
+
+with Session(output_path="trace.agentlog") as s:
+    adapter = ShadowAG2Adapter(s)
+    adapter.install_all([planner, executor])
+    planner.initiate_chat(executor, message="...")
+```
+
+`pip install 'shadow-diff[ag2]'`. Captures the message bodies that `autogen.opentelemetry` redacts by default, so semantic diffs have something to compare against.
+
+## Import traces from any OpenTelemetry backend
+
+If you already export OTLP to Datadog, Honeycomb, or any OTel collector, pipe that same export into Shadow:
+
+```bash
+shadow import traces.json --format otel --output my.agentlog
+```
+
+Reads the full GenAI semantic convention v1.40 surface: structured `gen_ai.input.messages` / `gen_ai.output.messages`, `gen_ai.provider.name`, cache tokens, tool definitions, agent spans, evaluation events. Also accepts the older v1.28-v1.36 flat indexed attributes, so traces from OpenLLMetry and similar implementers that haven't tracked the v1.37 restructure still round-trip cleanly.
+
 ## Wire it into every pull request
 
 ```bash
