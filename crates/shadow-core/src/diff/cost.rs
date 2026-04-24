@@ -70,7 +70,7 @@ impl ModelPricing {
 /// Pricing table keyed by `chat_response.payload.model`.
 pub type Pricing = HashMap<String, ModelPricing>;
 
-fn cost_of(r: &Record, pricing: &Pricing) -> Option<f64> {
+pub(crate) fn cost_of(r: &Record, pricing: &Pricing) -> Option<f64> {
     let model = r.payload.get("model")?.as_str()?;
     let usage = r.payload.get("usage")?;
     let input = usage.get("input_tokens")?.as_f64()?;

@@ -21,6 +21,7 @@ pub mod axes;
 pub mod bootstrap;
 pub mod conformance;
 pub mod cost;
+pub mod drill_down;
 pub mod judge;
 pub mod latency;
 pub mod reasoning;
@@ -34,6 +35,7 @@ pub mod verbosity;
 pub use alignment::{DivergenceKind, FirstDivergence};
 pub use axes::{Axis, AxisStat, Severity};
 pub use bootstrap::{paired_ci, CiResult};
+pub use drill_down::{PairAxisScore, PairDrilldown};
 pub use recommendations::{ActionKind, Recommendation, RecommendationSeverity};
 pub use report::DiffReport;
 
@@ -82,6 +84,7 @@ pub fn compute_report(
     ];
     let first_divergence = alignment::detect(baseline, candidate);
     let divergences = alignment::detect_top_k(baseline, candidate, alignment::DEFAULT_K);
+    let drill_down = drill_down::compute(&pairs, pricing, drill_down::DEFAULT_K);
     let mut report = DiffReport {
         rows,
         baseline_trace_id: baseline.first().map(|r| r.id.clone()).unwrap_or_default(),
@@ -89,6 +92,7 @@ pub fn compute_report(
         pair_count: pairs.len(),
         first_divergence,
         divergences,
+        drill_down,
         recommendations: Vec::new(),
     };
     // Recommendations are derived from the rest of the report, so fill

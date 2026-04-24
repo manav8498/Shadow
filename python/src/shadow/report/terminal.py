@@ -73,6 +73,46 @@ def render_terminal(report: dict[str, Any], console: Console | None = None) -> N
         for rec in recommendations:
             _print_recommendation_terminal(con, rec)
 
+    drill_down = report.get("drill_down") or []
+    if drill_down:
+        con.print()
+        shown = min(3, len(drill_down))
+        header = "top regressive pairs"
+        con.print(
+            f"[bold]{header}[/] "
+            f"({shown} shown" + (f" of {len(drill_down)}" if len(drill_down) > 3 else "") + "):"
+        )
+        for row in drill_down[:3]:
+            _print_drill_down_row_terminal(con, row)
+        if len(drill_down) > 3:
+            con.print(f"  [dim]+ {len(drill_down) - 3} more pair(s) — see JSON output[/]")
+
+
+def _print_drill_down_row_terminal(con: Console, row: dict[str, Any]) -> None:
+    idx = row.get("pair_index", 0)
+    axis = row.get("dominant_axis", "")
+    score = float(row.get("regression_score", 0.0))
+    con.print(
+        f"  pair [cyan]#{idx}[/]  ·  dominant: [magenta]{axis}[/]  "
+        f"·  score: [bold]{score:.2f}[/]"
+    )
+    scores = sorted(
+        row.get("axis_scores", []),
+        key=lambda s: -float(s.get("normalized_delta", 0.0)),
+    )
+    for s in scores[:2]:
+        if float(s.get("normalized_delta", 0.0)) < 0.05:
+            break
+        bv = float(s.get("baseline_value", 0.0))
+        cv = float(s.get("candidate_value", 0.0))
+        delta = float(s.get("delta", 0.0))
+        norm = float(s.get("normalized_delta", 0.0))
+        con.print(
+            f"    [dim]{s.get('axis', ''):<12}[/] "
+            f"{bv:.2f} → {cv:.2f}  "
+            f"([italic]delta {delta:+.2f}, norm {norm:.2f}[/])"
+        )
+
 
 _REC_STYLE = {
     "error": "bold red",

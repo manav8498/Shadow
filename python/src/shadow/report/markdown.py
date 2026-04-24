@@ -69,7 +69,50 @@ def render_markdown(report: dict[str, Any]) -> str:
         lines.append("")
         for rec in recommendations:
             lines.append(_render_recommendation_markdown(rec))
+
+    drill_down = report.get("drill_down") or []
+    if drill_down:
+        lines.append("")
+        lines.append("### Top regressive pairs")
+        lines.append("")
+        inline = drill_down[:3]
+        extras = drill_down[3:]
+        for row in inline:
+            lines.append(_render_drill_down_row_markdown(row))
+        if extras:
+            lines.append("")
+            lines.append(f"<details><summary>+ {len(extras)} more regressive pair(s)</summary>\n")
+            for row in extras:
+                lines.append(_render_drill_down_row_markdown(row))
+            lines.append("</details>")
     return "\n".join(lines) + "\n"
+
+
+def _render_drill_down_row_markdown(row: dict[str, Any]) -> str:
+    """One drill-down pair as a markdown sub-list."""
+    idx = row.get("pair_index", 0)
+    axis = row.get("dominant_axis", "")
+    score = float(row.get("regression_score", 0.0))
+    parts = [
+        f"- **pair `#{idx}`** &nbsp;·&nbsp; dominant: `{axis}` "
+        f"&nbsp;·&nbsp; score `{score:.2f}`"
+    ]
+    scores = sorted(
+        row.get("axis_scores", []),
+        key=lambda s: -float(s.get("normalized_delta", 0.0)),
+    )
+    for s in scores[:2]:
+        if float(s.get("normalized_delta", 0.0)) < 0.05:
+            break
+        bv = float(s.get("baseline_value", 0.0))
+        cv = float(s.get("candidate_value", 0.0))
+        delta = float(s.get("delta", 0.0))
+        norm = float(s.get("normalized_delta", 0.0))
+        parts.append(
+            f"  - `{s.get('axis', '')}`: {bv:.2f} → {cv:.2f} "
+            f"&nbsp;(delta `{delta:+.2f}`, norm `{norm:.2f}`)"
+        )
+    return "\n".join(parts)
 
 
 _REC_SEVERITY_ICON = {
