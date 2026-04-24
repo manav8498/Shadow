@@ -6,6 +6,145 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-24
+
+### Added — scale, correctness, ops hardening
+
+A six-item hardening pass against the honest gaps called out in the
+v1.0 postmortem. Each item ships with concrete scope and explicit
+documentation of what's **not** done.
+
+#### 1. Scale verified to N=10k (item 6)
+
+Extended `benchmarks/scale_drill_down.py` with
+`SHADOW_SCALE_BIG=1` and `SHADOW_SCALE_HUGE=1` tiers. Running at
+N=5k surfaced a **real super-linear blow-up** (17.92s at N=1k →
+484.82s at N=5k — 27× wall-time for 5× pairs). Root-caused to the
+O(N²) Needleman-Wunsch matrix allocation in
+`crates/shadow-core/src/diff/alignment.rs`.
+
+Fix: **banded Needleman-Wunsch**. Above
+`SCALE_BAND_THRESHOLD = 1000` pairs, the DP is restricted to a band
+of `max(|N-M| + 100, sqrt(max(N,M)))` cells around the diagonal —
+standard technique from the sequence-alignment literature (SWAT,
+Hirschberg). Below the threshold the full-matrix variant stays
+exact for all existing tests. At N=5k the new numbers: 19.43s
+(3.89 ms/pair). At N=10k: 40.10s (4.01 ms/pair). Per-pair cost
+stays flat at big N — confirmed linear.
+
+Added per-pair ms budget `MAX_MS_PER_PAIR = 50` so accidental
+algorithmic regressions fail loudly at any N, not just at the
+scale tier that happens to be running.
+
+#### 2. Property-based tests via Hypothesis (item 5)
+
+New `python/tests/test_properties.py` — **8 property tests
+exercising ~600 generated inputs each**. Properties:
+
+- Canonical-JSON roundtrip is byte-deterministic.
+- `compute_diff_report` never crashes, always emits 9 axes, finite
+  CI bounds, recognised severity enum values.
+- Self-diff produces `|delta| < 1e-6` on every axis for any trace.
+- Cost-attribution identity: `model_swap + token_movement +
+  mix_residual == total_delta` to f64 precision, for any session
+  pair and any pricing table.
+- Schema-watch is monotone on no-op inputs for any config.
+- `canonical_bytes` and `content_id` are deterministic on
+  arbitrary nested JSON.
+
+Catches regressions the example-based tests miss.
+
+#### 3. Needleman-Wunsch span alignment (item 4)
+
+`shadow.hierarchical.span_diff` previously used greedy per-index
+alignment. On long tool-heavy responses (the real case as agents
+accumulate 20+ tool calls per turn), a single inserted tool_use
+block would cascade into every downstream block being reported as
+`block_type_changed`.
+
+Now: two-path dispatch by size. `≤ 5 blocks either side` uses the
+greedy fast path (optimal and cheap). `> 5 blocks` uses Needleman-
+Wunsch alignment with a cost model that nudges the aligner toward
+reporting `add + remove` over `block_type_changed` when block
+types differ. Verified with two new tests that drop / insert a
+block in position 10 of a 20-block response — NW correctly reports
+exactly 1 add/remove and zero cascaded type changes.
+
+Token-level 5th hierarchy deferred to v1.2+.
+
+#### 4. Security hardening pass (item 8) — NOT a formal audit
+
+Concrete hardening pass across four attack surfaces. Explicitly
+documented as "hardening pass, not a formal third-party audit" in
+SECURITY.md.
+
+- **Parser resource bounds**: new `DEFAULT_MAX_LINE_BYTES` (16
+  MiB per record) and `DEFAULT_MAX_TOTAL_BYTES` (1 GiB per trace)
+  with typed `LineTooLarge` / `TraceTooLarge` errors. Tunable per
+  `Parser` via `with_max_line_bytes` / `with_max_total_bytes`.
+  The per-line cap uses `Read::take` so a newline-free stream
+  errors out at the cap rather than growing the buffer unbounded.
+- **Path-traversal on `shadow quickstart`**: refuses system
+  directories (`/etc`, `/usr`, `/bin`, `/sbin`, `/boot`, `/proc`,
+  `/sys`, `/dev`).
+- **SECURITY.md updated** with an honest threat-model section,
+  hardening-pass summary, and explicit list of what was NOT
+  hardened (JSON depth, reproducible builds, formal audit).
+- 2 new Rust tests (`rejects_a_line_longer_than_the_configured_limit`,
+  `rejects_total_trace_exceeding_byte_cap`).
+
+#### 5. Published docs site (item 7)
+
+New `mkdocs.yml` + `docs/` tree + `.github/workflows/docs.yml`
+GitHub Pages deploy. Complete navigation:
+
+- Quickstart: Install, Record, Wire into CI
+- Features: Nine-axis diff, Judges, Bisect, Schema-watch, MCP,
+  Cost attribution, Hierarchical diff
+- Reference: CLI, .agentlog format, Pricing table
+- Security, Changelog
+
+Built locally with `mkdocs build --strict` (zero warnings).
+Deploys automatically from `main`.
+
+#### 6. Counterfactual replay (item 3 — one slice)
+
+New `shadow.counterfactual` module — the first of five replay-as-
+science slices the strategic analysis called out. Isolates a
+single config delta (model swap, temperature change, system-prompt
+override, tools-list replacement, etc.) and re-runs the trace
+through a live backend with only that one thing changed.
+
+Composes with `shadow bisect`: bisect gives statistical attribution
+("we think the model swap is 78% of the latency regression"); a
+counterfactual replay confirms it with a direct experiment that
+holds everything else constant.
+
+14 new unit tests. Explicitly documented deferred slices in the
+module docstring: partial replay, sandboxed replay, streaming
+replay, multimodal replay.
+
+### Test totals
+
+- **201 Rust tests** (was 199 — +2 parser-bound tests)
+- **398 Python tests** (was 374 — +14 counterfactual, +2 hierarchical NW, +8 Hypothesis properties)
+- **79 hero end-to-end assertions** (unchanged)
+- **17 live-LLM judge tests** (unchanged)
+
+### Honest scope reminders
+
+This release is v1.1, not v2.0. The gaps that remain:
+
+- **Formal security audit** — not done, not claimed. v1.1's
+  hardening pass is concrete but it is not a substitute for a
+  third-party pentest.
+- **Four of five replay-as-science modes** (partial, sandboxed,
+  streaming, multimodal) — still multi-month work.
+- **Token-level 5th hierarchy** — deferred.
+- **Zero external users** — still the biggest inflection. No
+  amount of shipping replaces someone running Shadow on their
+  own PR.
+
 ## [1.0.0] - 2026-04-24
 
 ### Added — hierarchical diff (Phase D)

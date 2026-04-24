@@ -304,6 +304,52 @@ def test_span_diff_block_type_swap() -> None:
     assert any(s.kind == "block_type_changed" for s in spans)
 
 
+def test_span_diff_long_list_inserted_block_doesnt_cascade() -> None:
+    """The real-world case greedy alignment got wrong: agent turn has
+    20 tool calls; candidate adds ONE new tool call at position 5.
+    Greedy would report block #5 as changed AND every block after as
+    `block_type_changed`. NW alignment should report exactly 1
+    tool_use_added and zero other changes.
+    """
+    baseline_blocks = [
+        {"type": "tool_use", "id": f"t{i}", "name": f"tool_{i}", "input": {"arg": i}}
+        for i in range(20)
+    ]
+    # Candidate inserts an extra tool at position 5.
+    candidate_blocks = (
+        baseline_blocks[:5]
+        + [{"type": "tool_use", "id": "NEW", "name": "injected", "input": {"x": 1}}]
+        + baseline_blocks[5:]
+    )
+    b = _resp_blocks(baseline_blocks)
+    c = _resp_blocks(candidate_blocks)
+    spans = span_diff(b, c)
+    # Exactly one tool_use_added; no other real changes.
+    adds = [s for s in spans if s.kind == "tool_use_added"]
+    type_changes = [s for s in spans if s.kind == "block_type_changed"]
+    assert len(adds) == 1, f"expected 1 add, got {len(adds)}; spans: {spans}"
+    assert (
+        len(type_changes) == 0
+    ), f"NW alignment should not cascade into type_changed spans; got {type_changes}"
+    assert adds[0].candidate["name"] == "injected"
+
+
+def test_span_diff_long_list_removed_block_doesnt_cascade() -> None:
+    """Mirror of the added-block test — removing a block in the middle
+    of a long list should report exactly 1 tool_use_removed, no cascade."""
+    baseline_blocks = [
+        {"type": "tool_use", "id": f"t{i}", "name": f"tool_{i}", "input": {}} for i in range(20)
+    ]
+    candidate_blocks = baseline_blocks[:10] + baseline_blocks[11:]  # drop #10
+    b = _resp_blocks(baseline_blocks)
+    c = _resp_blocks(candidate_blocks)
+    spans = span_diff(b, c)
+    removes = [s for s in spans if s.kind == "tool_use_removed"]
+    type_changes = [s for s in spans if s.kind == "block_type_changed"]
+    assert len(removes) == 1
+    assert len(type_changes) == 0
+
+
 def test_span_diff_preserves_block_indices() -> None:
     """The index in the report must match the position in the content
     list — so downstream UIs can click-back."""

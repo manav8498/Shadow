@@ -143,24 +143,69 @@ class SpanDiff:
         return asdict(self)
 
 
+# Alignment costs for span-level Needleman-Wunsch. Tuned so a "gap"
+# (pure add/remove) and a "type mismatch" have roughly comparable
+# cost, nudging the aligner toward reporting an add+remove when
+# block types differ (more actionable than a block_type_changed).
+_SPAN_GAP_COST = 1.0
+_SPAN_TYPE_MISMATCH_COST = 1.5
+_SPAN_SAME_TYPE_DIFF_COST = 0.5
+_SPAN_IDENTICAL_COST = 0.0
+
+
 def span_diff(
     baseline_response: dict[str, Any],
     candidate_response: dict[str, Any],
 ) -> list[SpanDiff]:
     """Classify every content-block difference between one pair of
-    chat_response payloads. Empty list = no span-level changes."""
-    base_content = baseline_response.get("content") or []
-    cand_content = candidate_response.get("content") or []
+    chat_response payloads. Empty list = no span-level changes.
+
+    Dispatch by input size:
+      - **≤ 5 blocks either side** — greedy index alignment. Optimal
+        for short lists and avoids the DP allocation.
+      - **> 5 blocks** — Needleman-Wunsch alignment over the block
+        lists with a cost model that prefers `add + remove` over
+        `block_type_changed` when types mismatch. Catches the
+        real-world case where an agent interleaves 20+ tool calls
+        per turn and the candidate adds one in the middle —
+        greedy would report every downstream block as a
+        `block_type_changed`.
+    """
+    base_content = list(baseline_response.get("content") or [])
+    cand_content = list(candidate_response.get("content") or [])
     out: list[SpanDiff] = []
 
-    # First pass: index-aligned comparison of overlapping blocks.
+    if max(len(base_content), len(cand_content)) <= 5:
+        out.extend(_span_diff_greedy(base_content, cand_content))
+    else:
+        out.extend(_span_diff_aligned(base_content, cand_content))
+
+    # Stop-reason flip is reported as a pseudo-span (block_index=-1)
+    # so renderers can treat it consistently.
+    base_sr = baseline_response.get("stop_reason")
+    cand_sr = candidate_response.get("stop_reason")
+    if base_sr != cand_sr:
+        out.append(
+            SpanDiff(
+                kind="stop_reason_changed",
+                block_index=-1,
+                baseline={"stop_reason": base_sr},
+                candidate={"stop_reason": cand_sr},
+                summary=f"stop_reason: {base_sr!r} -> {cand_sr!r}",
+            )
+        )
+
+    return out
+
+
+def _span_diff_greedy(base_content: list[Any], cand_content: list[Any]) -> list[SpanDiff]:
+    """Original greedy per-index alignment. Exact for short lists."""
+    out: list[SpanDiff] = []
     overlap = min(len(base_content), len(cand_content))
     for i in range(overlap):
         b = base_content[i] if isinstance(base_content[i], dict) else {}
         c = cand_content[i] if isinstance(cand_content[i], dict) else {}
         out.extend(_classify_block_pair(i, b, c))
-
-    # Trailing blocks are adds/removes.
     for i in range(overlap, len(base_content)):
         b = base_content[i] if isinstance(base_content[i], dict) else {}
         out.append(
@@ -183,23 +228,102 @@ def span_diff(
                 summary=_describe_addremove(c, removed=False),
             )
         )
-
-    # Stop-reason flip is reported as a pseudo-span (block_index=-1)
-    # so renderers can treat it consistently.
-    base_sr = baseline_response.get("stop_reason")
-    cand_sr = candidate_response.get("stop_reason")
-    if base_sr != cand_sr:
-        out.append(
-            SpanDiff(
-                kind="stop_reason_changed",
-                block_index=-1,
-                baseline={"stop_reason": base_sr},
-                candidate={"stop_reason": cand_sr},
-                summary=f"stop_reason: {base_sr!r} -> {cand_sr!r}",
-            )
-        )
-
     return out
+
+
+def _span_diff_aligned(base_content: list[Any], cand_content: list[Any]) -> list[SpanDiff]:
+    """Needleman-Wunsch alignment path for long block lists.
+
+    Minimises sum of per-pair costs (identical < same-type-diff <
+    type-mismatch) + gap costs. Emits one `SpanDiff` per aligned
+    pair / gap. Block indices are from the baseline list for
+    removes/matches and from the candidate list for adds — so
+    downstream UIs always have a click-back target.
+    """
+    n = len(base_content)
+    m = len(cand_content)
+    inf = float("inf")
+    # dp[i][j] = min cost aligning base[0..i] with cand[0..j]
+    dp = [[inf] * (m + 1) for _ in range(n + 1)]
+    # back[i][j] = which operation got us here: 'M', 'X' (cand gap), 'Y' (base gap)
+    back = [[""] * (m + 1) for _ in range(n + 1)]
+    dp[0][0] = 0.0
+    for i in range(1, n + 1):
+        dp[i][0] = dp[i - 1][0] + _SPAN_GAP_COST
+        back[i][0] = "Y"
+    for j in range(1, m + 1):
+        dp[0][j] = dp[0][j - 1] + _SPAN_GAP_COST
+        back[0][j] = "X"
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            b = base_content[i - 1] if isinstance(base_content[i - 1], dict) else {}
+            c = cand_content[j - 1] if isinstance(cand_content[j - 1], dict) else {}
+            match_cost = dp[i - 1][j - 1] + _span_pair_cost(b, c)
+            gap_x = dp[i][j - 1] + _SPAN_GAP_COST  # candidate gap (insert)
+            gap_y = dp[i - 1][j] + _SPAN_GAP_COST  # baseline gap (delete)
+            best = min(match_cost, gap_x, gap_y)
+            dp[i][j] = best
+            back[i][j] = "M" if best == match_cost else ("X" if best == gap_x else "Y")
+
+    # Traceback produces pair/gap ops in reverse order.
+    ops: list[tuple[str, int, int]] = []
+    i, j = n, m
+    while i > 0 or j > 0:
+        op = back[i][j]
+        if op == "M":
+            ops.append(("M", i - 1, j - 1))
+            i -= 1
+            j -= 1
+        elif op == "X":
+            ops.append(("X", -1, j - 1))
+            j -= 1
+        else:  # "Y"
+            ops.append(("Y", i - 1, -1))
+            i -= 1
+    ops.reverse()
+
+    out: list[SpanDiff] = []
+    for op, bi, ci in ops:
+        if op == "M":
+            b = base_content[bi] if isinstance(base_content[bi], dict) else {}
+            c = cand_content[ci] if isinstance(cand_content[ci], dict) else {}
+            out.extend(_classify_block_pair(bi, b, c))
+        elif op == "Y":  # baseline block with no candidate counterpart → removed
+            b = base_content[bi] if isinstance(base_content[bi], dict) else {}
+            out.append(
+                SpanDiff(
+                    kind=_addremove_kind(b.get("type"), removed=True),
+                    block_index=bi,
+                    baseline=b,
+                    candidate=None,
+                    summary=_describe_addremove(b, removed=True),
+                )
+            )
+        else:  # "X": candidate block with no baseline counterpart → added
+            c = cand_content[ci] if isinstance(cand_content[ci], dict) else {}
+            out.append(
+                SpanDiff(
+                    kind=_addremove_kind(c.get("type"), removed=False),
+                    block_index=ci,
+                    baseline=None,
+                    candidate=c,
+                    summary=_describe_addremove(c, removed=False),
+                )
+            )
+    return out
+
+
+def _span_pair_cost(b: dict[str, Any], c: dict[str, Any]) -> float:
+    """Alignment cost between two candidate same-index content blocks.
+
+    Identical → 0. Same-type-but-different → small. Type mismatch →
+    larger (to nudge the aligner toward add+remove + same-type pair).
+    """
+    if b == c:
+        return _SPAN_IDENTICAL_COST
+    if b.get("type") != c.get("type"):
+        return _SPAN_TYPE_MISMATCH_COST
+    return _SPAN_SAME_TYPE_DIFF_COST
 
 
 def _classify_block_pair(index: int, b: dict[str, Any], c: dict[str, Any]) -> list[SpanDiff]:
