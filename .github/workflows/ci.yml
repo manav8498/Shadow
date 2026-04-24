@@ -105,6 +105,52 @@ jobs:
             --cov=shadow --cov-config=python/pyproject.toml --cov-fail-under=85 \
             --cov-report=term-missing
 
+  python-full-extras:
+    name: pytest (all optional extras installed, no skips)
+    needs: python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          toolchain: "1.95.0"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install shadow with every optional extra
+        run: |
+          uv venv --python 3.11 .venv
+          # `embeddings` pulls sentence-transformers (~500 MB with
+          # torch), so it's in its own install step to keep the output
+          # legible if that step ever times out.
+          uv pip install --python .venv/bin/python \
+            -e "python[dev,anthropic,openai,otel,serve]"
+          uv pip install --python .venv/bin/python \
+            -e "python[embeddings]"
+
+      - name: Build PyO3 extension
+        run: |
+          cd python
+          VIRTUAL_ENV=${{ github.workspace }}/.venv \
+            ../.venv/bin/maturin develop --features extension --release
+
+      - name: pytest (every test runs — only live-API tests skip)
+        run: |
+          # SHADOW_RUN_NETWORK_TESTS stays unset on purpose: live-API
+          # tests need real keys, which CI doesn't carry.
+          .venv/bin/python -m pytest python/tests -v \
+            --ignore=python/tests/test_judge_live.py
+
   demo:
     name: end-to-end demo (<10s wall-clock)
     needs: python
