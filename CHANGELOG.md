@@ -6,6 +6,14 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+Three correctness gaps surfaced by a real-world MCP adversarial test on 10 support-triage tickets.
+
+- **Session-scoped policy rules.** `must_call_before` and the other rule kinds now accept `scope: session` in the policy YAML. Under session scope the rule is evaluated independently within each user-initiated session — inferred from `messages[-1].role == "user"` on the request — so a correct ordering in one ticket can no longer mask violations in later tickets of the same multi-ticket trace. Default stays `scope: trace` for back-compat; the MCP tool description and policy loader both document the new field. Real-world test: the adversarial candidate trace went from 0 reported violations (bug) to 6 (correct — one per offending ticket).
+- **Cost axis `no_pricing` flag.** When no pricing table is supplied, or the traced models aren't in the table, the cost axis previously reported `delta=0, severity=none` — indistinguishable from "both sides priced equally." The axis now emits `flags: ["no_pricing"]` when fewer than half the pairs can be priced. The summariser surfaces this as "per-call cost not comparable (no pricing table supplied)" rather than omitting cost silently.
+- **Mining metadata field name.** `MiningResult.to_agentlog()` now writes `cases_selected` (was `selected_cases`), aligning with the sibling keys `total_input_pairs` and `clusters_found`.
+
 ## [1.3.0] - 2026-04-24
 
 ### Added

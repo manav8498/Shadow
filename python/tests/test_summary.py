@@ -287,3 +287,26 @@ def test_summary_fits_in_reasonable_byte_budget() -> None:
     recs = [{"severity": "error", "message": "Restore 6-tool safety sequence"}]
     s = summarise_report(_report(rows, first_divergence=fd, drill_down=drill, recommendations=recs))
     assert len(s) < 800, f"summary too long: {len(s)} bytes"
+
+
+# ---- no-pricing cost axis caveat ------------------------------------
+
+
+def test_cost_axis_with_no_pricing_flag_surfaces_caveat_line() -> None:
+    """When the cost axis carries the `no_pricing` flag (delta is unknown,
+    not zero), the summary must say so instead of silently omitting cost."""
+    rows = _nine_zero_rows()
+    for r in rows:
+        if r["axis"] == "cost":
+            r["flags"] = ["no_pricing"]
+    s = summarise_report(_report(rows))
+    assert "no pricing table" in s
+    assert "not comparable" in s
+
+
+def test_cost_axis_without_flag_stays_silent_at_low_severity() -> None:
+    """Cost axis with no flag and severity=none should still be skipped
+    (no bullet) — only the caveat case surfaces a line."""
+    s = summarise_report(_report(_nine_zero_rows()))
+    assert "per-call cost" not in s
+    assert "not comparable" not in s

@@ -105,6 +105,12 @@ def _scalar_bullets(report: dict[str, Any]) -> list[str]:
         row = _row_for(report, axis)
         if row is None:
             continue
+        # Never claim a zero cost delta is meaningful when we couldn't
+        # price the traces. A `no_pricing` flag means "we don't know",
+        # which is louder than "same" — surface that, not a $0.00 bullet.
+        if axis == "cost" and "no_pricing" in (row.get("flags") or []):
+            out.append("per-call cost not comparable (no pricing table supplied)")
+            continue
         sev = row.get("severity", "none")
         if _sev_rank(sev) < 2:
             continue
