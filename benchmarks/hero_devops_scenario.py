@@ -897,6 +897,100 @@ def stage_first_real_diff_experience() -> None:
     )
 
 
+def stage_mcp_importer() -> None:
+    """Phase B: MCP (Model Context Protocol) importer on committed fixtures.
+
+    Validates the full import → diff pipeline on real JSONL MCP logs:
+    the importer produces valid `.agentlog` records, parent chain is
+    connected, and Shadow's trajectory axis detects the arg rename
+    + call sequence change between the two committed sessions.
+    """
+    _heading("8. Phase B — MCP importer")
+    import tempfile
+
+    from shadow import _core
+
+    mcp_root = REPO_ROOT / "examples/mcp-session"
+    base_log = mcp_root / "fixtures/baseline.mcp.jsonl"
+    cand_log = mcp_root / "fixtures/candidate.mcp.jsonl"
+    _assert(base_log.is_file(), "committed baseline MCP log is present")
+    _assert(cand_log.is_file(), "committed candidate MCP log is present")
+
+    with tempfile.TemporaryDirectory() as _tmp:
+        tmp = Path(_tmp)
+        base_out = tmp / "base.agentlog"
+        cand_out = tmp / "cand.agentlog"
+
+        for src, dst in ((base_log, base_out), (cand_log, cand_out)):
+            r = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "shadow.cli.app",
+                    "import",
+                    str(src),
+                    "--format",
+                    "mcp",
+                    "--output",
+                    str(dst),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            _assert(r.returncode == 0, f"shadow import mcp on {src.name} exits 0")
+
+        # The imported .agentlog must parse via the Rust core.
+        baseline_records = _core.parse_agentlog(base_out.read_bytes())
+        _assert(
+            baseline_records[0]["kind"] == "metadata",
+            "imported MCP trace starts with a metadata record",
+        )
+        # Must carry the server's tools/list schemas.
+        tools = baseline_records[0]["payload"].get("tools") or []
+        _assert(
+            any(t["name"] == "search_orders" for t in tools),
+            "MCP importer hoists tools/list into metadata.payload.tools",
+        )
+        responses = [r for r in baseline_records if r["kind"] == "chat_response"]
+        _assert(
+            len(responses) == 2,
+            f"baseline MCP session → 2 chat_responses (got {len(responses)})",
+        )
+        # Each response must have a tool_use content block.
+        _assert(
+            any(
+                b.get("type") == "tool_use" for b in responses[0]["payload"]["content"]
+            ),
+            "chat_response includes Anthropic-shape tool_use block",
+        )
+
+        # Diff the two imported agentlogs — trajectory must fire.
+        diff_json = tmp / "diff.json"
+        diff_r = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "shadow.cli.app",
+                "diff",
+                str(base_out),
+                str(cand_out),
+                "--output-json",
+                str(diff_json),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        _assert(diff_r.returncode == 0, "shadow diff on imported MCP traces exits 0")
+        report = json.loads(diff_json.read_text())
+        trajectory = next(r for r in report["rows"] if r["axis"] == "trajectory")
+        _assert(
+            abs(trajectory["delta"]) > 0.0,
+            f"trajectory axis fires on arg rename (delta {trajectory['delta']})",
+        )
+
+
 def main() -> int:
     print("Hero end-to-end: DevOps-agent PR safety review")
     print(f"  baseline: {BASELINE_LOG.relative_to(REPO_ROOT)}")
@@ -911,6 +1005,7 @@ def main() -> int:
         stage_customer_support_cross_domain()
         stage_zero_friction_adoption()
         stage_first_real_diff_experience()
+        stage_mcp_importer()
     except Exception as e:  # noqa: BLE001
         print(f"\nEXCEPTION: {type(e).__name__}: {e}", file=sys.stderr)
         FAILURES.append(f"uncaught: {e}")
