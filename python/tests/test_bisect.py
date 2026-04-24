@@ -1,4 +1,4 @@
-"""Tests for shadow.bisect (Phase 4)."""
+"""Tests for shadow.bisect — LASSO + Plackett-Burman causal attribution."""
 
 from __future__ import annotations
 

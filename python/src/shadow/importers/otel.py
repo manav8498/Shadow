@@ -63,7 +63,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from shadow import _core
+from shadow import __version__, _core
 from shadow.errors import ShadowConfigError
 
 OTEL_FORMAT = "otel"
@@ -79,7 +79,7 @@ def otel_to_agentlog(data: dict[str, Any]) -> list[dict[str, Any]]:
         )
 
     meta_payload: dict[str, Any] = {
-        "sdk": {"name": "shadow", "version": "0.1.0"},
+        "sdk": {"name": "shadow", "version": __version__},
         "imported_from": OTEL_FORMAT,
     }
     meta_id = _core.content_id(meta_payload)
