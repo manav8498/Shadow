@@ -95,3 +95,4 @@ sbom.json
 sbom.xml
 *.sbom.json
 *.sbom.xml
+site/
