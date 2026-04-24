@@ -51,8 +51,13 @@ jobs:
           maturin build --release --out dist/
 
       - name: Generate Python SBOM (CycloneDX)
+        # Wheels land in `python/dist/`; write the SBOM there too so the
+        # upload-artifact step's single `path:` glob works on every OS.
+        # (A bare `dist/` at the repo root didn't exist -> the old path
+        # broke across all three runners.)
+        shell: bash
         run: |
-          cyclonedx-py environment -o dist/sbom-python.cdx.json
+          cyclonedx-py environment -o python/dist/sbom-python.cdx.json
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -168,3 +173,51 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+
+  # ----------------------------------------------------------------------
+  # Publish to PyPI via OIDC Trusted Publisher (no API token required).
+  # Requires one-time setup on pypi.org — see docs/PYPI-PUBLISHING.md.
+  # ----------------------------------------------------------------------
+  publish-pypi:
+    name: publish Python wheels to PyPI
+    needs: [python-wheel, sign-and-release]
+    # Only run on real tag pushes. workflow_dispatch is for dry runs
+    # that must never accidentally publish.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    # Binds this job to the `pypi` GitHub Environment. The trusted
+    # publisher on PyPI is registered against (owner, repo, workflow,
+    # environment) — changing any of those four fields breaks the
+    # trust link on purpose, so tokenless publish still requires a
+    # deliberate config change to reroute.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/shadow
+    permissions:
+      # OIDC token that PyPI exchanges for a short-lived upload token.
+      # No long-lived API token is stored anywhere.
+      id-token: write
+    steps:
+      - name: Download all per-OS wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: python-wheel-*
+          path: wheels
+          merge-multiple: true
+
+      - name: Collect wheels into dist/
+        run: |
+          mkdir -p dist
+          # Only copy .whl files; the SBOM .json files ride alongside
+          # the artifacts but don't belong on PyPI.
+          find wheels -name "*.whl" -exec cp {} dist/ \;
+          echo "Wheels to publish:"
+          ls -la dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          # Don't fail a re-run if the version is already on PyPI
+          # (e.g. after a re-tag fix). Fresh tags publish normally.
+          skip-existing: true
