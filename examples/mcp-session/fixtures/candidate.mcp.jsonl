@@ -1,0 +1,7 @@
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}}}
+{"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": {"name": "acme-support-mcp", "version": "1.1"}}}
+{"jsonrpc": "2.0", "method": "notifications/initialized"}
+{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+{"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "search_orders", "description": "Search orders for a customer", "inputSchema": {"type": "object", "properties": {"cid": {"type": "string"}}, "required": ["cid"]}}, {"name": "refund_order", "description": "Issue a refund. ONLY use after customer confirmation.", "inputSchema": {"type": "object", "properties": {"order_id": {"type": "string"}, "amount_usd": {"type": "number"}}, "required": ["order_id", "amount_usd"]}}]}}
+{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "refund_order", "arguments": {"order_id": "ORD-123", "amount_usd": 30.0}}}
+{"jsonrpc": "2.0", "id": 3, "result": {"content": [{"type": "text", "text": "refund issued: REF-988"}]}}

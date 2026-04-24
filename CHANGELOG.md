@@ -6,6 +6,68 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-24
+
+### Added — MCP (Model Context Protocol) importer (Phase B)
+
+Shadow now ingests MCP server session logs. MCP is Anthropic's
+open JSON-RPC-2.0 protocol (spec 2025-06-18, v1.0) for
+agents-to-tools communication — adopted by Claude Desktop, Cursor,
+Windsurf, Zed, VS Code, and every Anthropic-flavoured IDE by
+early 2026.
+
+- **`shadow import --format mcp <log-file>`** — new importer
+  (`shadow.importers.mcp`) converts an MCP session into a partial
+  `.agentlog`. Accepts three in-the-wild input shapes:
+  (a) JSONL — one JSON-RPC message per line (`mcp-server --log`
+  output), (b) JSON array — what MCP Inspector's export produces,
+  (c) wrapped object — `{"messages": [...], "metadata": {...}}`.
+  Auto-detects between JSONL and wrapped-object by trying a
+  whole-file parse before falling back to line-by-line.
+
+- **Perfectly captured**: tool-call trajectory (arg rename,
+  sequence change, omitted calls) and tool-schema (everything
+  `tools/list` advertised). Shadow's trajectory axis, first-
+  divergence detector, and schema-watch all work on imported
+  traces with no further wiring.
+
+- **Partial**: tool results (when present in the log). Mapped to
+  Anthropic-style `tool_result` content blocks.
+
+- **Not captured**: LLM completions. MCP is the *tool* protocol,
+  not the LLM protocol; semantic / verbosity / safety axes show
+  zero on MCP imports by design.
+
+- **MCP error responses** are mapped to
+  `{"type": "tool_result", "is_error": true, ...}` blocks so they
+  surface on the conformance axis.
+
+- **Orphan requests** (no response — client crash, disconnect)
+  still produce a `chat_response` record with just the tool_use
+  block, preserving the trajectory signal.
+
+### Added — real-world MCP example
+
+- `examples/mcp-session/` — committed baseline + candidate JSONL
+  MCP logs for an Acme customer-support scenario. Baseline agent
+  uses `search_orders` → `refund_order` in the correct order with
+  original arg names; candidate silently renames `customer_id`
+  → `cid` and skips the confirmation step. Shadow's trajectory
+  axis fires end-to-end.
+
+### Tests
+
+- 13 new `test_mcp_importer.py` tests (shape round-trip, metadata
+  tools-list capture, tool_use + tool_result block shape, parent-
+  chain connectivity, error responses, orphan requests, all three
+  input shapes — JSONL / JSON array / wrapped object — and full
+  CLI integration including a trajectory-axis assertion on two
+  imported MCP sessions).
+- Hero harness extended from 54 to **64 end-to-end assertions** —
+  a new stage (`stage_mcp_importer`) imports both committed MCP
+  logs through the CLI and proves the trajectory axis detects the
+  arg rename.
+
 ## [0.4.1] - 2026-04-24
 
 ### Fixed
