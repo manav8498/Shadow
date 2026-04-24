@@ -118,10 +118,18 @@ def stage_schema_watch() -> None:
 
 
 def _run_cli_diff() -> dict[str, Any]:
-    """Invoke `shadow diff` as a subprocess and return the DiffReport JSON."""
+    """Invoke `shadow diff` as a subprocess and return the DiffReport JSON.
+
+    Uses `sys.executable -m shadow.cli.app` instead of relying on the
+    `shadow` console-script being on PATH — the harness runs from
+    plain `python benchmarks/...` and can't assume the venv is
+    activated.
+    """
     out_path = Path("/tmp/hero_diff_report.json")
     cmd = [
-        "shadow",
+        sys.executable,
+        "-m",
+        "shadow.cli.app",
         "diff",
         str(BASELINE_LOG),
         str(CANDIDATE_LOG),
@@ -522,7 +530,9 @@ def stage_customer_support_cross_domain() -> None:
     out_path = Path("/tmp/hero_support_diff.json")
     result = subprocess.run(
         [
-            "shadow",
+            sys.executable,
+            "-m",
+            "shadow.cli.app",
             "diff",
             str(SUPPORT_BASELINE),
             str(SUPPORT_CANDIDATE),

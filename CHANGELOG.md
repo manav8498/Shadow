@@ -6,7 +6,39 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **`shadow <cmd> --help` now renders**. Bumped `typer` from pinned
+  `0.13.0` to `>=0.15,<1.0`; the old pin was incompatible with
+  `click 8.2+` (breaking `TyperArgument.make_metavar()` signature).
+  All twelve subcommands print their help pages again.
+
 ### Added
+
+- **Live-LLM judge tests** — new `python/tests/test_judge_live.py`
+  exercises every judge against real Anthropic and OpenAI backends.
+  Gated by `SHADOW_RUN_NETWORK_TESTS=1` plus `ANTHROPIC_API_KEY` /
+  `OPENAI_API_KEY`; auto-skips otherwise. Each test picks a scenario
+  where the correct verdict is unambiguous so a real LLM's behaviour
+  can be asserted directly. ~$0.01 token budget per backend per full
+  run.
+
+- **Scale benchmark for drill-down** — new
+  `benchmarks/scale_drill_down.py` runs the full nine-axis diff
+  plus drill-down ranking on synthetic traces at `N ∈ {100, 500,
+  1000}`. Asserts correctness (ranking invariants, dominant axis,
+  `pair_count` match) and a 60-second wall-time cap at N=1000.
+  Current numbers on a local laptop: 0.18 s @ N=100, 4.5 s @ N=500,
+  18.1 s @ N=1000.
+
+- **Every optional extra now exercised in CI.** New `serve` and
+  `otel` extras in `pyproject.toml`, plus a new CI job
+  `python-full-extras` that installs `dev`, `anthropic`, `openai`,
+  `otel`, `serve`, and `embeddings` and runs the full test suite —
+  no more silently-skipped tests. Test count went from 260 passed /
+  18 skipped to 278 passed / 0 skipped (excluding the network-gated
+  `test_judge_live.py` module, which correctly stays skipped without
+  API keys).
 
 - **Per-pair drill-down** — `DiffReport` gains a `drill_down` field
   ranking the top-K most-regressive response pairs in a trace set
