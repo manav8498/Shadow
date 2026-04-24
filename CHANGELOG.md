@@ -6,6 +6,8 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-23
+
 ### Fixed
 
 - **`shadow <cmd> --help` now renders**. Bumped `typer` from pinned
