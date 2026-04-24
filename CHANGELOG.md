@@ -6,6 +6,73 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-24
+
+### Added — zero-friction adoption
+
+A full week on the one thing that was harder than it should have been:
+making Shadow trivially usable for a new user who just ran
+`pip install shadow-diff`.
+
+- **Auto-instrumentation via PYTHONPATH + sitecustomize.**
+  `shadow record -- python your_agent.py` now records an agent's
+  LLM calls **with zero code changes** to the agent itself. A shim
+  `sitecustomize.py` prepended to the child's PYTHONPATH fires at
+  interpreter startup, checks for `SHADOW_SESSION_OUTPUT`, and if
+  set, constructs and enters a `Session` whose atexit handler
+  flushes the trace on process shutdown. All existing Session
+  features (anthropic/openai monkey-patching, redaction, trace
+  propagation) apply automatically. New `--tags` flag on
+  `shadow record` propagates to the metadata record. New
+  `--no-auto-instrument` opts out cleanly if the agent already
+  manages its own Session.
+
+- **`shadow quickstart` scaffolder.** Drops a working demo
+  (`agent.py`, `config_a.yaml`, `config_b.yaml`, two pre-recorded
+  `.agentlog` fixtures, `QUICKSTART.md`) into a directory in one
+  command. A brand-new user goes from `pip install shadow-diff` to
+  seeing a real nine-axis diff in under 60 seconds, no API keys
+  required. `--force` overwrites existing files; otherwise existing
+  content is preserved.
+
+- **`shadow init --github-action`.** Extends the existing `init`
+  command with a flag that drops a ready-to-commit
+  `.github/workflows/shadow-diff.yml` into the user's repo. Wires
+  up `pip install shadow-diff`, runs `shadow diff` on every PR,
+  renders the report as PR-comment markdown, and posts via the
+  `gh` CLI. Edit two env vars (BASELINE / CANDIDATE paths),
+  commit, and every PR gets a behavioural-diff comment with no
+  further setup.
+
+- **README rewrite.** The "Try it" section is now "5-minute
+  adoption" and leads with the three-command adoption path:
+  `pip install shadow-diff` → `shadow quickstart` → `shadow diff`.
+  The "Instrument your own agent" section now documents the
+  zero-config `shadow record` path as the recommended option, with
+  the explicit `Session` pattern as the secondary choice.
+
+### Fixed
+
+- **Typer extra-args forwarding on `shadow record`.** Typer 0.24
+  (bumped for the `--help` fix in 0.2.x) changed how the `--`
+  separator is handled at the command level; `shadow record`
+  needed its own `context_settings={"allow_extra_args": True,
+  "ignore_unknown_options": True}` for child args after `--` to
+  be forwarded to `ctx.args`. Previously only set at the app
+  level, which no longer sufficed.
+
+### Tests
+
+- 10 new `test_autostart.py` tests covering env-var handling,
+  tag parsing, empty-command rejection, exit-code propagation,
+  `--no-auto-instrument` behaviour, and the PYTHONPATH shim contents.
+- 12 new `test_quickstart.py` tests covering file scaffolding, valid
+  agentlog output, `shadow diff` on the scaffolded fixtures,
+  `--force` behaviour, `--github-action` workflow generation, and
+  the composed quickstart + init flow.
+- Hero harness extended from 34 to **47 end-to-end assertions**
+  covering the new adoption path on committed fixtures.
+
 ## [0.2.2] - 2026-04-23
 
 ### Changed
