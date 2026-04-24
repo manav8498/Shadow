@@ -8,6 +8,20 @@ All notable changes to Shadow are documented here. Format follows
 
 ### Added
 
+- **Hero end-to-end real-world scenario.** New harness
+  `benchmarks/hero_devops_scenario.py` that exercises every Shadow
+  feature (schema-watch, nine-axis diff, first-divergence,
+  top-K divergences, recommendations, hardened bisection, and all
+  ten judges) end-to-end against **committed `.agentlog` trace
+  fixtures** — not hand-crafted verdicts. Inputs are the real YAML
+  configs and real recorded agent traces under
+  `examples/devops-agent/` and `examples/customer-support/`. Every
+  feature must independently surface a symptom of the PR's regression
+  for the run to pass: 30/30 assertions currently green across two
+  domains. This answers the integration question the per-feature
+  `validate_*.py` harnesses can't: do the features compose on real
+  trace data?
+
 - **Judge axis defaults — 10 ready-made judges.** Previously axis 8
   was effectively a no-op without a user-written rubric. The package
   now ships six new Judge classes on top of the existing four
