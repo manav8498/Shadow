@@ -6,6 +6,18 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+### Added
+
+**OTel GenAI semconv v1.40 compliance.** The `shadow import --format otel` importer now parses the full v1.40 attribute surface: structured `gen_ai.input.messages` / `gen_ai.output.messages` (whether carried as span attributes or inside the `gen_ai.client.inference.operation.details` event), `gen_ai.provider.name`, cache-token attributes (`gen_ai.usage.cache_read.input_tokens` and `cache_creation.input_tokens`), `gen_ai.response.id`, `gen_ai.output.type`, `gen_ai.conversation.id`, `gen_ai.tool.definitions`, agent spans (`create_agent`/`invoke_agent` land in metadata with id/name/description/version), and evaluation events. The deprecated v1.28-v1.36 flat-indexed `gen_ai.prompt.N.*` / `gen_ai.completion.N.*` shape still parses, so traces from OpenLLMetry and other implementers that haven't tracked the v1.37 restructure round-trip cleanly. Spans are sorted by `startTimeUnixNano` so content IDs are deterministic.
+
+**Framework adapters: LangGraph, CrewAI, AG2.** New `shadow.adapters` package exposes first-class tracing hooks for the three dominant agent frameworks as of April 2026. Each routes its framework's native instrumentation surface through `Session.record_chat` / `record_tool_call` / `record_tool_result`.
+
+- `shadow.adapters.langgraph.ShadowLangChainHandler` — an `AsyncCallbackHandler` subclass. Hooks: `on_chat_model_start`/`end`/`error`, `on_tool_start`/`end`/`error`. Pair-buffers by LangChain's `run_id` so concurrent graph branches don't cross-contaminate. Session-groups by the config's `configurable.thread_id`.
+- `shadow.adapters.crewai.ShadowCrewAIListener` — a `BaseEventListener` subclass wired to `LLMCall{Started,Completed,Failed}` and `ToolUsage{Started,Finished,Error}`. Pairs via CrewAI's `call_id` (LLM) and `started_event_id` (tools) conventions.
+- `shadow.adapters.ag2.ShadowAG2Adapter` — uses AG2's `register_hook` surface on `safeguard_llm_inputs`/`safeguard_llm_outputs`. Captures message bodies that the default `autogen.opentelemetry` spans redact. Supports per-agent and `install_all(agents)` registration.
+
+New extras: `pip install 'shadow-diff[langgraph]'`, `[crewai]`, `[ag2]`.
+
 ### Fixed
 
 Three correctness gaps surfaced by a real-world MCP adversarial test on 10 support-triage tickets.
