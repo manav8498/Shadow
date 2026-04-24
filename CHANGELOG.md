@@ -6,6 +6,51 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-04-24
+
+### Fixed — maturity + documentation discrepancies
+
+A pass against the repo audit for discrepancies between what the
+package *is* and what it *says about itself*:
+
+- **PyPI classifier** `Development Status :: 3 - Alpha` → `4 - Beta`.
+  A 1.x release with 90 days of feature work behind it isn't Alpha;
+  calling it Alpha undersells maturity for package discovery.
+- **GitHub Action template fix** *(functional bug).* The workflow
+  that `shadow init --github-action` scaffolds pinned
+  `shadow-diff>=0.2,<0.3`, which would install a pre-1.0 CLI into
+  every user's CI. Now pins `shadow-diff>=1.2,<2`. Users who already
+  ran `shadow init --github-action` before 1.2.1 should update their
+  generated `.github/workflows/shadow-diff.yml` pin.
+- **Embedded SDK version tracks package version.** Every emitter
+  (langfuse/braintrust/langsmith/openai-evals/otel importers, OTel
+  exporter, FastAPI `shadow serve`) hard-coded
+  `"sdk": {"name": "shadow", "version": "0.1.0"}` in the metadata
+  record's SDK-provenance field. That's a lie: a v1.2 install was
+  stamping records "written by v0.1". Now reads `shadow.__version__`
+  at import time. Metadata content-IDs change between versions
+  (expected — that's what provenance is for); diff results are
+  unaffected.
+- **TypeScript SDK** `@shadow/sdk` `0.1.0` → `1.2.1` to match the
+  Python + Rust packages.
+- **Stale "Phase-N stub" comments** removed from `crates/shadow-core/
+  src/lib.rs` and `agentlog/mod.rs`. Replaced with real submodule
+  documentation. Similar prose fixes in `error.rs`, `parser.rs`,
+  and `tests/test_bisect.py`.
+
+### Not changed (and why)
+
+- **No third-party security audit.** Called out honestly in
+  `SECURITY.md` — Shadow is self-hostable and processes traces
+  locally by default, but has not been penetration-tested. Users who
+  need formal assurance should assume that gap and treat `.agentlog`
+  files as potentially-sensitive (they are, by default).
+- **SPEC-example record versions stay `"0.1.0"`.** The example
+  payloads in `SPEC.md` and `test_core.py` hashing vectors are
+  illustrative and pin specific SHA-256 values; changing the version
+  string there would break the known-vector tests that lock the
+  canonical JSON algorithm.
+
 ## [1.2.0] - 2026-04-24
 
 ### Added — partial-completion close-out

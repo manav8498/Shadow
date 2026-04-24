@@ -30,7 +30,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from shadow import _core
+from shadow import __version__, _core
 from shadow.errors import ShadowConfigError
 
 OPENAI_EVALS_FORMAT = "openai-evals"
@@ -43,7 +43,7 @@ def openai_evals_to_agentlog(data: list[dict[str, Any]]) -> list[dict[str, Any]]
             "OpenAI-Evals input must be a list of event dicts (one JSON object per line)."
         )
     meta_payload = {
-        "sdk": {"name": "shadow", "version": "0.1.0"},
+        "sdk": {"name": "shadow", "version": __version__},
         "imported_from": OPENAI_EVALS_FORMAT,
         "event_count": len(data),
     }

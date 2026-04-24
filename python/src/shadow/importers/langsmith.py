@@ -25,7 +25,7 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
-from shadow import _core
+from shadow import __version__, _core
 from shadow.errors import ShadowConfigError
 
 LANGSMITH_FORMAT = "langsmith"
@@ -39,7 +39,7 @@ def langsmith_to_agentlog(data: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "hint: `langsmith runs list --project <name> --export` produces this."
         )
     meta_payload = {
-        "sdk": {"name": "shadow", "version": "0.1.0"},
+        "sdk": {"name": "shadow", "version": __version__},
         "imported_from": LANGSMITH_FORMAT,
         "run_count": len(data),
     }

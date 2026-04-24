@@ -5,7 +5,8 @@
 //! iterator that yields one [`Record`] per line (or a typed error with the
 //! 1-based line number where the failure occurred). It does NOT enforce
 //! trace-level invariants like "first record is metadata" or "parents
-//! point backward" — those belong in a separate validator (Phase 3).
+//! point backward" — those are enforced by callers that actually need
+//! them (the replay engine, the differ) rather than at parse time.
 
 use std::io::{BufRead, Read};
 

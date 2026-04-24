@@ -24,8 +24,9 @@ pub enum Error {
     #[error("sqlite error: {0}\nhint: the .shadow/index.sqlite file may be corrupt; delete and re-index")]
     Sqlite(#[from] rusqlite::Error),
 
-    /// Catch-all for domain errors that predate dedicated variants.
-    /// Phase-2 implementations will replace most `Other` uses with typed variants.
+    /// Catch-all for domain errors that don't yet have a dedicated variant.
+    /// Prefer adding a typed variant for new error classes; `Other` is for
+    /// one-off messages that won't be matched on by callers.
     #[error("{0}")]
     Other(String),
 }

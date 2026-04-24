@@ -6,7 +6,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from shadow import _core
+from shadow import __version__, _core
 from shadow.errors import ShadowBackendError
 
 
@@ -24,7 +24,7 @@ def build_app(root: Path) -> Any:
 
     WebSocketDisconnect = fastapi.WebSocketDisconnect  # noqa: N806 — class alias
 
-    app = fastapi.FastAPI(title="Shadow", version="0.1.0")
+    app = fastapi.FastAPI(title="Shadow", version=__version__)
 
     @app.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
