@@ -3,12 +3,12 @@
 Every Shadow release artifact is:
 
 1. **Built by GitHub Actions** on `release.yml` (pinned runners, pinned actions).
-2. **Signed with sigstore cosign** via keyless OIDC — no long-lived signing keys to rotate, leak, or lose. The certificate chains back to Fulcio, rooted in the Sigstore Public Good trust root.
-3. **Attested with SLSA build provenance** (level 2) via `actions/attest-build-provenance`, recording the GitHub Actions workflow run, commit SHA, and inputs. Level 3 requires builds to take place in a reusable workflow shared across the org (so the build process is isolated from the calling workflow); Shadow does not yet meet that criterion — this is a documented gap and a v0.3 goal.
+2. **Signed with sigstore cosign** via keyless OIDC, no long-lived signing keys to rotate, leak, or lose. The certificate chains back to Fulcio, rooted in the Sigstore Public Good trust root.
+3. **Attested with SLSA build provenance** (level 2) via `actions/attest-build-provenance`, recording the GitHub Actions workflow run, commit SHA, and inputs. Level 3 requires builds to take place in a reusable workflow shared across the org (so the build process is isolated from the calling workflow); Shadow does not yet meet that criterion, this is a documented gap and a v0.3 goal.
 4. **Shipped with a CycloneDX 1.5 SBOM** per language surface:
-   - `sbom-python.cdx.json` — the Python wheel's transitive deps
-   - `sbom-typescript.cdx.json` — the npm package's tree
-   - `sbom-rust.cdx.json` — the crate's cargo lockfile rendered
+   - `sbom-python.cdx.json`, the Python wheel's transitive deps
+   - `sbom-typescript.cdx.json`, the npm package's tree
+   - `sbom-rust.cdx.json`, the crate's cargo lockfile rendered
 
 ## Verifying a release
 
@@ -20,7 +20,7 @@ brew install cosign
 
 # 2. Verify the sigstore signature.
 # The regex escapes every literal dot, anchors to $, and pins to release
-# tags only — rejecting forged certificates from forked repos or non-tag
+# tags only, rejecting forged certificates from forked repos or non-tag
 # workflow runs.
 cosign verify-blob \
   --certificate shadow-0.2.0-cp311-abi3-macosx_11_0_arm64.whl.crt \
@@ -39,8 +39,7 @@ Both commands must exit 0 for the artifact to be considered trusted.
 
 ## Generating SBOMs locally
 
-```bash
-./scripts/generate_sbom.sh
+```bash ./scripts/generate_sbom.sh
 # outputs: sbom/shadow-{rust,python,typescript}.cdx.json
 ```
 
@@ -67,7 +66,6 @@ We guarantee:
 - The SBOM reflects the actual dependency tree at build time.
 
 We do NOT guarantee:
-- That upstream dependencies don't have vulnerabilities — run `cargo audit`,
+- That upstream dependencies don't have vulnerabilities, run `cargo audit`,
   `pip-audit`, `npm audit` on each release before deploying.
-- That a determined attacker with admin GitHub access can't forge a release
-  — this is inherent to any GitHub-hosted OSS project.
+- That a determined attacker with admin GitHub access can't forge a release, this is inherent to any GitHub-hosted OSS project.

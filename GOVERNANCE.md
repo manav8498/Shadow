@@ -3,7 +3,7 @@
 Shadow is a small project at v0.1. This document describes who decides
 what, how decisions are made, and how that will evolve.
 
-## Current model — BDFL with lazy consensus
+## Current model, BDFL with lazy consensus
 
 At v0.1, one person (the repo owner) has final say on:
 
@@ -23,7 +23,7 @@ has commit access, review authority for their area (per CODEOWNERS), and
 a vote in governance decisions.
 
 New maintainers are invited by existing maintainers based on sustained
-high-quality contribution — typically at least 3 months of regular
+high-quality contribution, typically at least 3 months of regular
 engagement and meaningful code / review / triage work.
 
 ## How to propose a change
@@ -41,7 +41,7 @@ engagement and meaningful code / review / triage work.
 ## Scaling up
 
 When we reach >3 active maintainers, this document will be revised to
-adopt a lightweight **Technical Steering Committee** model — majority
+adopt a lightweight **Technical Steering Committee** model, majority
 vote on disagreements, with a documented appeal path. The CNCF TAG-level
 project governance template is the likely reference.
 
@@ -53,7 +53,7 @@ made by the repo owner until a TSC exists.
 
 ## Open questions
 
-- Foundation neutrality (CNCF / OpenJS / Linux Foundation): deferred
+- Foundation neutrality (CNCF / OpenJS / Linux Foundation): not planned for now
   until we have sustained external contribution.
 - Trademark ownership: see [TRADEMARK.md](./TRADEMARK.md). Will transfer
   to a neutral foundation when one exists.

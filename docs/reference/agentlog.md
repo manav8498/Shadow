@@ -1,4 +1,4 @@
-# The .agentlog format
+# The.agentlog format
 
 Shadow's on-disk trace format. JSON-Lines, content-addressed, streaming-safe.
 
@@ -21,7 +21,7 @@ Every record:
 ```
 
 - `id` is `sha256:` + hex(SHA-256(canonical_json(payload))). Two
-  records with identical payloads have identical ids — content
+  records with identical payloads have identical ids, content
   addressing.
 - `parent` links records into a DAG. Metadata records have `null`;
   all others point back.

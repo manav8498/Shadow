@@ -2,7 +2,7 @@
 
 **Catch AI-agent regressions before they hit production.**
 
-Shadow is a PR-native diff tool for LLM agents — it records your
+Shadow is a PR-native diff tool for LLM agents, it records your
 agent's calls, replays them under a new config, and tells you what
 changed across nine behavioural dimensions.
 
@@ -29,7 +29,7 @@ Requires Python 3.11 or newer.
 from shadow.sdk import Session
 
 with Session(output_path="trace.agentlog"):
-    # Your existing Anthropic / OpenAI code — unchanged.
+    # Your existing Anthropic / OpenAI code, unchanged.
     client.messages.create(model="claude-sonnet-4-6", messages=[...])
 ```
 

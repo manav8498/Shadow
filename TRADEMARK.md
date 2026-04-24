@@ -2,7 +2,7 @@
 
 The name **"Shadow"** and any associated logos are **not** covered by
 the MIT or Apache-2.0 licenses that govern the source code. The licenses
-grant you freedom to use, modify, and redistribute the *code* — they do
+grant you freedom to use, modify, and redistribute the *code*, they do
 not grant you permission to use the *name* in a way that could confuse
 users about origin or endorsement.
 
@@ -37,7 +37,7 @@ will be updated accordingly.
 
 ## Standard OSS practice
 
-This policy follows the standard CNCF pattern — see, e.g.,
+This policy follows the standard CNCF pattern, see, e.g.,
 [Kubernetes's policy](https://www.linuxfoundation.org/trademark-usage/)
 or [Rust's policy](https://foundation.rust-lang.org/policies/logo-policy-and-media-guide/).
 Nothing here is novel.

@@ -59,9 +59,9 @@ git commit -m "fixtures: baseline trace for nightly PR gate"
 The candidate is produced on each PR by replaying the baseline through
 the PR's modified config. You can either:
 
-1. **Record on every push** — the workflow above replays the baseline
+1. **Record on every push**, the workflow above replays the baseline
    through the PR branch's config and diffs the result.
-2. **Commit both sides** — pre-record both baseline and candidate
+2. **Commit both sides**, pre-record both baseline and candidate
    locally and commit both. Workflow just diffs the committed files.
    Good for deterministic CI without requiring API keys.
 
@@ -77,7 +77,7 @@ secret, add `--judge auto` to the diff step:
 ```
 
 `--judge auto` picks a sanity judge against whichever backend key is
-set (Anthropic preferred — it's cheaper). Axis 8 turns from an empty
+set (Anthropic preferred, it's cheaper). Axis 8 turns from an empty
 row into a real signal. Budget: ~$0.0003 per diff run.
 
 ## Cost-attribution in the PR comment
@@ -89,7 +89,7 @@ not just "cost changed" but *why*:
 ```
 | session | baseline | candidate | Δ | model swap | token move | mix |
 |--------:|---------:|----------:|--:|-----------:|-----------:|----:|
-| #0      | $0.0870  | $0.0174   | $-0.0696 | $-0.0696 (+100%) | $+0.0000 (-0%) | $+0.0000 (—) |
+| #0      | $0.0870  | $0.0174   | $-0.0696 | $-0.0696 (+100%) | $+0.0000 (-0%) | $+0.0000 (-) |
 ```
 
 ## Next

@@ -2,7 +2,7 @@
 
 Each YAML in this directory is a `--judge-config` payload for
 `shadow diff --judge <kind>`. Every file keys into exactly one judge
-kind — see the top comment of each for usage.
+kind, see the top comment of each for usage.
 
 Run any of them against the devops-agent fixtures like so:
 

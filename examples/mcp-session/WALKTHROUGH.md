@@ -23,7 +23,7 @@ confirmation check. Our trajectory axis catches both.
 ## Run it
 
 ```bash
-# Convert both MCP logs to .agentlog:
+# Convert both MCP logs to.agentlog:
 shadow import --format mcp fixtures/baseline.mcp.jsonl  -o baseline.agentlog
 shadow import --format mcp fixtures/candidate.mcp.jsonl -o candidate.agentlog
 

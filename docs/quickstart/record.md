@@ -33,7 +33,7 @@ so every LLM call your agent makes is captured automatically.
 `shadow record` probes the output path for writability **before**
 spawning the child. If your `-o` argument points at a read-only
 directory, the command exits 2 with an actionable error and the child
-never runs — so no LLM tokens burn on a recording that can't be saved.
+never runs, so no LLM tokens burn on a recording that can't be saved.
 
 ## Explicit Session path
 
