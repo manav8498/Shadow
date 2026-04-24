@@ -7,11 +7,27 @@
 //! trace-level invariants like "first record is metadata" or "parents
 //! point backward" — those belong in a separate validator (Phase 3).
 
-use std::io::BufRead;
+use std::io::{BufRead, Read};
 
 use thiserror::Error;
 
 use crate::agentlog::Record;
+
+/// Maximum bytes per JSONL line. Default covers real agent traces
+/// with long tool outputs + conversational context (observed p99 is
+/// ~50 KB per record); the ceiling catches runaway inputs early
+/// rather than OOMing deep inside `read_line`.
+///
+/// Tunable via [`Parser::with_max_line_bytes`] — callers that ingest
+/// legitimately bigger records (multimodal payloads, massive tool
+/// results) can raise it explicitly.
+pub const DEFAULT_MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Maximum total bytes per trace. Hard cap to prevent a malicious
+/// or truncated file from exhausting memory during a `parse_all`
+/// collect. At 1 GB, covers months of production traffic for most
+/// agents while still refusing obvious denial-of-service payloads.
+pub const DEFAULT_MAX_TOTAL_BYTES: usize = 1024 * 1024 * 1024;
 
 /// Errors produced by the streaming parser.
 #[derive(Debug, Error)]
@@ -35,6 +51,26 @@ pub enum ParseError {
         #[source]
         source: serde_json::Error,
     },
+
+    /// A single JSONL line exceeded [`Parser`]'s per-line byte budget.
+    #[error("line {line} exceeds byte limit ({bytes} > {limit})\nhint: raise via Parser::with_max_line_bytes or check for corrupt input")]
+    LineTooLarge {
+        /// 1-based line number where the limit was hit.
+        line: usize,
+        /// Actual byte count observed.
+        bytes: usize,
+        /// Configured limit.
+        limit: usize,
+    },
+
+    /// The trace's total byte count exceeded the configured ceiling.
+    #[error("trace exceeds total byte limit ({bytes} > {limit})\nhint: raise via Parser::with_max_total_bytes or split the trace")]
+    TraceTooLarge {
+        /// Accumulated byte count at the point of failure.
+        bytes: usize,
+        /// Configured limit.
+        limit: usize,
+    },
 }
 
 /// Streaming parser. One instance processes one `.agentlog` stream.
@@ -55,17 +91,35 @@ pub struct Parser<R> {
     line: usize,
     buffer: String,
     done: bool,
+    max_line_bytes: usize,
+    max_total_bytes: usize,
+    total_bytes: usize,
 }
 
 impl<R: BufRead> Parser<R> {
-    /// Wrap a buffered reader.
+    /// Wrap a buffered reader with default resource bounds.
     pub fn new(reader: R) -> Self {
         Self {
             reader,
             line: 0,
             buffer: String::new(),
             done: false,
+            max_line_bytes: DEFAULT_MAX_LINE_BYTES,
+            max_total_bytes: DEFAULT_MAX_TOTAL_BYTES,
+            total_bytes: 0,
         }
+    }
+
+    /// Override the per-line byte cap. Default: [`DEFAULT_MAX_LINE_BYTES`].
+    pub fn with_max_line_bytes(mut self, n: usize) -> Self {
+        self.max_line_bytes = n;
+        self
+    }
+
+    /// Override the whole-trace byte cap. Default: [`DEFAULT_MAX_TOTAL_BYTES`].
+    pub fn with_max_total_bytes(mut self, n: usize) -> Self {
+        self.max_total_bytes = n;
+        self
     }
 }
 
@@ -79,12 +133,39 @@ impl<R: BufRead> Iterator for Parser<R> {
         loop {
             self.buffer.clear();
             self.line += 1;
-            match self.reader.read_line(&mut self.buffer) {
+            // Bound the bytes read per line to protect against a
+            // malformed stream with no newline that would otherwise
+            // grow `buffer` unbounded. We pass a `&mut R` explicitly
+            // to `Read::take` (rather than using the inherent
+            // auto-deref method) so the reborrow — not the underlying
+            // reader — is what moves into the Take adapter. The
+            // resulting `Take<&mut R>` implements BufRead through the
+            // blanket impl, so `read_line` still works.
+            let reader_ref: &mut R = &mut self.reader;
+            let mut bounded: std::io::Take<&mut R> =
+                Read::take(reader_ref, self.max_line_bytes as u64 + 1);
+            match bounded.read_line(&mut self.buffer) {
                 Ok(0) => {
                     self.done = true;
                     return None;
                 }
-                Ok(_) => {
+                Ok(bytes) => {
+                    self.total_bytes = self.total_bytes.saturating_add(bytes);
+                    if bytes > self.max_line_bytes {
+                        self.done = true;
+                        return Some(Err(ParseError::LineTooLarge {
+                            line: self.line,
+                            bytes,
+                            limit: self.max_line_bytes,
+                        }));
+                    }
+                    if self.total_bytes > self.max_total_bytes {
+                        self.done = true;
+                        return Some(Err(ParseError::TraceTooLarge {
+                            bytes: self.total_bytes,
+                            limit: self.max_total_bytes,
+                        }));
+                    }
                     // Skip blank lines (defensive — valid `.agentlog` files
                     // don't have them, but we'd rather tolerate a stray
                     // trailing newline than error-spam on it).
@@ -171,6 +252,49 @@ mod tests {
         let wire = format!("\n{}\n\n", serde_json::to_string(&r).unwrap());
         let parsed = parse_all(Cursor::new(wire)).unwrap();
         assert_eq!(parsed.len(), 1);
+    }
+
+    #[test]
+    fn rejects_a_line_longer_than_the_configured_limit() {
+        // Build a valid record with one field of ~2kB.
+        let big = "x".repeat(2048);
+        let r = make_record(Kind::ChatRequest, json!({"model": "a", "pad": big}));
+        let wire = to_jsonl(std::slice::from_ref(&r));
+
+        // With a 1024-byte limit, the parser should error out with
+        // `LineTooLarge` rather than silently pass through.
+        let mut it = Parser::new(Cursor::new(wire)).with_max_line_bytes(1024);
+        match it.next().unwrap() {
+            Err(ParseError::LineTooLarge { limit, bytes, .. }) => {
+                assert_eq!(limit, 1024);
+                assert!(bytes > 1024);
+            }
+            other => panic!("expected LineTooLarge, got {:?}", other),
+        }
+        // Parser is `done` after the error — no further records.
+        assert!(it.next().is_none());
+    }
+
+    #[test]
+    fn rejects_total_trace_exceeding_byte_cap() {
+        // Build three 800-byte records. With a 1500-byte total cap,
+        // the second one should trip TraceTooLarge.
+        let pad = "y".repeat(700);
+        let r = make_record(Kind::ChatRequest, json!({"model": "a", "pad": pad}));
+        let wire = to_jsonl(&[r.clone(), r.clone(), r.clone()]);
+
+        let mut it = Parser::new(Cursor::new(wire)).with_max_total_bytes(1500);
+        // First record: fits under 1500 cumulative.
+        assert!(it.next().unwrap().is_ok());
+        // Second record: pushes total over 1500 → error.
+        match it.next().unwrap() {
+            Err(ParseError::TraceTooLarge { limit, bytes }) => {
+                assert_eq!(limit, 1500);
+                assert!(bytes > 1500);
+            }
+            other => panic!("expected TraceTooLarge, got {:?}", other),
+        }
+        assert!(it.next().is_none());
     }
 
     #[test]

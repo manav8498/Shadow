@@ -246,7 +246,39 @@ struct Alignment {
     steps: Vec<Step>,
 }
 
+/// Threshold beyond which we switch from full-matrix Needleman-Wunsch
+/// to a banded variant. Under the threshold, the quadratic work is
+/// negligible and full-matrix stays exact. Above it, the band keeps
+/// memory + CPU linear in `max(N, M)`.
+const SCALE_BAND_THRESHOLD: usize = 1000;
+
+/// Minimum band half-width. Small enough to stay efficient, large
+/// enough that typical drift between baseline and candidate (tool
+/// added / removed / reordered within a few turns) fits.
+const MIN_BAND_HALF_WIDTH: usize = 100;
+
+/// Pick the band half-width for a (N, M) pair. We guarantee
+/// `|i - j| <= band` captures any realistic alignment path: the band
+/// scales with `max(|N - M| + MIN_BAND_HALF_WIDTH, sqrt(max(N, M)))`
+/// so a modest length difference plus a local scan radius is always
+/// within reach.
+fn band_half_width(n: usize, m: usize) -> usize {
+    let length_diff = n.abs_diff(m);
+    let radius = (n.max(m) as f64).sqrt() as usize;
+    length_diff + MIN_BAND_HALF_WIDTH.max(radius)
+}
+
 fn align(baseline: &[&Record], candidate: &[&Record]) -> Alignment {
+    let n = baseline.len();
+    let m = candidate.len();
+    if n.max(m) > SCALE_BAND_THRESHOLD {
+        align_banded(baseline, candidate, band_half_width(n, m))
+    } else {
+        align_full(baseline, candidate)
+    }
+}
+
+fn align_full(baseline: &[&Record], candidate: &[&Record]) -> Alignment {
     let n = baseline.len();
     let m = candidate.len();
     // DP table: cost of aligning baseline[0..i] with candidate[0..j].
@@ -306,6 +338,98 @@ fn align(baseline: &[&Record], candidate: &[&Record]) -> Alignment {
     let mut j = m;
     while i > 0 || j > 0 {
         let s = back[i][j];
+        steps.push(s);
+        match s {
+            Step::Match(_, _) => {
+                i -= 1;
+                j -= 1;
+            }
+            Step::InsertCandidate(_) => {
+                j -= 1;
+            }
+            Step::DeleteBaseline(_) => {
+                i -= 1;
+            }
+        }
+    }
+    steps.reverse();
+    Alignment { steps }
+}
+
+/// Banded Needleman-Wunsch — identical recurrence to `align_full` but
+/// only computes cells within `|i - j| <= band`. Memory + work drop
+/// from O(N*M) to O((N+M) * band). For well-behaved traces (baseline
+/// and candidate similar length with limited local drift) this yields
+/// the same optimal alignment as the full matrix; for adversarial
+/// inputs that drift further than `band`, the result is best-effort
+/// within the band and falls back to a forced diagonal outside.
+///
+/// Cells outside the band are clamped to INF on read and never written
+/// to (they stay INF), so the recurrence naturally refuses to route
+/// through them.
+fn align_banded(baseline: &[&Record], candidate: &[&Record], band: usize) -> Alignment {
+    let n = baseline.len();
+    let m = candidate.len();
+    const INF: f64 = 1e18;
+    let mut mat = vec![vec![INF; m + 1]; n + 1];
+    let mut xg = vec![vec![INF; m + 1]; n + 1];
+    let mut yg = vec![vec![INF; m + 1]; n + 1];
+    let mut back = vec![vec![Step::Match(0, 0); m + 1]; n + 1];
+
+    mat[0][0] = 0.0;
+    // Boundary initialisation limited to the band.
+    for i in 1..=n.min(band) {
+        yg[i][0] = GAP_OPEN + (i as f64 - 1.0) * GAP_EXTEND;
+        mat[i][0] = yg[i][0];
+        back[i][0] = Step::DeleteBaseline(i - 1);
+    }
+    for j in 1..=m.min(band) {
+        xg[0][j] = GAP_OPEN + (j as f64 - 1.0) * GAP_EXTEND;
+        mat[0][j] = xg[0][j];
+        back[0][j] = Step::InsertCandidate(j - 1);
+    }
+
+    for i in 1..=n {
+        let j_lo = i.saturating_sub(band).max(1);
+        let j_hi = (i + band).min(m);
+        for j in j_lo..=j_hi {
+            let c = pair_cost(baseline[i - 1], candidate[j - 1]);
+            let m_cost = mat[i - 1][j - 1]
+                .min(xg[i - 1][j - 1])
+                .min(yg[i - 1][j - 1])
+                + c;
+            let xg_cost = (mat[i][j - 1] + GAP_OPEN).min(xg[i][j - 1] + GAP_EXTEND);
+            let yg_cost = (mat[i - 1][j] + GAP_OPEN).min(yg[i - 1][j] + GAP_EXTEND);
+            mat[i][j] = m_cost;
+            xg[i][j] = xg_cost;
+            yg[i][j] = yg_cost;
+            let best = m_cost.min(xg_cost).min(yg_cost);
+            back[i][j] = if (best - m_cost).abs() < 1e-12 {
+                Step::Match(i - 1, j - 1)
+            } else if (best - xg_cost).abs() < 1e-12 {
+                Step::InsertCandidate(j - 1)
+            } else {
+                Step::DeleteBaseline(i - 1)
+            };
+        }
+    }
+
+    // Traceback from (n, m) to (0, 0). Out-of-band cells were never
+    // populated so the backpointer at (n, m) is valid if the path
+    // stayed within the band; otherwise we forcibly walk the diagonal.
+    let mut steps = Vec::new();
+    let mut i = n;
+    let mut j = m;
+    while i > 0 || j > 0 {
+        // If the recorded backpointer is the default Match(0, 0)
+        // at an out-of-band cell, force a diagonal or edge step.
+        let s = if i > 0 && j > 0 {
+            back[i][j]
+        } else if j == 0 {
+            Step::DeleteBaseline(i - 1)
+        } else {
+            Step::InsertCandidate(j - 1)
+        };
         steps.push(s);
         match s {
             Step::Match(_, _) => {

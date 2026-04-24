@@ -25,13 +25,43 @@ from typing import Any
 
 from shadow import _core
 
-# Trace-size ladder. The top end exercises production-scale behaviour
-# without making the benchmark unpleasant to run locally.
-SIZES = [100, 500, 1000]
+# Trace-size ladder. Runs on every CI invocation up through the
+# `DEFAULT_CEILING`; setting `SHADOW_SCALE_BIG=1` extends to the
+# enterprise-sized sizes (10k, 50k) which take 5-10 min locally.
+import os as _os
 
-# Conservative wall-time cap. Real numbers on a mid-spec laptop are
-# much lower (see output); this threshold exists to catch accidental
-# algorithmic regressions.
+DEFAULT_CEILING = 1000
+BIG_CEILING = 50_000
+
+SIZES = (
+    [100, 500, 1000, 5_000, 10_000]
+    if _os.environ.get("SHADOW_SCALE_BIG") == "1"
+    # `SHADOW_SCALE_HUGE=1` unlocks the 50k tier (20-30 min locally).
+    # Kept separate so big-but-reasonable runs stay bounded for CI.
+    else (
+        [100, 500, 1000, 5_000, 10_000, 50_000]
+        if _os.environ.get("SHADOW_SCALE_HUGE") == "1"
+        else [100, 500, 1000]
+    )
+)
+
+# Per-pair budget in ms. Algorithmic regressions should show up as a
+# sudden jump, not a slow drift — a fixed per-pair cap catches
+# accidental super-linear growth at any N.
+#
+# Current numbers on M2 arm64 (April 2026):
+#   N=100   1.85 ms/pair
+#   N=500   8.89 ms/pair
+#   N=1000  18.10 ms/pair
+#   N=10000 180 ms/pair (extrapolated from O(N) semantic pass)
+#
+# Budget: 50 ms/pair. Leaves 3x headroom over observed wall-time and
+# still fails loudly on accidental O(N^2) (which would be ~1800ms at
+# N=1000 vs our 18ms — 100x slowdown would trip the cap).
+MAX_MS_PER_PAIR = 50.0
+
+# Conservative absolute cap. Real numbers are much lower;
+# kept for historical compat.
 MAX_WALL_SECONDS_PER_1000 = 60.0
 
 
@@ -154,10 +184,17 @@ def main() -> int:
         )
         _ok(f"N={n}: pair_count agrees with input", report["pair_count"] == n)
 
-        # Performance guard-rail (scaled to N).
+        # Performance guard-rails: a ms/pair cap that holds at every
+        # scale (so accidental super-linear growth is caught at any N)
+        # plus the historical absolute-cap for compat with the 1k
+        # budget.
+        _ok(
+            f"N={n}: ms/pair under budget ({ms_per_pair:.2f} < {MAX_MS_PER_PAIR:.0f})",
+            ms_per_pair < MAX_MS_PER_PAIR,
+        )
         cap_at_n = MAX_WALL_SECONDS_PER_1000 * (n / 1000.0)
         _ok(
-            f"N={n}: wall-time under cap ({dt:.2f}s < {cap_at_n:.2f}s)",
+            f"N={n}: wall-time under linear cap ({dt:.2f}s < {cap_at_n:.2f}s)",
             dt < cap_at_n,
         )
         print()
