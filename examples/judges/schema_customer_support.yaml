@@ -1,0 +1,8 @@
+# SchemaConformanceJudge — semantic schema for Acme support outputs.
+# Complements examples/customer-support/config_{a,b}.yaml.
+
+expected_schema:
+  order_id: "string (Acme order identifier, like 'ORD-12345')"
+  action: "one of: refund, exchange, escalate, resolved"
+  amount_usd: "positive number, in USD; only present for refund/exchange"
+  reason: "one short sentence describing why the action was taken"
