@@ -186,6 +186,13 @@ def quickstart(
         return
 
     dest = path.resolve()
+    # Path-traversal hardening: refuse to scaffold into a system
+    # directory. Users should be able to `shadow quickstart ~/projects/foo/`
+    # but not accidentally wipe `/etc/` via shell-expansion mishaps.
+    forbidden_prefixes = ("/etc", "/usr", "/bin", "/sbin", "/boot", "/proc", "/sys", "/dev")
+    if any(str(dest).startswith(p + "/") or str(dest) == p for p in forbidden_prefixes):
+        _fail(Exception(f"refusing to scaffold into a system directory: {dest}"))
+        return
     dest.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     skipped: list[Path] = []

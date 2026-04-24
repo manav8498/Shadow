@@ -1,0 +1,73 @@
+site_name: Shadow
+site_description: Behavioural code review for LLM agents
+site_url: https://manav8498.github.io/Shadow/
+repo_url: https://github.com/manav8498/Shadow
+repo_name: manav8498/Shadow
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Quickstart:
+      - Install and first diff: quickstart/install.md
+      - Record your own agent: quickstart/record.md
+      - Wire into CI: quickstart/ci.md
+  - Features:
+      - Nine-axis diff: features/nine-axis.md
+      - Judges: features/judges.md
+      - Causal bisection: features/bisect.md
+      - Schema watch: features/schema-watch.md
+      - MCP importer: features/mcp.md
+      - Cost attribution: features/cost-attribution.md
+      - Hierarchical diff: features/hierarchical.md
+  - Reference:
+      - CLI: reference/cli.md
+      - agentlog format: reference/agentlog.md
+      - Pricing table: reference/pricing.md
+  - Security: security.md
+  - Changelog: changelog.md
