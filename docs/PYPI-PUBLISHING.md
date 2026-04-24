@@ -66,8 +66,8 @@ Once steps 1 and 2 are done, every tag push runs the publish job:
 
 ```bash
 # Bump versions, commit, tag, push.
-git tag -a v0.2.1 -m "shadow v0.2.1"
-git push origin v0.2.1
+git tag -a v1.2.4 -m "shadow v1.2.4"
+git push origin v1.2.4
 ```
 
 Watch the **release** workflow run at

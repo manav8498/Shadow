@@ -312,16 +312,45 @@ An error produced by the SDK, the LLM, or a tool.
 
 ### §4.7 `replay_summary`
 
-Emitted at the end of a replay run.
+Emitted once at the end of a replay run. Parent is the last
+non-summary record. Payload fields:
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `baseline_trace_id` | string | ✓ | Content id of the baseline's metadata record. |
+| `backend_id` | string | ✓ | Identifier of the `LlmBackend` implementation that produced the responses (e.g. `"mock"`, `"anthropic"`, `"openai"`, `"positional"`). |
+| `input_count` | integer | ✓ | Number of `chat_request` records walked from the baseline. |
+| `output_count` | integer | ✓ | Number of `chat_response` records emitted. |
+| `error_count` | integer | ✓ | Number of `error` records emitted (backend failures). |
+| `duration_ms` | integer | ✓ | Wall-clock duration of the replay in milliseconds. |
+| `branch_at` | integer | opt | 0-based turn index where live replay began (partial-replay only; see §10). |
+| `prefix_turn_count` | integer | opt | Count of prefix turns copied verbatim from baseline (partial-replay only). |
 
 ```json
 {
   "baseline_trace_id": "sha256:abc...",
-  "candidate_config_hash": "sha256:def...",
+  "backend_id": "anthropic",
   "input_count": 42,
   "output_count": 42,
   "error_count": 0,
   "duration_ms": 1534
+}
+```
+
+Partial replay (`shadow replay --partial --branch-at N`) adds two
+additional fields so a consumer can identify that the trace is a
+branched variant:
+
+```json
+{
+  "baseline_trace_id": "sha256:abc...",
+  "backend_id": "mock",
+  "input_count": 4,
+  "output_count": 4,
+  "error_count": 0,
+  "duration_ms": 72,
+  "branch_at": 2,
+  "prefix_turn_count": 2
 }
 ```
 
