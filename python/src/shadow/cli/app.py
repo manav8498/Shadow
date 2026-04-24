@@ -1027,6 +1027,7 @@ class ImportFormat(StrEnum):
     otel = "otel"
     langsmith = "langsmith"
     openai_evals = "openai-evals"
+    mcp = "mcp"
 
 
 @app.command("import")
@@ -1048,6 +1049,7 @@ def import_cmd(
         braintrust_to_agentlog,
         langfuse_to_agentlog,
         langsmith_to_agentlog,
+        mcp_to_agentlog,
         openai_evals_to_agentlog,
         otel_to_agentlog,
     )
@@ -1069,6 +1071,30 @@ def import_cmd(
         elif fmt is ImportFormat.openai_evals:
             rows = _parse_jsonl_or_array(text)
             records = openai_evals_to_agentlog(rows)
+        elif fmt is ImportFormat.mcp:
+            # MCP logs in the wild are three shapes:
+            #   (a) JSONL — one JSON-RPC message per line (the
+            #       common `mcp-server --log ...` output).
+            #   (b) JSON array — an explicit `[msg, msg, ...]`,
+            #       what MCP Inspector's "export session" produces.
+            #   (c) Wrapped object — `{"messages": [...], ...}` —
+            #       some tooling bundles messages with metadata.
+            # Detection is two-stage to distinguish (c) from (a), because
+            # both can start with `{`: we first try a full-file parse;
+            # if that yields a dict we treat it as (c), otherwise fall
+            # back to the line-by-line JSONL path.
+            stripped = text.lstrip()
+            if stripped.startswith("["):
+                data = json.loads(text)
+            elif stripped.startswith("{"):
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    parsed = None
+                data = parsed if isinstance(parsed, dict) else _parse_jsonl_or_array(text, "MCP")
+            else:
+                data = _parse_jsonl_or_array(text, "MCP")
+            records = mcp_to_agentlog(data)
         else:  # pragma: no cover — enum is exhaustive
             raise ValueError(f"unknown import format: {fmt}")
         output.parent.mkdir(parents=True, exist_ok=True)

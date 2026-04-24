@@ -26,6 +26,7 @@ required fields raise `ShadowConfigError` with a helpful hint.
 from shadow.importers.braintrust import BRAINTRUST_FORMAT, braintrust_to_agentlog
 from shadow.importers.langfuse import LANGFUSE_FORMAT, langfuse_to_agentlog
 from shadow.importers.langsmith import LANGSMITH_FORMAT, langsmith_to_agentlog
+from shadow.importers.mcp import MCP_FORMAT, mcp_to_agentlog
 from shadow.importers.openai_evals import OPENAI_EVALS_FORMAT, openai_evals_to_agentlog
 from shadow.importers.otel import OTEL_FORMAT, otel_to_agentlog
 
@@ -33,11 +34,13 @@ __all__ = [
     "BRAINTRUST_FORMAT",
     "LANGFUSE_FORMAT",
     "LANGSMITH_FORMAT",
+    "MCP_FORMAT",
     "OPENAI_EVALS_FORMAT",
     "OTEL_FORMAT",
     "braintrust_to_agentlog",
     "langfuse_to_agentlog",
     "langsmith_to_agentlog",
+    "mcp_to_agentlog",
     "openai_evals_to_agentlog",
     "otel_to_agentlog",
 ]
