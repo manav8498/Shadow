@@ -169,10 +169,21 @@ class SemanticMode(StrEnum):
 
 
 class JudgeKind(StrEnum):
-    """Judges available for the `diff --judge` flag."""
+    """Judges available for the `diff --judge` flag.
+
+    `sanity` is domain-agnostic; the rest need rubric data supplied
+    via `--judge-config <file.yaml>` (see `_load_judge_config`).
+    """
 
     none = "none"
     sanity = "sanity"
+    pairwise = "pairwise"
+    llm = "llm"
+    procedure = "procedure"
+    schema = "schema"
+    factuality = "factuality"
+    refusal = "refusal"
+    tone = "tone"
 
 
 class JudgeBackend(StrEnum):
@@ -208,7 +219,9 @@ def diff_cmd(
         JudgeKind,
         typer.Option(
             "--judge",
-            help="Populate axis 8 with a judge. `sanity` uses a domain-agnostic A/B prompt.",
+            help="Populate axis 8 with a judge. `sanity`/`pairwise` are "
+            "domain-agnostic; `llm`/`procedure`/`schema`/`factuality`/"
+            "`refusal`/`tone` require rubric data via --judge-config.",
         ),
     ] = JudgeKind.none,
     judge_backend: Annotated[
@@ -218,6 +231,14 @@ def diff_cmd(
     judge_model: Annotated[
         str | None,
         typer.Option("--judge-model", help="Override the model name the judge uses"),
+    ] = None,
+    judge_config: Annotated[
+        Path | None,
+        typer.Option(
+            "--judge-config",
+            help="YAML file supplying judge rubric data. Required by judges other "
+            "than `sanity` and `pairwise`. See examples/judges/ for templates.",
+        ),
     ] = None,
 ) -> None:
     """Compute a nine-axis diff between two traces and print the report."""
@@ -241,6 +262,7 @@ def diff_cmd(
                 judge_kind=judge,
                 judge_backend=judge_backend,
                 judge_model=judge_model,
+                judge_config=judge_config,
                 seed=seed,
             )
         render_terminal(report, console=console)
@@ -318,25 +340,24 @@ def _apply_judge(
     judge_kind: JudgeKind,
     judge_backend: JudgeBackend,
     judge_model: str | None,
+    judge_config: Path | None,
     seed: int,
 ) -> dict[str, Any]:
-    from shadow.judge import SanityJudge, aggregate_scores
+    from shadow.judge import aggregate_scores
     from shadow.llm import get_backend
-
-    if judge_kind is not JudgeKind.sanity:
-        return report
 
     pairs = _pair_responses(baseline_records, candidate_records)
     if not pairs:
         return report
 
     backend = get_backend(judge_backend.value)
-    sanity = SanityJudge(backend, model=judge_model)
+    cfg = _load_judge_config(judge_config) if judge_config is not None else {}
+    judge_obj = _build_judge(judge_kind, backend, judge_model, cfg)
 
     async def _run() -> list[float]:
         out: list[float] = []
         for b_resp, c_resp, req_ctx in pairs:
-            verdict = await sanity.score_pair(b_resp, c_resp, req_ctx)
+            verdict = await judge_obj.score_pair(b_resp, c_resp, req_ctx)
             out.append(verdict["score"])
         return out
 
@@ -344,6 +365,67 @@ def _apply_judge(
     new_row = aggregate_scores(scores, seed=seed)
     new_rows = [new_row if r.get("axis") == "judge" else r for r in report.get("rows", [])]
     return {**report, "rows": new_rows}
+
+
+def _load_judge_config(path: Path) -> dict[str, Any]:
+    """Parse the --judge-config YAML file."""
+    raw = yaml.safe_load(path.read_text())
+    if not isinstance(raw, dict):
+        raise ShadowError(
+            f"--judge-config {path} must be a YAML mapping (got {type(raw).__name__})"
+        )
+    return raw
+
+
+def _build_judge(
+    kind: JudgeKind,
+    backend: Any,
+    model: str | None,
+    cfg: dict[str, Any],
+) -> Any:
+    """Construct a Judge instance based on `--judge <kind>` + config data."""
+    from shadow.judge import (
+        FactualityJudge,
+        LlmJudge,
+        PairwiseJudge,
+        ProcedureAdherenceJudge,
+        RefusalAppropriateJudge,
+        SanityJudge,
+        SchemaConformanceJudge,
+        ToneJudge,
+    )
+
+    def _require(key: str) -> Any:
+        if key not in cfg:
+            raise ShadowError(f"--judge {kind.value} requires '{key}' in --judge-config")
+        return cfg[key]
+
+    if kind is JudgeKind.sanity:
+        return SanityJudge(backend, model=model)
+    if kind is JudgeKind.pairwise:
+        return PairwiseJudge(backend, model=model)
+    if kind is JudgeKind.llm:
+        return LlmJudge(
+            backend,
+            rubric=_require("rubric"),
+            score_map=cfg.get("score_map"),
+            model=model,
+        )
+    if kind is JudgeKind.procedure:
+        return ProcedureAdherenceJudge(
+            backend, required_procedure=_require("required_procedure"), model=model
+        )
+    if kind is JudgeKind.schema:
+        return SchemaConformanceJudge(
+            backend, expected_schema=_require("expected_schema"), model=model
+        )
+    if kind is JudgeKind.factuality:
+        return FactualityJudge(backend, known_facts=_require("known_facts"), model=model)
+    if kind is JudgeKind.refusal:
+        return RefusalAppropriateJudge(backend, policy=_require("policy"), model=model)
+    if kind is JudgeKind.tone:
+        return ToneJudge(backend, target_tone=_require("target_tone"), model=model)
+    raise ShadowError(f"unsupported --judge kind: {kind}")
 
 
 def _pair_responses(

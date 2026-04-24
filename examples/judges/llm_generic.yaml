@@ -1,0 +1,34 @@
+# LlmJudge — three-tier quality rubric.
+#
+# Use when the five rubric-driven judges don't fit your domain.
+# The `rubric` field supports the placeholders {task}, {baseline},
+# and {candidate}; `score_map` maps verdict strings to [0, 1].
+
+rubric: |
+  You are reviewing whether the CANDIDATE response is a satisfactory
+  answer to the TASK, relative to the BASELINE response.
+
+  Rate on a three-tier scale:
+    - "great": candidate is at least as correct as baseline AND
+      equally or more concise.
+    - "ok":    candidate is roughly equivalent to baseline; no
+      material regression, no clear improvement.
+    - "poor":  candidate is materially worse than baseline
+      (incorrect, incomplete, or substantially more verbose).
+
+  TASK:
+  {task}
+
+  BASELINE:
+  {baseline}
+
+  CANDIDATE:
+  {candidate}
+
+  Reply with ONLY this JSON object (no preamble, no code fence):
+    {"verdict": "great" or "ok" or "poor", "confidence": 0-1, "reason": "ONE short sentence"}
+
+score_map:
+  great: 1.0
+  ok: 0.5
+  poor: 0.0
