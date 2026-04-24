@@ -6,6 +6,30 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-04-24
+
+### Fixed — second discrepancy-sweep pass
+
+Caught during a deeper post-1.2.1 audit across every version string,
+command-reference, and doc in the repo:
+
+- **`CITATION.cff`** — version `0.1.0` → `1.2.2` (in both top-level
+  and `preferred-citation`). Academic citations produced via GitHub's
+  "Cite this repository" button will now pin the actual released
+  version. Release date also updated.
+- **TypeScript SDK (`typescript/src/session.ts`)** — hardcoded
+  `version: '0.1.0'` in emitted metadata records replaced with a
+  module-load-time read from the shipped `package.json`. Every
+  `.agentlog` the TS SDK writes now carries accurate SDK provenance.
+- **`examples/README.md`** — four example directories existed on
+  disk but weren't listed: `acme-extreme/`, `judges/`,
+  `mcp-session/`, `integrations/`. All four added with their real
+  scope descriptions.
+- All package versions (Cargo, pyproject, TS package, README badge,
+  CITATION.cff) bumped to `1.2.2` in lockstep.
+
+No functional changes to CLI or library APIs.
+
 ## [1.2.1] - 2026-04-24
 
 ### Fixed — maturity + documentation discrepancies
