@@ -3,8 +3,13 @@ requires = ["maturin>=1.13,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "shadow"
-version = "0.2.1"
+# PyPI distribution name. The generic "shadow" was already taken on
+# PyPI (an unrelated btrfs snapshot utility), so the distribution is
+# published as "shadow-diff". The Python import path stays `shadow`,
+# the CLI stays `shadow`, and the repo stays Shadow — only the
+# `pip install` name is different.
+name = "shadow-diff"
+version = "0.2.2"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
 # Dual-licensed to match the Rust community convention (tokio, serde,
 # ruff, uv). MIT keeps embedding frictionless; Apache-2.0 adds an
