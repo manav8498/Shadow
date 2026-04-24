@@ -509,6 +509,16 @@ def diff_cmd(
             "--judge auto). ~300-500 tokens per run.",
         ),
     ] = False,
+    hierarchical: Annotated[
+        bool,
+        typer.Option(
+            "--hierarchical",
+            help="Also print the session-level breakdown — one worst-severity "
+            "line per conversation in the trace. Useful when the trace contains "
+            "multiple user-facing conversations and you want to know which one "
+            "regressed.",
+        ),
+    ] = False,
 ) -> None:
     """Compute a nine-axis diff between two traces and print the report."""
     from shadow.report import render_terminal
@@ -563,6 +573,18 @@ def diff_cmd(
         if abs(cost_report.total_delta_usd) > 1e-9:
             console.print("")
             console.print(render_cost_terminal(cost_report))
+
+        # Session-level hierarchical breakdown — opt-in because on
+        # single-session traces it's redundant with the top-level
+        # severity row.
+        if hierarchical:
+            from shadow.hierarchical import diff_by_session, render_session_summary
+
+            sessions = diff_by_session(b, c, price_map, seed)
+            rollup = render_session_summary(sessions)
+            if rollup:
+                console.print("")
+                console.print(rollup)
 
         if explain:
             if effective_backend is JudgeBackend.mock:
