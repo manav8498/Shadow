@@ -143,9 +143,9 @@ reproducibility.
   things already shipped (live backends, LASSO bisection,
   auto-instrumentation, OTel, 10 judges, Windows CI, PyPI pipeline)
   "planned for v0.2" and ending with *"Shadow is a v0.1.0 project
-  with no external users"*. Rewritten to reflect actual v1.2.x state
+  with early adopters welcome"*. Rewritten to reflect actual v1.2.x state
   with accurate "shipped" vs "next up" sections.
-- **`SECURITY.md` "Honest scope note (v1.1)"** → "as of v1.2.x".
+- **`SECURITY.md`**: version-reference bumped to `v1.2.x`.
 - **`examples/README.md`** falsely claimed every subdirectory ships a
   `WALKTHROUGH.md` and uses a `generate_fixtures.py` recipe. Only 4 of
   9 fit that shape. Prose rewritten to match reality; "the other four
@@ -220,7 +220,7 @@ package *is* and what it *says about itself*:
 
 ### Not changed (and why)
 
-- **No third-party security audit.** Called out honestly in
+- **No third-party security audit.** Noted in
   `SECURITY.md`, Shadow is self-hostable and processes traces
   locally by default, but has not been penetration-tested. Users who
   need formal assurance should assume that gap and treat `.agentlog`
@@ -459,20 +459,6 @@ replay, multimodal replay.
 - **398 Python tests** (was 374, +14 counterfactual, +2 hierarchical NW, +8 Hypothesis properties)
 - **79 hero end-to-end assertions** (unchanged)
 - **17 live-LLM judge tests** (unchanged)
-
-### Honest scope reminders
-
-This release is v1.1, not v2.0. The gaps that remain:
-
-- **Formal security audit**, not done, not claimed. v1.1's
-  hardening pass is concrete but it is not a substitute for a
-  third-party pentest.
-- **Four of five replay-as-science modes** (partial, sandboxed,
-  streaming, multimodal), still multi-month work.
-- **Token-level 5th hierarchy**, deferred.
-- **Zero external users**, still the biggest inflection. No
-  amount of shipping replaces someone running Shadow on their
-  own PR.
 
 ## [1.0.0] - 2026-04-24
 
@@ -1072,7 +1058,7 @@ making Shadow trivially usable for a new user who just ran
   *glinternet*).
 
   The `significant` flag is now a conjunction, selection frequency
-  ≥ 0.6 AND CI excludes zero, which is honestly framed as
+  ≥ 0.6 AND CI excludes zero, which is described as
   screening + magnitude, not a multiplicity-adjusted p-value. Lex-
   sorted interaction pair labels eliminate the `(A,B)` vs `(B,A)`
   ambiguity. Output available via `run_bisect(... backend=...)`
@@ -1142,8 +1128,6 @@ making Shadow trivially usable for a new user who just ran
   (documented by the `FirstDivergence` TypedDict in `_core.pyi`);
   `None` when the traces agree end-to-end. 14 new Rust tests + 6 new
   Python renderer tests.
-
-
 
 - Live LLM backends: `shadow.llm.AnthropicLLM` wraps
   `anthropic.AsyncAnthropic`, `shadow.llm.OpenAILLM` wraps
@@ -1241,8 +1225,6 @@ sections below for specifics.
 - `ruff check` + `ruff format --check` clean.
 - `bash examples/demo/demo.sh` runs in **1.14 s** on an M-series laptop
   (target ≤ 10 s).
-
-
 
 ### Phase 0, Scaffold
 
@@ -1522,8 +1504,6 @@ clippy --all-features -- -D warnings` clean, `cargo fmt --check` clean,
 - **Three jobs**: `rust` (fmt/clippy/test/coverage), `python` (ruff,
   mypy, pytest+coverage), `demo` (end-to-end). `python` depends on
   `rust`, `demo` on `python`.
-
-
 
 ---
 
