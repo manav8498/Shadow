@@ -16,7 +16,7 @@ body:
     attributes:
       label: Shadow version
       description: Output of `shadow version`.
-      placeholder: "shadow 0.1.0 (spec 0.1)"
+      placeholder: "shadow 1.2.4 (spec 0.1)"
     validations:
       required: true
 
