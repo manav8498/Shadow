@@ -1,0 +1,8 @@
+# FactualityJudge — Acme Widgets ground-truth facts.
+
+known_facts:
+  - "Acme Widgets offers refunds within 30 days of purchase."
+  - "Acme does not ship to Antarctica or offshore territories."
+  - "The minimum order amount is $25 USD."
+  - "Acme customer support operates Monday through Friday, 8am-8pm ET."
+  - "Acme's return-shipping label is prepaid only for orders above $100."

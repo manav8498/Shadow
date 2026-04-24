@@ -8,6 +8,54 @@ All notable changes to Shadow are documented here. Format follows
 
 ### Added
 
+- **Judge axis defaults — 10 ready-made judges.** Previously axis 8
+  was effectively a no-op without a user-written rubric. The package
+  now ships six new Judge classes on top of the existing four
+  (`SanityJudge`, `PairwiseJudge`, `CorrectnessJudge`, `FormatJudge`):
+
+  - **`LlmJudge`** — generic, user-configurable LLM-as-judge. Caller
+    supplies a rubric string (may reference `{task}`, `{baseline}`,
+    `{candidate}`) plus a `score_map` of verdict strings to
+    `[0, 1]` scores. Construction-time validation rejects unknown
+    placeholders so mistakes surface before the first judge call.
+    Defaults (`temperature=0`, `max_tokens=512`) match published
+    LLM-as-judge best practice (Zheng et al. 2024).
+  - **`ProcedureAdherenceJudge`** — flags candidates that skip steps
+    from a required procedure. Catches the devops-agent pattern
+    where a prompt rewrite silently drops
+    `backup_database → run_migration` ordering.
+  - **`SchemaConformanceJudge`** — semantic schema review (shape +
+    meaning). Complements `FormatJudge`'s mechanical JSON-schema
+    validation.
+  - **`FactualityJudge`** — flags candidates whose claims contradict
+    a known-fact set.
+  - **`RefusalAppropriateJudge`** — catches over- AND under-refusals
+    against an explicit policy.
+  - **`ToneJudge`** — tone / persona drift against a target.
+
+  Shared judge helpers consolidated in `shadow.judge._common`
+  (response-text extraction, JSON-object extraction from prose, NaN-
+  safe clamping, uniform error verdicts) so breaking changes to
+  judge-response parsing now land in one file.
+
+  CLI: `shadow diff --judge <kind>` extended from `none|sanity` to
+  nine values (`none`, `sanity`, `pairwise`, `llm`, `procedure`,
+  `schema`, `factuality`, `refusal`, `tone`). New
+  `--judge-config <file.yaml>` option loads rubric data for the
+  domain judges. Six example config templates shipped under
+  `examples/judges/` covering the devops-agent procedure, the
+  customer-support schema, Acme factuality, a domain-restriction
+  refusal policy, a concise-persona tone target, and a generic
+  three-tier `LlmJudge`.
+
+  Tests: 23 new ground-truth unit tests in `test_llm_judge.py`
+  (placeholder validation, custom score maps, error paths,
+  out-of-range confidence clamping, each of the five domain
+  judges). Real-world validation harness
+  (`benchmarks/alignment/validate_judges.py`) passes 14/14
+  assertions exercising the full rubric → render → parse → score
+  pipeline via a deterministic backend.
+
 - **`shadow schema-watch`** — proactive tool-schema change detection
   that runs *before* replay. Classifies each change between two
   configs into one of four severity tiers (breaking / risky /
