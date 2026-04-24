@@ -15,6 +15,7 @@ import pytest
 
 try:
     from crewai.events import crewai_event_bus
+    from crewai.events.types.crew_events import CrewKickoffStartedEvent
     from crewai.events.types.llm_events import (
         LLMCallCompletedEvent,
         LLMCallFailedEvent,
@@ -197,6 +198,61 @@ def test_tool_usage_produces_tool_call_and_result(tmp_path: Path) -> None:
     tr = next(r for r in records if r["kind"] == "tool_result")
     assert "ranked" in str(tr["payload"]["output"])
     assert tr["payload"].get("is_error") in (False, None)
+
+
+def test_kickoff_events_emit_session_markers(tmp_path: Path) -> None:
+    """Each CrewKickoffStartedEvent writes an explicit metadata record
+    so Shadow's session detector treats one kickoff as one session
+    — even when every LLMCallCompleted ends with ``end_turn``, which
+    would otherwise fragment the trace.
+    """
+    from shadow.hierarchical import _compute_session_of_pair
+    from shadow.sdk.session import output_path_from_env  # noqa: F401
+
+    out = tmp_path / "trace.agentlog"
+    with Session(output_path=out, auto_instrument=False) as s:
+        ShadowCrewAIListener(s)
+        # Two kickoffs, each with two LLM pairs. Without the marker,
+        # we'd get 4 separate sessions (end_turn after every pair);
+        # with the marker we get exactly 2.
+        for kickoff in range(2):
+            _emit(CrewKickoffStartedEvent(crew_name=f"crew-{kickoff}", inputs={}))
+            for pair in range(2):
+                call_id = f"k{kickoff}-call{pair}"
+                _emit(
+                    LLMCallStartedEvent(
+                        model="m", call_id=call_id, messages=[{"role": "user", "content": "q"}]
+                    )
+                )
+                _emit(
+                    LLMCallCompletedEvent(
+                        model="m",
+                        call_id=call_id,
+                        messages=[],
+                        response="a",
+                        call_type="llm_call",
+                        usage={},
+                    )
+                )
+
+    records = _core.parse_agentlog(out.read_bytes())
+    metadata_count = sum(1 for r in records if r["kind"] == "metadata")
+    # Three metadata records total: Session's own init-marker + two
+    # kickoff markers (one per CrewKickoffStartedEvent). That's what
+    # triggers explicit-marker mode.
+    assert metadata_count == 3
+
+    sessions = _compute_session_of_pair(records)
+    # 4 chat pairs total, split across 2 populated sessions — two per
+    # kickoff. Without the adapter's kickoff markers, the heuristic
+    # detector would see 4 separate sessions (one per end_turn pair).
+    assert len(sessions) == 4
+    assert len(set(sessions)) == 2, f"expected 2 sessions from 2 kickoffs, got {sessions}"
+    # First two pairs in the same session, next two in the same
+    # session, and those two sessions are different.
+    assert sessions[0] == sessions[1]
+    assert sessions[2] == sessions[3]
+    assert sessions[0] != sessions[2]
 
 
 def test_tool_error_event_marks_result_as_error(tmp_path: Path) -> None:

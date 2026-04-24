@@ -876,19 +876,23 @@ _CONTINUATION_STOP_REASON = "tool_use"
 def _compute_session_of_pair(records: list[dict[str, Any]]) -> list[int]:
     """Map each response's pair_index → session index.
 
-    Walks records in order, tracking which session each ``chat_request``
-    belongs to, and tags the following ``chat_response`` with that
-    session. Two independent signals mark a session boundary so detection
-    stays correct even when one of them is absent:
+    Three signals can mark a session boundary. They're ranked by
+    authority so adapters that have perfect knowledge can declare it
+    without Shadow second-guessing them:
 
-    1. **Request shape** — the request's most recent non-system message
-       is from the user (see :func:`_is_session_start`). Covers the
-       common path where tool results are appended to ``messages``
-       mid-session.
-    2. **Prior terminal stop reason** — the previous response ended with
-       anything other than ``tool_use``. The agent finished its turn, so
-       the following request is necessarily a new session regardless of
-       how the trace recorded its message history. Recovers session
+    1. **Explicit metadata markers (authoritative).** When the trace
+       contains two or more ``metadata`` records, each new metadata
+       record marks a new session. This is the signal framework
+       adapters emit via :meth:`~shadow.sdk.Session.record_metadata`
+       on events like ``CrewKickoffStartedEvent`` or an AG2
+       ``initiate_chat``. Heuristic signals #2 and #3 are ignored in
+       this mode — the adapter knows exactly where sessions split.
+    2. **Request shape.** The request's most recent non-system message
+       is from the user (see :func:`_is_session_start`). Covers SDK-
+       instrumented traces where tool results are appended to
+       ``messages`` mid-session.
+    3. **Prior terminal stop reason.** The previous response ended
+       with anything other than ``tool_use``. Recovers session
        boundaries in traces where ``messages`` were abbreviated,
        post-mutated, or imported from a foreign format that didn't
        preserve them.
@@ -897,21 +901,45 @@ def _compute_session_of_pair(records: list[dict[str, Any]]) -> list[int]:
     start, pure metadata-only traces) are handled defensively. Returns
     a list of length ``len(responses)``.
     """
+    metadata_count = sum(1 for r in records if r.get("kind") == "metadata")
+    use_explicit_markers = metadata_count >= 2
+
     session_of_pair: list[int] = []
     session_idx = -1
     pending_session: int | None = None
     prior_stop_terminal = True  # before any response, the "prior" state
-    # is "agent not mid-turn" → the first request starts session 0.
+    # is "agent not mid-turn" - the first request starts session 0.
+    seen_first_metadata = False
     for rec in records:
         kind = rec.get("kind")
+        if kind == "metadata":
+            if use_explicit_markers:
+                # Every metadata record after the first starts a new
+                # session. The first one opens session 0 just by
+                # existing.
+                if seen_first_metadata:
+                    session_idx += 1
+                else:
+                    seen_first_metadata = True
+                    if session_idx < 0:
+                        session_idx = 0
+            continue
         if kind == "chat_request":
             payload = rec.get("payload") or {}
-            if _is_session_start(payload) or prior_stop_terminal:
-                session_idx += 1
-            pending_session = session_idx if session_idx >= 0 else 0
-            if session_idx < 0:
-                session_idx = 0
-            # Consume the terminal marker — only the first request after
+            if use_explicit_markers:
+                # Metadata records drove the session_idx; just attach
+                # the current request to the active session (bootstrap
+                # session 0 if the first marker hasn't appeared yet).
+                if session_idx < 0:
+                    session_idx = 0
+                pending_session = session_idx
+            else:
+                if _is_session_start(payload) or prior_stop_terminal:
+                    session_idx += 1
+                pending_session = session_idx if session_idx >= 0 else 0
+                if session_idx < 0:
+                    session_idx = 0
+            # Consume the terminal marker - only the first request after
             # a terminal response gets the boundary; subsequent requests
             # inside the same session don't.
             prior_stop_terminal = False

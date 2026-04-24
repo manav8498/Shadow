@@ -666,6 +666,93 @@ def test_session_scope_recovers_boundaries_from_terminal_stop_reason() -> None:
     )
 
 
+def test_explicit_metadata_markers_override_stop_reason_heuristic() -> None:
+    """Adapters that emit Session.record_metadata per logical session
+    must have their markers treated as authoritative. Without this,
+    a trace where every chat pair ends with ``end_turn`` (typical of
+    CrewAI's per-LLMCall events) would fragment into one session per
+    pair and misfire ``must_call_once`` rules.
+    """
+    # Two kickoffs, each with two LLM pairs that end with end_turn.
+    # Pair 1 of kickoff 1 calls `foo`, pair 2 doesn't. Kickoff 2 has
+    # no `foo` calls at all. Under session-scoped ``must_call_once`` on
+    # foo: kickoff 1 has exactly one foo call (pass), kickoff 2 has zero
+    # (fail). The stop_reason heuristic alone would fragment this into
+    # 4 sessions and misreport.
+
+    def _meta(payload: dict) -> dict:
+        return {"kind": "metadata", "payload": payload}
+
+    def _req() -> dict:
+        return {
+            "kind": "chat_request",
+            "payload": {
+                "model": "m",
+                "messages": [{"role": "system", "content": "s"}],
+            },
+        }
+
+    def _resp(tools: list[str]) -> dict:
+        content = [_tool_use(t) for t in tools] or [{"type": "text", "text": "ok"}]
+        return {
+            "kind": "chat_response",
+            "payload": {
+                "content": content,
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 10, "output_tokens": 5, "thinking_tokens": 0},
+            },
+        }
+
+    trace = [
+        _meta({"source": "adapter", "kickoff": "k1"}),
+        _req(),
+        _resp(["foo"]),
+        _req(),
+        _resp([]),  # no foo in kickoff 1's second pair
+        _meta({"source": "adapter", "kickoff": "k2"}),
+        _req(),
+        _resp([]),
+        _req(),
+        _resp([]),  # kickoff 2 has no foo at all → violation
+    ]
+
+    rules = load_policy(
+        [
+            {
+                "id": "one-foo-per-kickoff",
+                "kind": "must_call_once",
+                "params": {"tool": "foo"},
+                "scope": "session",
+            }
+        ]
+    )
+    vs = check_policy(trace, rules)
+    assert len(vs) == 1, f"expected exactly one violation (kickoff 2), got {len(vs)}"
+    assert "0 times" in vs[0].detail
+
+
+def test_explicit_markers_ignored_when_only_one_metadata_record() -> None:
+    """A trace with a single metadata record falls back to the
+    heuristic detector (one metadata = still a standard SDK trace)."""
+    trace = [
+        {"kind": "metadata", "payload": {"source": "sdk"}},
+        _response(content=[_tool_use("foo")], stop_reason="tool_use"),
+    ]
+    # Should behave like no explicit markers — single session, foo
+    # called once, rule passes.
+    rules = load_policy(
+        [
+            {
+                "id": "one-foo",
+                "kind": "must_call_once",
+                "params": {"tool": "foo"},
+                "scope": "session",
+            }
+        ]
+    )
+    assert check_policy(trace, rules) == []
+
+
 def test_session_scope_falls_back_to_single_session_when_no_requests() -> None:
     """Fixture-style traces (just responses, no requests) have no session
     markers; scope=session should degrade to single-session (trace-like)
