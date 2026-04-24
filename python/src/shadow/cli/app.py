@@ -1473,8 +1473,29 @@ def _fail(e: BaseException) -> None:
     raise typer.Exit(code=1)
 
 
+def _force_utf8_io() -> None:
+    """Force stdout/stderr to UTF-8 so Rich's box-drawing + `⚠`/`✓`/`✗`
+    glyphs don't crash on Windows' cp1252 default.
+
+    PEP 597 suggests this for Python applications that emit non-ASCII
+    by design. No-op on POSIX (already UTF-8 in >99% of real-world
+    setups) and on Python 3.15+ where UTF-8 mode is the default.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            # Swallow: the CLI should still start even if we can't
+            # rebind the stream (e.g. if it's been wrapped by a test
+            # harness). Rich has its own fallback for un-encodable
+            # characters.
+            pass
+
+
 def main() -> None:
     """Entry point registered as the `shadow` console_script."""
+    _force_utf8_io()
     app()
 
 
