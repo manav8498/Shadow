@@ -40,6 +40,12 @@ def _run_diff(
         ],
         capture_output=True,
         text=True,
+        # Windows' default cp1252 can't decode Shadow's ⚠/✓/✗ glyphs;
+        # the child emits UTF-8 (see _force_utf8_io in cli/app.py) so
+        # we must read it the same way or the reader thread crashes
+        # and r.stdout/r.stderr come back as None.
+        encoding="utf-8",
+        errors="replace",
         env=env,
         check=False,
     )
