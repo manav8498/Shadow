@@ -6,6 +6,82 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-04-24
+
+### Fixed — third discrepancy-sweep pass (deep dependency + docs audit)
+
+A deeper cross-repo audit turned up two more real issues:
+
+#### Dependency pins were dangerously stale
+
+The runtime + optional-extra dependency pins were exact-pinned to
+April-2025-era versions:
+
+- `anthropic==0.40.0` → current PyPI is `0.97.0` (57 minor versions
+  behind, **incompatible with users on modern `anthropic`**)
+- `openai==1.58.1` → current PyPI is `2.32.0` (**one major version
+  behind** — users with `openai>=2` couldn't install `shadow[openai]`)
+- `pydantic==2.10.3` → current `2.13.3`
+- `httpx==0.28.1`, `rich==13.9.4`, `scikit-learn==1.6.0`,
+  `numpy==2.2.0`, `pyyaml==6.0.2` — all exact pins
+
+**Verified** Shadow works correctly against `anthropic 0.97` +
+`openai 2.32` + `pydantic 2.13` (all module paths Shadow monkey-patches
+still exist: `anthropic.resources.messages.Messages`,
+`openai.resources.chat.completions.Completions`,
+`openai.resources.responses.Responses`). Loosened to permissive ranges:
+
+| Dependency | Old | New |
+|---|---|---|
+| `anthropic` | `==0.40.0` | `>=0.40,<1` |
+| `openai` | `==1.58.1` | `>=1.58,<3` |
+| `pydantic` | `==2.10.3` | `>=2.10,<3` |
+| `httpx` | `==0.28.1` | `>=0.27,<1` |
+| `rich` | `==13.9.4` | `>=13.9,<15` |
+| `scikit-learn` | `==1.6.0` | `>=1.6,<2` |
+| `numpy` | `==2.2.0` | `>=2.2,<3` |
+| `pyyaml` | `==6.0.2` | `>=6.0,<7` |
+| `sentence-transformers` | `==3.3.1` | `>=3.3,<6` |
+| `opentelemetry-sdk` | `>=1.27.0` | `>=1.27,<2` |
+| `fastapi` | `>=0.115.0` | `>=0.115,<1` |
+| `uvicorn` | `>=0.32.0` | `>=0.32,<1` |
+| `websockets` | `>=13.1` | `>=13.1,<16` |
+
+Dev deps (`hypothesis`, `mypy`, `ruff`, `pytest`, `pytest-asyncio`,
+`pytest-cov`, `maturin`, `types-PyYAML`) stay exact-pinned for CI
+reproducibility.
+
+#### Docs-site drift
+
+- **`docs/changelog.md` was a stale copy** of root `CHANGELOG.md`,
+  missing every v1.2.x entry. Published docs site at
+  [manav8498.github.io/Shadow](https://manav8498.github.io/Shadow/)
+  was showing a changelog stuck at v1.1.0. Now re-synced and the docs
+  workflow mirrors root → `docs/` on every build so this won't drift
+  again (`.github/workflows/docs.yml`).
+- **`ROADMAP.md` was written from a pre-1.0 perspective**, calling
+  things already shipped (live backends, LASSO bisection,
+  auto-instrumentation, OTel, 10 judges, Windows CI, PyPI pipeline)
+  "planned for v0.2" and ending with *"Shadow is a v0.1.0 project
+  with no external users"*. Rewritten to reflect actual v1.2.x state
+  with accurate "shipped" vs "next up" sections.
+- **`SECURITY.md` "Honest scope note (v1.1)"** → "as of v1.2.x".
+- **`examples/README.md`** falsely claimed every subdirectory ships a
+  `WALKTHROUGH.md` and uses a `generate_fixtures.py` recipe. Only 4 of
+  9 fit that shape. Prose rewritten to match reality; "the other four
+  directories" section added for `edge-cases/`, `acme-extreme/`,
+  `integrations/`, `judges/`.
+
+### Verified
+
+- 488 pytest green against the loosened dep set
+- 30/30 TypeScript tests green
+- `cargo test` + clippy + fmt clean
+- mypy `--strict`, ruff check + format clean
+- Smoke-tested a fresh venv install with the latest `anthropic 0.97`
+  + `openai 2.32` + `pydantic 2.13` — all Shadow imports and backend
+  instantiations work, instrumentation module paths resolve.
+
 ## [1.2.2] - 2026-04-24
 
 ### Fixed — second discrepancy-sweep pass

@@ -1,109 +1,112 @@
 # Roadmap
 
-Post-v0.1.0. Items are not strictly ordered — what lands first depends
-on contributor bandwidth and which real-world use cases surface first.
-If something below matters to you, open an issue and we'll pull it
-forward.
+Where Shadow is headed after **v1.2.x**. Items are not strictly
+ordered — what lands first depends on contributor bandwidth and which
+real-world use cases surface. If something below matters to you, open
+an issue and we'll pull it forward.
 
-## Already landed in v0.1.0 (previously planned for v0.2)
+## Shipped through v1.2
 
-The following items were on the v0.2 roadmap at project start but
-ended up shipping in v0.1.0:
+### v1.0 — core format lock-in + live backends
+- `.agentlog v0.1` schema frozen; content-hash + canonicalisation
+  stable forever within `1.x`.
+- Live replay backends `shadow.llm.AnthropicLLM` + `OpenAILLM`
+  (behind `shadow[anthropic]` / `shadow[openai]` extras).
+- Auto-instrumentation of Anthropic + OpenAI Python SDKs (incl.
+  Responses API, streaming, cache tiers) + TypeScript equivalents.
+- LASSO-over-corners causal bisection with Meinshausen-Bühlmann
+  stability selection.
+- OTel GenAI exporter + importers for Langfuse, Braintrust,
+  LangSmith, OpenAI Evals, OTLP.
+- Enterprise scaffolding: SOC 2 access log, CycloneDX 1.5 SBOMs,
+  cosign keyless signing in the release workflow.
+- **10 built-in judges** including a configurable `LlmJudge` that
+  takes a rubric string.
+- PyPI Trusted-Publisher pipeline + docs site at
+  [manav8498.github.io/Shadow](https://manav8498.github.io/Shadow/).
 
-- **Live replay backends** — `shadow.llm.AnthropicLLM` and
-  `shadow.llm.OpenAILLM` ship today, gated behind `shadow[anthropic]`
-  and `shadow[openai]` extras.
-- **LASSO-over-corners bisection** with Meinshausen-Bühlmann
-  stability selection — live-replay mode fits a real sparse linear
-  model per axis across corners. The heuristic kind-based allocator
-  remains as a no-credentials fallback.
-- **Auto-instrumentation** of the Anthropic + OpenAI Python SDKs
-  (plus OpenAI Responses API, streaming, cache tiers) and their
-  TypeScript equivalents.
-- **OTel GenAI exporter** (`shadow.otel`) producing OTLP/JSON that
-  collectors can ingest, following the v1.37+ GenAI semconv.
-- **Importers** for Langfuse, Braintrust, LangSmith, OpenAI Evals,
-  and OTLP.
-- **Enterprise scaffolding** — SOC 2-oriented access log,
-  CycloneDX 1.5 SBOM generation, cosign keyless signing in the
-  release workflow.
+### v1.1 — scale + security hardening
+- Scale verified to N=10k pair traces (`benchmarks/scale_drill_down.py`).
+- **Banded Needleman-Wunsch** alignment for long traces — fixes the
+  super-linear blow-up at N ≥ 5k.
+- Path-traversal hardening on `shadow quickstart`.
+- Parser resource bounds (16 MiB/1 GiB caps with tunable overrides).
+- Full three-OS CI matrix: Ubuntu + macOS + Windows × Python 3.11/3.12.
+- Counterfactual replay (1 of the 5 replay-as-science modes).
 
-## v0.2 — reliability and depth
+### v1.2 — partial-item close-out
+- Vercel AI SDK + PydanticAI importers.
+- Token-level + policy-level hierarchical diff
+  (`--token-diff`, `--policy <yaml>`).
+- Partial replay (2nd replay-as-science slice) — prefix-locked,
+  suffix-live at a chosen branch point.
+- LLM-assisted prescriptive fixes (`--suggest-fixes`) with
+  retry/backoff and ungrounded-anchor rejection.
 
-### Judge axis defaults
+## Next up (v1.3+)
 
-The Judge axis ships as a Protocol with a domain-agnostic
-`SanityJudge` in v0.1. v0.2 adds:
+### Replay as first-class science
 
-- `shadow.llm.LlmJudge(model="...", rubric="...")` — a generic LLM-
-  as-judge adapter that calls the backend with a user-supplied rubric
-  and extracts a 0-1 score.
-- Example Judges under `examples/judges/` for common domains
-  (procedure-adherence, schema-validation, factuality).
+Counterfactual (v1.1) and partial (v1.2) ship. Still open:
 
-### Per-pair drill-down in the diff report
+- **Sandboxed replay** — tool calls run inside a deterministic
+  sandbox (filesystem snapshot, network blackhole, frozen clock) so
+  the replay produces the exact same side effects it recorded. Needs
+  a tool-sandbox trait + per-tool adapters + a lightweight runtime
+  (Linux namespaces + overlayfs v1). Honest estimate: 8-12 weeks,
+  dedicated engineer.
+- **Streaming replay** — record + replay inter-chunk timings. Needs
+  a SPEC v0.2 extension (new `chat_response_chunk` record kind) and
+  parser/writer updates. Honest estimate: 2-3 weeks + SPEC review.
+- **Multimodal replay** — image / audio inputs and outputs survive
+  record → replay → diff with a cross-modal semantic axis. Needs SPEC
+  v0.2 binary-blob addressing + perceptual-similarity research.
+  Honest estimate: 4-6 weeks.
 
-Today the diff report gives aggregate axis metrics. v0.2 adds per-pair
-rows so a reviewer can see which specific trace in the set drove the
-regression. Surfaces as collapsible sections in the `github-pr`
-renderer.
+### Harness-diff instrumentation
 
-### Embeddings-default semantic axis (behind a flag)
+Capture retry, tool-order, and context-trim events as first-class
+diff dimensions instead of burying them in trace payloads.
 
-The v0.1 semantic axis defaults to a fast TF-IDF cosine; real
-sentence-transformer embeddings are an opt-in via
-`shadow[embeddings]`. v0.2 evaluates whether TF-IDF is ever wrong
-enough in practice to justify making embeddings the default.
+### MCP-native replay
 
-## v0.3 — scale and robustness
+MCP importer + examples ship today. Still open: protocol-level
+interception + server-session snapshot infra so MCP tool invocations
+can be replayed deterministically without re-running the MCP server.
 
-- **Windows CI support.** v0.1 is Ubuntu + macOS only; Windows has
-  POSIX-path assumptions in `.venv/bin/python` logic that need
-  Windows-friendly alternatives.
-- **Streaming mid-response redaction.** Today redaction happens at
-  record-write time. For very long streamed responses, mid-stream
-  redaction would be more defensive.
-- **Fuzz testing.** `cargo-fuzz` on the parser and canonicalizer;
-  Hypothesis on the full diff pipeline.
+### Adversarial benchmark corpus
 
-## 1.0 — format lock-in
+Ongoing expansion of `examples/edge-cases/` into a labeled
+regression-guard corpus covering more real-world-observed failure
+modes.
 
-- `.agentlog` schema freeze at `1.0`. Once we ship a major version,
-  the content-hash and canonicalization rules are stable forever. No
-  more breaking changes without a 2.0 bump.
-- Remote-trace support: `.shadow/remote` config, authentication,
-  signed `.agentlog` files for cross-org trace sharing.
-- Alternative binary encoding (msgpack or CBOR) as an opt-in — JSONL
-  remains the canonical debuggable format.
+### Runtime policy enforcement
+
+v1.2 ships `shadow diff --policy` for post-hoc checking. v1.3+:
+`.shadowpolicy.yaml` at the repo root + enforcement at recording
+time (blocking a production run that would violate a policy rule).
+Needs security review.
 
 ## Not on the roadmap
 
-Things we've deliberately scoped out:
+Deliberately scoped out:
 
-- **Hosted Shadow.** The whole point of the project is that it lives
-  in your repo and your CI, not in a third-party dashboard. If you
-  want a dashboard, use Langfuse / Braintrust / LangSmith and
-  (optionally) pair them with Shadow's local PR-gate.
+- **Hosted Shadow.** The whole point is that Shadow lives in your
+  repo and your CI, not in a third-party dashboard. Pair Shadow with
+  Langfuse / Braintrust / LangSmith if you want a UI.
 - **Domain rubrics bundled by default** (ESI adherence for medical,
-  PCI-DSS for payments, GDPR filters, etc.). That hardcoding is what
-  the `Judge` axis is for. We publish example Judges but don't bundle
-  them into the core.
-- **A graphical trace viewer.** Text tools for text formats. `jq`
-  over a `.agentlog` file is a fine viewer.
-
-## Reality check
-
-Shadow is a **v0.1.0 project with no external users and no production
-deployments yet**. Everything above is contingent on real-world
-feedback. If nobody uses it, the roadmap is moot. If the first users
-want something totally different, the roadmap shifts.
+  PCI-DSS for payments). That hardcoding is what the `Judge` axis is
+  for; we ship example rubrics under `examples/judges/` but don't
+  bundle them into the core.
+- **A graphical trace viewer.** Text tools for text formats.
+  `jq < trace.agentlog` is a fine viewer.
 
 ## How to influence this
 
-- Open an issue with a real use case. "We hit X with Shadow on our
-  production traffic and Y would have saved us" is the most useful
+- Open an issue with a real use case. *"We hit X with Shadow on our
+  production traffic and Y would have saved us"* is the most useful
   feedback.
-- Draft PRs are welcome for any of the above — tag the roadmap item
-  in the PR description.
+- Draft PRs are welcome for any item above — tag the roadmap item in
+  the PR description.
 - If you want to own a roadmap item, say so in an issue so we don't
   duplicate work.

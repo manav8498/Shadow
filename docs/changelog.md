@@ -6,6 +6,394 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-04-24
+
+### Fixed — third discrepancy-sweep pass (deep dependency + docs audit)
+
+A deeper cross-repo audit turned up two more real issues:
+
+#### Dependency pins were dangerously stale
+
+The runtime + optional-extra dependency pins were exact-pinned to
+April-2025-era versions:
+
+- `anthropic==0.40.0` → current PyPI is `0.97.0` (57 minor versions
+  behind, **incompatible with users on modern `anthropic`**)
+- `openai==1.58.1` → current PyPI is `2.32.0` (**one major version
+  behind** — users with `openai>=2` couldn't install `shadow[openai]`)
+- `pydantic==2.10.3` → current `2.13.3`
+- `httpx==0.28.1`, `rich==13.9.4`, `scikit-learn==1.6.0`,
+  `numpy==2.2.0`, `pyyaml==6.0.2` — all exact pins
+
+**Verified** Shadow works correctly against `anthropic 0.97` +
+`openai 2.32` + `pydantic 2.13` (all module paths Shadow monkey-patches
+still exist: `anthropic.resources.messages.Messages`,
+`openai.resources.chat.completions.Completions`,
+`openai.resources.responses.Responses`). Loosened to permissive ranges:
+
+| Dependency | Old | New |
+|---|---|---|
+| `anthropic` | `==0.40.0` | `>=0.40,<1` |
+| `openai` | `==1.58.1` | `>=1.58,<3` |
+| `pydantic` | `==2.10.3` | `>=2.10,<3` |
+| `httpx` | `==0.28.1` | `>=0.27,<1` |
+| `rich` | `==13.9.4` | `>=13.9,<15` |
+| `scikit-learn` | `==1.6.0` | `>=1.6,<2` |
+| `numpy` | `==2.2.0` | `>=2.2,<3` |
+| `pyyaml` | `==6.0.2` | `>=6.0,<7` |
+| `sentence-transformers` | `==3.3.1` | `>=3.3,<6` |
+| `opentelemetry-sdk` | `>=1.27.0` | `>=1.27,<2` |
+| `fastapi` | `>=0.115.0` | `>=0.115,<1` |
+| `uvicorn` | `>=0.32.0` | `>=0.32,<1` |
+| `websockets` | `>=13.1` | `>=13.1,<16` |
+
+Dev deps (`hypothesis`, `mypy`, `ruff`, `pytest`, `pytest-asyncio`,
+`pytest-cov`, `maturin`, `types-PyYAML`) stay exact-pinned for CI
+reproducibility.
+
+#### Docs-site drift
+
+- **`docs/changelog.md` was a stale copy** of root `CHANGELOG.md`,
+  missing every v1.2.x entry. Published docs site at
+  [manav8498.github.io/Shadow](https://manav8498.github.io/Shadow/)
+  was showing a changelog stuck at v1.1.0. Now re-synced and the docs
+  workflow mirrors root → `docs/` on every build so this won't drift
+  again (`.github/workflows/docs.yml`).
+- **`ROADMAP.md` was written from a pre-1.0 perspective**, calling
+  things already shipped (live backends, LASSO bisection,
+  auto-instrumentation, OTel, 10 judges, Windows CI, PyPI pipeline)
+  "planned for v0.2" and ending with *"Shadow is a v0.1.0 project
+  with no external users"*. Rewritten to reflect actual v1.2.x state
+  with accurate "shipped" vs "next up" sections.
+- **`SECURITY.md` "Honest scope note (v1.1)"** → "as of v1.2.x".
+- **`examples/README.md`** falsely claimed every subdirectory ships a
+  `WALKTHROUGH.md` and uses a `generate_fixtures.py` recipe. Only 4 of
+  9 fit that shape. Prose rewritten to match reality; "the other four
+  directories" section added for `edge-cases/`, `acme-extreme/`,
+  `integrations/`, `judges/`.
+
+### Verified
+
+- 488 pytest green against the loosened dep set
+- 30/30 TypeScript tests green
+- `cargo test` + clippy + fmt clean
+- mypy `--strict`, ruff check + format clean
+- Smoke-tested a fresh venv install with the latest `anthropic 0.97`
+  + `openai 2.32` + `pydantic 2.13` — all Shadow imports and backend
+  instantiations work, instrumentation module paths resolve.
+
+## [1.2.2] - 2026-04-24
+
+### Fixed — second discrepancy-sweep pass
+
+Caught during a deeper post-1.2.1 audit across every version string,
+command-reference, and doc in the repo:
+
+- **`CITATION.cff`** — version `0.1.0` → `1.2.2` (in both top-level
+  and `preferred-citation`). Academic citations produced via GitHub's
+  "Cite this repository" button will now pin the actual released
+  version. Release date also updated.
+- **TypeScript SDK (`typescript/src/session.ts`)** — hardcoded
+  `version: '0.1.0'` in emitted metadata records replaced with a
+  module-load-time read from the shipped `package.json`. Every
+  `.agentlog` the TS SDK writes now carries accurate SDK provenance.
+- **`examples/README.md`** — four example directories existed on
+  disk but weren't listed: `acme-extreme/`, `judges/`,
+  `mcp-session/`, `integrations/`. All four added with their real
+  scope descriptions.
+- All package versions (Cargo, pyproject, TS package, README badge,
+  CITATION.cff) bumped to `1.2.2` in lockstep.
+
+No functional changes to CLI or library APIs.
+
+## [1.2.1] - 2026-04-24
+
+### Fixed — maturity + documentation discrepancies
+
+A pass against the repo audit for discrepancies between what the
+package *is* and what it *says about itself*:
+
+- **PyPI classifier** `Development Status :: 3 - Alpha` → `4 - Beta`.
+  A 1.x release with 90 days of feature work behind it isn't Alpha;
+  calling it Alpha undersells maturity for package discovery.
+- **GitHub Action template fix** *(functional bug).* The workflow
+  that `shadow init --github-action` scaffolds pinned
+  `shadow-diff>=0.2,<0.3`, which would install a pre-1.0 CLI into
+  every user's CI. Now pins `shadow-diff>=1.2,<2`. Users who already
+  ran `shadow init --github-action` before 1.2.1 should update their
+  generated `.github/workflows/shadow-diff.yml` pin.
+- **Embedded SDK version tracks package version.** Every emitter
+  (langfuse/braintrust/langsmith/openai-evals/otel importers, OTel
+  exporter, FastAPI `shadow serve`) hard-coded
+  `"sdk": {"name": "shadow", "version": "0.1.0"}` in the metadata
+  record's SDK-provenance field. That's a lie: a v1.2 install was
+  stamping records "written by v0.1". Now reads `shadow.__version__`
+  at import time. Metadata content-IDs change between versions
+  (expected — that's what provenance is for); diff results are
+  unaffected.
+- **TypeScript SDK** `@shadow/sdk` `0.1.0` → `1.2.1` to match the
+  Python + Rust packages.
+- **Stale "Phase-N stub" comments** removed from `crates/shadow-core/
+  src/lib.rs` and `agentlog/mod.rs`. Replaced with real submodule
+  documentation. Similar prose fixes in `error.rs`, `parser.rs`,
+  and `tests/test_bisect.py`.
+
+### Not changed (and why)
+
+- **No third-party security audit.** Called out honestly in
+  `SECURITY.md` — Shadow is self-hostable and processes traces
+  locally by default, but has not been penetration-tested. Users who
+  need formal assurance should assume that gap and treat `.agentlog`
+  files as potentially-sensitive (they are, by default).
+- **SPEC-example record versions stay `"0.1.0"`.** The example
+  payloads in `SPEC.md` and `test_core.py` hashing vectors are
+  illustrative and pin specific SHA-256 values; changing the version
+  string there would break the known-vector tests that lock the
+  canonical JSON algorithm.
+
+## [1.2.0] - 2026-04-24
+
+### Added — partial-completion close-out
+
+Five partial items from the strategic roadmap closed out this release,
+each shipped with implementation + unit tests + CLI wiring.
+
+#### 1. Vercel AI SDK importer
+
+New `shadow.importers.vercel_ai` + `shadow import --format vercel-ai`.
+Accepts both OTLP-style `{spans: [...]}` (the AI SDK telemetry exporter)
+and dashboard-style `{events: [...]}` (the Vercel AI Observability JSON
+export). Maps the full `ai.*` attribute namespace: `ai.prompt.messages`,
+`ai.response.text`, `ai.response.toolCalls`, `ai.tools`, `ai.settings.*`,
+`ai.usage.*`, `ai.finishReason`. Tool invocations surface as
+Anthropic-shape `tool_use` content blocks so the rest of the differ
+works unchanged. Error spans map to a synthetic `error` stop-reason.
+16 unit tests + CLI integration.
+
+#### 2. PydanticAI importer
+
+New `shadow.importers.pydantic_ai` + `shadow import --format pydantic-ai`.
+Accepts the native `all_messages_json()` output, wrapped
+`{messages: [...]}` dumps, and Logfire span exports that carry the
+message history under `attributes.all_messages_json`. Handles the full
+part-kind set: `system-prompt`, `user-prompt`, `text`, `tool-call`,
+`tool-return`, `retry-prompt`, both snake-case and CamelCase variants
+across PydanticAI versions. Tool schemas from `model_request_parameters`
+propagate to every downstream request. 11 unit tests + CLI integration.
+
+#### 3. Token-level + policy-level hierarchical diff
+
+Two new layers in `shadow.hierarchical` complete the strategic-plan
+hierarchy (trace → session → turn → span → **token** → **policy**):
+
+- **Token-level** — `token_diff(baseline, candidate)` produces
+  per-dimension distribution summaries (median, p25, p75, p95, max,
+  total) for `input_tokens` / `output_tokens` / `thinking_tokens`,
+  plus a per-pair delta list ranked by absolute shift. Surfaces via
+  `shadow diff --token-diff`. Handles zero-median baseline without
+  blowing up (returns `+inf` normalised shift).
+- **Policy-level** — declarative YAML overlay with eight rule kinds:
+  `must_call_before`, `must_call_once`, `no_call`, `max_turns`,
+  `required_stop_reason`, `max_total_tokens`, `must_include_text`,
+  `forbidden_text`. `policy_diff(baseline, candidate, rules)` classifies
+  each violation as pre-existing, a regression, or a fix. Surfaces via
+  `shadow diff --policy path/to/policy.yaml`.
+
+21 new unit tests covering both layers + CLI wiring.
+
+#### 4. Partial replay
+
+New `shadow.replay.run_partial_replay(baseline, branch_at, backend)`
+— the 2nd of the replay-as-science slices (after counterfactual in
+v1.0). Locks the baseline prefix verbatim (turns `0..branch_at-1`),
+then switches to live replay at the branch point. Isolates behaviour
+change to a specific turn so reviewers can ask "if we diverged at turn
+3, what happens from turn 4 onwards under config B?" without
+confounding earlier turns. Surfaces via
+`shadow replay --partial --branch-at <idx>`. Clamps gracefully when
+`branch_at` exceeds the trace length (full-baseline copy). Preserves
+parent DAG consistency under all three modes (zero = fully live,
+mid = split, end = pure copy). 10 unit tests.
+
+#### 5. LLM-assisted prescriptive fixes
+
+New `shadow.suggest_fixes` module + `shadow diff --suggest-fixes` flag.
+Layers an LLM pass on top of the deterministic recommendation engine to
+produce concrete code-level fix proposals. The module:
+
+- Collects up to 6 anchors from the deterministic `Recommendation` list,
+  prioritised by severity.
+- Builds a bounded evidence window (top axes + first-divergence +
+  flagged-turn request/response payloads, truncated to
+  `MAX_EVIDENCE_CHARS = 1800` per record).
+- Calls the configured LLM backend with a strict JSON schema.
+- **Rejects ungrounded suggestions** — if the model invents an anchor
+  id not in the deterministic set, that suggestion is dropped. This
+  keeps the LLM from inventing fixes for problems that don't exist.
+- Tolerates markdown fences, trailing chatter, malformed JSON (returns
+  empty gracefully), and out-of-range confidence values.
+- Flags suggestions with `confidence < 0.3` as `[speculative]` rather
+  than dropping them silently.
+
+Opt-in only (~1-2k output tokens per diff, same backend selection rules
+as `--judge` / `--explain`). 13 unit tests covering anchor-grounding
+enforcement, JSON robustness, and evidence-truncation safety.
+
+### Upgraded
+
+- Rust workspace version `1.1.0 → 1.2.0`.
+- Python package `1.1.0 → 1.2.0` (ABI-compatible with 1.1 consumers).
+- `shadow.importers` now exports 8 formats:
+  Braintrust, Langfuse, LangSmith, MCP, OpenAI Evals, OTel,
+  **Vercel AI**, **PydanticAI**.
+
+### Testing
+
+- **70 new unit tests** across the five modules.
+- **Full suite: 468 passed** (up from 398) — no regressions.
+- `cargo test --workspace`: 201 passed.
+- `ruff check`, `ruff format --check`, `mypy --strict`, `cargo clippy
+  -- -D warnings`, `cargo fmt --check`: all clean.
+
+## [1.1.0] - 2026-04-24
+
+### Added — scale, correctness, ops hardening
+
+A six-item hardening pass against the honest gaps called out in the
+v1.0 postmortem. Each item ships with concrete scope and explicit
+documentation of what's **not** done.
+
+#### 1. Scale verified to N=10k (item 6)
+
+Extended `benchmarks/scale_drill_down.py` with
+`SHADOW_SCALE_BIG=1` and `SHADOW_SCALE_HUGE=1` tiers. Running at
+N=5k surfaced a **real super-linear blow-up** (17.92s at N=1k →
+484.82s at N=5k — 27× wall-time for 5× pairs). Root-caused to the
+O(N²) Needleman-Wunsch matrix allocation in
+`crates/shadow-core/src/diff/alignment.rs`.
+
+Fix: **banded Needleman-Wunsch**. Above
+`SCALE_BAND_THRESHOLD = 1000` pairs, the DP is restricted to a band
+of `max(|N-M| + 100, sqrt(max(N,M)))` cells around the diagonal —
+standard technique from the sequence-alignment literature (SWAT,
+Hirschberg). Below the threshold the full-matrix variant stays
+exact for all existing tests. At N=5k the new numbers: 19.43s
+(3.89 ms/pair). At N=10k: 40.10s (4.01 ms/pair). Per-pair cost
+stays flat at big N — confirmed linear.
+
+Added per-pair ms budget `MAX_MS_PER_PAIR = 50` so accidental
+algorithmic regressions fail loudly at any N, not just at the
+scale tier that happens to be running.
+
+#### 2. Property-based tests via Hypothesis (item 5)
+
+New `python/tests/test_properties.py` — **8 property tests
+exercising ~600 generated inputs each**. Properties:
+
+- Canonical-JSON roundtrip is byte-deterministic.
+- `compute_diff_report` never crashes, always emits 9 axes, finite
+  CI bounds, recognised severity enum values.
+- Self-diff produces `|delta| < 1e-6` on every axis for any trace.
+- Cost-attribution identity: `model_swap + token_movement +
+  mix_residual == total_delta` to f64 precision, for any session
+  pair and any pricing table.
+- Schema-watch is monotone on no-op inputs for any config.
+- `canonical_bytes` and `content_id` are deterministic on
+  arbitrary nested JSON.
+
+Catches regressions the example-based tests miss.
+
+#### 3. Needleman-Wunsch span alignment (item 4)
+
+`shadow.hierarchical.span_diff` previously used greedy per-index
+alignment. On long tool-heavy responses (the real case as agents
+accumulate 20+ tool calls per turn), a single inserted tool_use
+block would cascade into every downstream block being reported as
+`block_type_changed`.
+
+Now: two-path dispatch by size. `≤ 5 blocks either side` uses the
+greedy fast path (optimal and cheap). `> 5 blocks` uses Needleman-
+Wunsch alignment with a cost model that nudges the aligner toward
+reporting `add + remove` over `block_type_changed` when block
+types differ. Verified with two new tests that drop / insert a
+block in position 10 of a 20-block response — NW correctly reports
+exactly 1 add/remove and zero cascaded type changes.
+
+Token-level 5th hierarchy deferred to v1.2+.
+
+#### 4. Security hardening pass (item 8) — NOT a formal audit
+
+Concrete hardening pass across four attack surfaces. Explicitly
+documented as "hardening pass, not a formal third-party audit" in
+SECURITY.md.
+
+- **Parser resource bounds**: new `DEFAULT_MAX_LINE_BYTES` (16
+  MiB per record) and `DEFAULT_MAX_TOTAL_BYTES` (1 GiB per trace)
+  with typed `LineTooLarge` / `TraceTooLarge` errors. Tunable per
+  `Parser` via `with_max_line_bytes` / `with_max_total_bytes`.
+  The per-line cap uses `Read::take` so a newline-free stream
+  errors out at the cap rather than growing the buffer unbounded.
+- **Path-traversal on `shadow quickstart`**: refuses system
+  directories (`/etc`, `/usr`, `/bin`, `/sbin`, `/boot`, `/proc`,
+  `/sys`, `/dev`).
+- **SECURITY.md updated** with an honest threat-model section,
+  hardening-pass summary, and explicit list of what was NOT
+  hardened (JSON depth, reproducible builds, formal audit).
+- 2 new Rust tests (`rejects_a_line_longer_than_the_configured_limit`,
+  `rejects_total_trace_exceeding_byte_cap`).
+
+#### 5. Published docs site (item 7)
+
+New `mkdocs.yml` + `docs/` tree + `.github/workflows/docs.yml`
+GitHub Pages deploy. Complete navigation:
+
+- Quickstart: Install, Record, Wire into CI
+- Features: Nine-axis diff, Judges, Bisect, Schema-watch, MCP,
+  Cost attribution, Hierarchical diff
+- Reference: CLI, .agentlog format, Pricing table
+- Security, Changelog
+
+Built locally with `mkdocs build --strict` (zero warnings).
+Deploys automatically from `main`.
+
+#### 6. Counterfactual replay (item 3 — one slice)
+
+New `shadow.counterfactual` module — the first of five replay-as-
+science slices the strategic analysis called out. Isolates a
+single config delta (model swap, temperature change, system-prompt
+override, tools-list replacement, etc.) and re-runs the trace
+through a live backend with only that one thing changed.
+
+Composes with `shadow bisect`: bisect gives statistical attribution
+("we think the model swap is 78% of the latency regression"); a
+counterfactual replay confirms it with a direct experiment that
+holds everything else constant.
+
+14 new unit tests. Explicitly documented deferred slices in the
+module docstring: partial replay, sandboxed replay, streaming
+replay, multimodal replay.
+
+### Test totals
+
+- **201 Rust tests** (was 199 — +2 parser-bound tests)
+- **398 Python tests** (was 374 — +14 counterfactual, +2 hierarchical NW, +8 Hypothesis properties)
+- **79 hero end-to-end assertions** (unchanged)
+- **17 live-LLM judge tests** (unchanged)
+
+### Honest scope reminders
+
+This release is v1.1, not v2.0. The gaps that remain:
+
+- **Formal security audit** — not done, not claimed. v1.1's
+  hardening pass is concrete but it is not a substitute for a
+  third-party pentest.
+- **Four of five replay-as-science modes** (partial, sandboxed,
+  streaming, multimodal) — still multi-month work.
+- **Token-level 5th hierarchy** — deferred.
+- **Zero external users** — still the biggest inflection. No
+  amount of shipping replaces someone running Shadow on their
+  own PR.
+
 ## [1.0.0] - 2026-04-24
 
 ### Added — hierarchical diff (Phase D)
