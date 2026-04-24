@@ -1,7 +1,7 @@
 # MCP importer
 
 Shadow ingests [Model Context Protocol](https://modelcontextprotocol.io/)
-session logs — the JSON-RPC 2.0 protocol agents use to talk to
+session logs, the JSON-RPC 2.0 protocol agents use to talk to
 external tools via MCP servers. Adopted by Claude Desktop, Cursor,
 Windsurf, Zed, and VS Code by early 2026.
 
@@ -16,10 +16,10 @@ shadow diff baseline.agentlog imported.agentlog
 
 The importer auto-detects three formats:
 
-1. **JSONL stream** — one JSON-RPC message per line. What
+1. **JSONL stream**, one JSON-RPC message per line. What
    `mcp-server --log` emits.
-2. **JSON array** — `[msg, msg, ...]`. MCP Inspector's export.
-3. **Wrapped object** — `{"messages": [...], "metadata": {...}}`.
+2. **JSON array**, `[msg, msg...]`. MCP Inspector's export.
+3. **Wrapped object**, `{"messages": [...], "metadata": {...}}`.
    Some tooling wraps messages with session-level metadata.
 
 ## What's captured
@@ -30,7 +30,7 @@ The importer auto-detects three formats:
 | `tools/call` request | `chat_request` + `chat_response` (with `tool_use` block) |
 | Tool result | `tool_result` content block (Anthropic-shape) |
 | MCP error response | `tool_result` with `is_error: true` |
-| Orphan request (no response — disconnect, crash) | `chat_response` with only the `tool_use` block |
+| Orphan request (no response, disconnect, crash) | `chat_response` with only the `tool_use` block |
 
 ## What's NOT captured
 

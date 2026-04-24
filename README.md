@@ -7,77 +7,53 @@
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
-**Behavioural code review for LLM agents.**
-Shadow records the calls your agent makes to Claude or GPT, replays them
-against a new config, and tells you — right on the pull request —
-*what changed, why it changed, and what to do about it.*
+**Behavioural code review for LLM agents.** Shadow records the calls your agent makes to Claude or GPT, replays them against a new config, and tells you on the pull request what changed, why, and what to do about it.
 
 ## What problem it solves
 
-A diff tool for code breaks when the change is a prompt edit, a model
-swap, or a tool-schema rename. The agent still runs. It just behaves
-differently. The regression ships, the customer complains, and nobody
-knows which line of the PR caused it.
+A code diff tool breaks down when the change is a prompt edit, a model swap, or a tool-schema rename. The agent still runs. It just behaves differently. The regression ships, the customer complains, nobody knows which line of the PR caused it.
 
-Shadow reviews the PR the way a senior engineer would: compares the
-before-and-after behaviour on a fixed set of traces, ranks divergences
-by severity across nine dimensions with statistical confidence, names
-the first point the candidate diverged from the baseline, attributes
-each dimension's regression to the specific config delta that caused
-it, and ends with a short list of concrete fixes.
+Shadow reviews the PR like a senior engineer would. It compares before and after behaviour on a fixed set of traces, ranks the differences by severity across nine dimensions with statistical confidence, names the first point the candidate diverged from the baseline, attributes each regression to the specific config delta that caused it, and ends with a short list of concrete fixes.
 
 ## How it works
 
-Three simple steps:
+1. **Record.** Your agent talks to Claude or GPT as usual. Shadow's SDK saves every request and response to a `.agentlog` file. Your code does not change.
+2. **Replay.** In CI, Shadow runs those recorded requests through your new config (new prompt, new model, whatever changed) and collects the new responses.
+3. **Diff.** Shadow compares the two sets across nine behavioural dimensions: meaning, tool use, refusals, verbosity, speed, cost, reasoning depth, an LLM-judge score, and output format. It posts the report as a pull-request comment.
 
-1. **Record** — your agent talks to Claude or GPT as usual. Shadow's SDK
-   saves every request and response to a `.agentlog` file. Your code
-   doesn't change.
-2. **Replay** — in CI, Shadow runs those recorded requests through your
-   new config (new prompt, new model, whatever changed) and collects the
-   new responses.
-3. **Diff** — Shadow compares the two sets across nine behavioural
-   dimensions — meaning, tool use, refusals, verbosity, speed, cost,
-   reasoning depth, an LLM-judge score, and output format — then posts
-   the report as a pull-request comment.
+If multiple things changed at once, Shadow names which change caused which part of the regression. That is the part that makes it useful in real PR review. You do not have to guess.
 
-If multiple things changed at once, Shadow tells you which specific
-change caused which part of the regression. This is the part that makes
-it useful in real PR review: you don't have to guess.
+## Five-minute adoption
 
-## 5-minute adoption
-
-Three commands — nothing else on your machine, nothing to configure:
+Three commands. Nothing else to configure:
 
 ```bash
-pip install shadow-diff          # PyPI name is `shadow-diff`; import + CLI stay `shadow`
+pip install shadow-diff          # PyPI name is shadow-diff; import + CLI stay "shadow"
 shadow quickstart                # scaffolds a working scenario in ./shadow-quickstart/
 shadow diff shadow-quickstart/fixtures/baseline.agentlog \
             shadow-quickstart/fixtures/candidate.agentlog
 ```
 
-That's a real nine-axis diff on pre-recorded `.agentlog` fixtures —
-no API keys, no agent code. Next, run it on your own agent:
+That is a real nine-axis diff on pre-recorded `.agentlog` fixtures. No API keys, no agent code. Then run it on your own agent:
 
 ```bash
-# Zero code changes needed; shadow auto-instruments anthropic + openai:
+# Zero code changes. shadow auto-instruments anthropic + openai:
 shadow record -o baseline.agentlog -- python your_agent.py
 
-# Make a change (new prompt, swap model, edit a tool), re-record:
+# Make a change (new prompt, swap model, edit a tool) and re-record:
 shadow record -o candidate.agentlog -- python your_agent.py
 
 # Diff:
 shadow diff baseline.agentlog candidate.agentlog
 ```
 
-And to wire it into every pull request, one more command:
+To wire it into every pull request, one more command:
 
 ```bash
 shadow init --github-action      # drops .github/workflows/shadow-diff.yml
 ```
 
-Edit the `BASELINE` / `CANDIDATE` paths in that workflow to point at
-fixtures you commit; every PR gets a behavioural-diff comment.
+Edit the `BASELINE` and `CANDIDATE` paths in that workflow to point at fixtures you commit. Every PR gets a behavioural-diff comment.
 
 <details>
 <summary>Developing Shadow itself (contributors only)</summary>
@@ -90,7 +66,7 @@ just ci       # full test + lint + coverage replica
 ```
 </details>
 
-You'll see a table like this:
+You will see a table like this:
 
 ```
 axis         baseline  candidate     delta     severity
@@ -123,28 +99,19 @@ recommendations (3):
   warning REVIEW  Review response text at turn 1: semantic content shifted.
 ```
 
-Each row is one behavioural dimension. The severity column makes it
-obvious where to look, the **top divergences** list names the exact
-changes responsible, and the **recommendations** list tells you
-*what to do about them* — in one pass, in under 30 seconds, without
-having to click through traces. Root-cause attribution plus
-prescriptive fixes, no dashboard needed.
+Each row is one behavioural dimension. The severity column shows where to look. The top-divergences list names the exact changes responsible. The recommendations list tells you what to do about them. One pass, under 30 seconds, no clicking through traces. Root-cause attribution plus fixes, no dashboard needed.
 
 ## Instrument your own agent
 
-Two ways, both zero-code-change for the agent itself.
+Two ways. Both are zero-code-change for the agent itself.
 
-**Zero-config (recommended)** — wrap any Python script with
-`shadow record`. Shadow's auto-instrumentor patches
-`anthropic.*` and `openai.*` via a PYTHONPATH-injected
-sitecustomize at interpreter startup:
+**Zero-config.** Wrap any Python script with `shadow record`. Shadow's auto-instrumentor patches `anthropic.*` and `openai.*` via a PYTHONPATH-injected sitecustomize at interpreter startup:
 
 ```bash
 shadow record -o trace.agentlog -- python your_agent.py
 ```
 
-**Explicit** — use the `Session` context manager when you need
-custom tags, a non-default redactor, or nested sessions:
+**Session context manager.** For custom tags, a non-default redactor, or nested sessions:
 
 ```python
 from shadow.sdk import Session
@@ -153,9 +120,7 @@ with Session(output_path="trace.agentlog", tags={"env": "prod"}):
     client.messages.create(model="claude-sonnet-4-6", messages=[...])
 ```
 
-Either way Shadow captures every Anthropic / OpenAI request and
-response (Python + TypeScript SDKs). Secrets are redacted by
-default.
+Either way Shadow captures every Anthropic / OpenAI request and response (Python and TypeScript SDKs). Secrets are redacted by default.
 
 Then in CI:
 
@@ -170,22 +135,18 @@ shadow bisect old-config.yaml new-config.yaml --traces trace.agentlog
 |  | Langfuse | Braintrust | LangSmith | **Shadow** |
 |---|:---:|:---:|:---:|:---:|
 | Raw trace logging | ✅ | ✅ | ✅ | ✅ |
-| Dashboard UI | ✅ | ✅ | ✅ | — *(by design)* |
-| Self-hostable | ✅ | — | — | ✅ |
-| PR comment from CI | ~ | ~ | ~ | ✅ |
-| Nine pre-built behavioural axes | — | — | — | ✅ |
-| Causal bisection | — | — | — | ✅ |
-| Content-addressed open trace format | — | — | — | ✅ |
+| Dashboard UI | ✅ | ✅ | ✅ | no |
+| Self-hostable | ✅ | no | no | ✅ |
+| PR comment from CI | partial | partial | partial | ✅ |
+| Nine pre-built behavioural axes | no | no | no | ✅ |
+| Causal bisection | no | no | no | ✅ |
+| Content-addressed open trace format | no | no | no | ✅ |
 
-Shadow lives in your pull request instead of in a separate dashboard.
-It runs entirely locally — traces stay on your disk, the diff runs in
-your CI, and the comment posts to your PR. The `.agentlog` format is an
-open spec (see [`SPEC.md`](SPEC.md)) that any tool can read or write.
+Shadow lives in your pull request, not a separate dashboard. It runs locally. Traces stay on your disk, the diff runs in your CI, the comment posts to your PR. The `.agentlog` format is an open spec ([`SPEC.md`](SPEC.md)) that any tool can read or write.
 
 ## The nine axes
 
-Each axis is measured independently with a bootstrap 95% confidence
-interval and a severity (none / minor / moderate / severe):
+Each axis is measured independently with a bootstrap 95% confidence interval and a severity rating (none, minor, moderate, severe):
 
 | # | Axis | What it measures |
 |--:|---|---|
@@ -207,7 +168,7 @@ Every example runs offline from committed fixtures. No API key required:
 
 | Example | What it shows |
 |---|---|
-| [`examples/demo/`](examples/demo/) | The fastest working example — `just demo` |
+| [`examples/demo/`](examples/demo/) | The fastest working example. `just demo`. |
 | [`examples/customer-support/`](examples/customer-support/) | Refund bot that regresses after a prompt edit |
 | [`examples/devops-agent/`](examples/devops-agent/) | Production database agent with a tool-ordering bug |
 | [`examples/er-triage/`](examples/er-triage/) | High-stakes clinical-style agent |
@@ -219,20 +180,20 @@ Every example runs offline from committed fixtures. No API key required:
 
 | Command | Does |
 |---|---|
-| `shadow quickstart` | Drop a working demo scenario into `./shadow-quickstart/` — no API key needed |
-| `shadow init` | Scaffold a `.shadow/` folder; `--github-action` also drops a ready-to-commit CI workflow |
-| `shadow record -- <cmd>` | Run `<cmd>`, auto-capture its LLM calls (zero code changes to the wrapped script) |
+| `shadow quickstart` | Drop a working demo scenario into `./shadow-quickstart/`. No API key needed. |
+| `shadow init` | Scaffold a `.shadow/` folder. `--github-action` also drops a ready-to-commit CI workflow. |
+| `shadow record -- <cmd>` | Run `<cmd>`, auto-capture its LLM calls. Zero code changes to the wrapped script. |
 | `shadow replay <cfg> --baseline <trace>` | Replay baseline through a new config |
 | `shadow diff <baseline> <candidate>` | Nine-axis behavioural diff |
 | `shadow bisect <cfg-a> <cfg-b> --traces <set>` | Which config delta moved which axis |
 | `shadow schema-watch <cfg-a> <cfg-b>` | Classify tool-schema changes (renames, breaking edits) before replaying |
-| `shadow report <report.json>` | Re-render a diff as terminal / markdown / PR-comment |
+| `shadow report <report.json>` | Re-render a diff as terminal, markdown, or PR-comment |
 
 ## Project layout
 
 ```
 Shadow/
-├── SPEC.md                    Open spec for the .agentlog format
+├── SPEC.md                    Open spec for the.agentlog format
 ├── crates/shadow-core/        Rust: parser, differ, replay, bisect
 ├── python/src/shadow/         Python SDK + CLI
 ├── typescript/                TypeScript SDK
@@ -242,20 +203,18 @@ Shadow/
 
 ## License
 
-- **Code** (Rust + Python + TypeScript): dual **[MIT](LICENSE-MIT) OR
-  [Apache-2.0](LICENSE-APACHE)** — pick either.
-- **Spec** (`SPEC.md`): **[Apache-2.0](LICENSE-SPEC)** only.
+- **Code** (Rust, Python, TypeScript): dual [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE). Pick either.
+- **Spec** (`SPEC.md`): [Apache-2.0](LICENSE-SPEC) only.
 - **Name "Shadow" and logo**: see [TRADEMARK.md](TRADEMARK.md).
 
 ## Community
 
-- [GitHub Discussions](https://github.com/manav8498/Shadow/discussions) — questions and help
-- [GitHub Issues](https://github.com/manav8498/Shadow/issues) — bugs and feature requests
-- [SECURITY.md](SECURITY.md) — report vulnerabilities privately
-- [CONTRIBUTING.md](CONTRIBUTING.md) — how to contribute
+- [GitHub Discussions](https://github.com/manav8498/Shadow/discussions) for questions and help
+- [GitHub Issues](https://github.com/manav8498/Shadow/issues) for bugs and feature requests
+- [SECURITY.md](SECURITY.md) to report vulnerabilities privately
+- [CONTRIBUTING.md](CONTRIBUTING.md) to contribute
 - [Contributor Covenant v2.1](CODE_OF_CONDUCT.md)
 
 ## Citing
 
-If you use Shadow in academic work, see [`CITATION.cff`](CITATION.cff) or
-click "Cite this repository" on the GitHub page.
+If you use Shadow in academic work, see [`CITATION.cff`](CITATION.cff) or click "Cite this repository" on the GitHub page.

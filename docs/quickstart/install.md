@@ -33,12 +33,12 @@ shadow quickstart
 
 Drops a `shadow-quickstart/` directory containing:
 
-- `agent.py` — a toy agent with three LLM calls
-- `config_a.yaml` / `config_b.yaml` — baseline + candidate configs
+- `agent.py`, a toy agent with three LLM calls
+- `config_a.yaml` / `config_b.yaml`, baseline + candidate configs
   that differ on three known axes
-- `fixtures/baseline.agentlog` + `fixtures/candidate.agentlog` —
+- `fixtures/baseline.agentlog` + `fixtures/candidate.agentlog` -
   pre-recorded traces (no API keys needed to run the diff)
-- `QUICKSTART.md` — next-step instructions
+- `QUICKSTART.md`, next-step instructions
 
 Use `shadow quickstart path/to/dir` to scaffold elsewhere, or
 `--force` to overwrite existing files.

@@ -1,5 +1,5 @@
 <!-- shadow-behavioral-diff -->
-# Shadow diff — 3 response pairs
+# Shadow diff, 3 response pairs
 
 **Baseline:** `sha256:abc12…ff09`  
 **Candidate:** `sha256:def34…aa11`  

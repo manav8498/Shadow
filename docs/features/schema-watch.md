@@ -1,6 +1,6 @@
 # Schema watch
 
-Proactive tool-schema change detection — runs *before* replay, takes
+Proactive tool-schema change detection, runs *before* replay, takes
 ~20 ms, catches the most common silent regressions.
 
 ```bash
@@ -16,7 +16,7 @@ Eleven classes of change, classified into four severity tiers:
 - Tool removed
 - Required parameter added
 - Parameter removed
-- **Parameter renamed** (detected via type + required-status matching — see below)
+- **Parameter renamed** (detected via type + required-status matching, see below)
 - Type changed
 - Required flipped (non-required → required)
 - Enum narrowed
@@ -74,10 +74,10 @@ Instead of the greedy remove+add:
 
 ## Output formats
 
-- `shadow schema-watch ... --format terminal` (default): rich console
-- `shadow schema-watch ... --format markdown`: GitHub-flavoured table
+- `shadow schema-watch... --format terminal` (default): rich console
+- `shadow schema-watch... --format markdown`: GitHub-flavoured table
   + expandable rationale
-- `shadow schema-watch ... --format json`: machine-readable
+- `shadow schema-watch... --format json`: machine-readable
 
 ## CI gate
 

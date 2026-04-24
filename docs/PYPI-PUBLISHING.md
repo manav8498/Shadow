@@ -1,7 +1,7 @@
 # PyPI publishing
 
 Shadow publishes to PyPI via [**Trusted Publisher**](https://docs.pypi.org/trusted-publishers/)
-— OpenID Connect from GitHub Actions to PyPI, no API token stored anywhere.
+- OpenID Connect from GitHub Actions to PyPI, no API token stored anywhere.
 The workflow job in `.github/workflows/release.yml` (`publish-pypi`)
 fires on every `v*` tag push and uploads whatever wheels the
 `python-wheel` matrix built.
@@ -56,7 +56,7 @@ workflow.
    version tags can trigger a publish.
 4. (Optional, recommended for production) Add yourself as a
    **Required reviewer**. This adds a manual approval step before
-   every publish — useful if you want to eyeball the release one more
+   every publish, useful if you want to eyeball the release one more
    time before it hits PyPI.
 5. Save.
 

@@ -1,4 +1,4 @@
-# Shadow — SOC 2 readiness notes
+# Shadow, SOC 2 readiness notes
 
 This doc is for customers deploying Shadow and for their auditors. Shadow is
 open-source software; **it is not a SOC 2 certified service**. The adopting
@@ -16,23 +16,23 @@ Criteria.
 | **CC7.2** (authenticated + authorized access) | HTTP principal via `X-Shadow-Principal` header + IP fallback | `shadow.enterprise.AccessLogMiddleware` |
 | **CC7.3** (processing logged) | One audit event per dashboard request | same |
 | **CC7.4** (anomaly response) | Audit log `verify()` detects tampering, deletion, reordering | `AuditLog.verify()` |
-| **CC8.1** (change management) | Content-addressed traces (SHA-256 ids) — any modification changes the id | spec §6 |
+| **CC8.1** (change management) | Content-addressed traces (SHA-256 ids), any modification changes the id | spec §6 |
 
 ## Audit-log data model
 
 Every event is an append-only line of canonical JSON in a `.auditlog` file.
 Fields:
 
-- `ts` — RFC 3339 UTC timestamp, millisecond precision
-- `actor` — `user:<name>` | `service:<name>` | IP | `"unknown"`
-- `action` — canonical action verb (e.g. `session.open`, `http.GET`, `trace.read`)
-- `resource` — path / URL / trace id being acted on
-- `outcome` — `ok` | `denied` | `error`
-- `reason` — optional free text (max 240 chars for the access-log middleware)
-- `prev_hash` — SHA-256 of the canonical bytes of the *previous* event, or `""` for the first
+- `ts`, RFC 3339 UTC timestamp, millisecond precision
+- `actor`, `user:<name>` | `service:<name>` | IP | `"unknown"`
+- `action`, canonical action verb (e.g. `session.open`, `http.GET`, `trace.read`)
+- `resource`, path / URL / trace id being acted on
+- `outcome`, `ok` | `denied` | `error`
+- `reason`, optional free text (max 240 chars for the access-log middleware)
+- `prev_hash`, SHA-256 of the canonical bytes of the *previous* event, or `""` for the first
 
 The chain is verifiable offline: `AuditLog(path).verify() → (bool, reason)`.
-Any tampering — modification, deletion, reordering — breaks a subsequent
+Any tampering, modification, deletion, reordering, breaks a subsequent
 `prev_hash` and is detected.
 
 ## Access-log middleware
@@ -66,7 +66,7 @@ into `.agentlog`:
 | Phone (E.164) | `+<country><digits>` | `[REDACTED:phone]` |
 | Credit card | Luhn-valid, contiguous OR hyphen/space-separated | `[REDACTED:credit_card]` |
 
-**Gaps** — classes NOT redacted by default. Customers needing these must
+**Gaps**, classes NOT redacted by default. Customers needing these must
 install custom `Redactor` patterns OR rely on field-level application-layer
 redaction before handing payloads to `Session.record_chat`:
 
@@ -78,7 +78,7 @@ redaction before handing payloads to `Session.record_chat`:
 - Internal / proprietary employee or customer IDs
 
 The conformance test suite at `python/tests/test_redaction_conformance.py`
-asserts both what IS covered and what is explicitly NOT covered. Changing
+asserts both what IS covered and what is NOT covered. Changing
 either is a deliberate coverage expansion and must be accompanied by a
 CHANGELOG entry.
 

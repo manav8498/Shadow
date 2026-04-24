@@ -1,6 +1,6 @@
 # Cost attribution
 
-When a PR changes cost, the question isn't just "did it?" — it's
+When a PR changes cost, the question isn't just "did it?", it's
 "*why*, and by how much per user-facing session?" Cost attribution
 decomposes the per-session cost delta into three independent sources.
 
@@ -19,7 +19,7 @@ total_delta = model_swap + token_movement + mix_residual
   swap + token change)
 
 When `|residual| > 10% of |total_delta|` the decomposition is
-flagged as less trustworthy — the two-factor story is incomplete.
+flagged as less trustworthy, the two-factor story is incomplete.
 
 ## Output
 
@@ -36,7 +36,7 @@ cost attribution (per session):
 ```
 | session | baseline | candidate | Δ | model swap | token move | mix |
 |--------:|---------:|----------:|--:|-----------:|-----------:|----:|
-| #0      | `$0.0870` | `$0.0174` | `$-0.0696` | `$-0.0696` (+100%) | `$+0.0000` (-0%) | `$+0.0000` (—) |
+| #0      | `$0.0870` | `$0.0174` | `$-0.0696` | `$-0.0696` (+100%) | `$+0.0000` (-0%) | `$+0.0000` (-) |
 ```
 
 ## When it surfaces

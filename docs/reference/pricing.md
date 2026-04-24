@@ -23,7 +23,7 @@ JSON file mapping model name → pricing details.
 }
 ```
 
-All rates are USD per token (note the `e-6` — per-token, not per-million-tokens).
+All rates are USD per token (note the `e-6`, per-token, not per-million-tokens).
 
 - `input` / `output`: required
 - `cached_input`: rate for cached input tokens (falls back to `input`)
@@ -45,7 +45,7 @@ Accepted for backward compatibility:
 ## Unknown models
 
 Models not present in the pricing table contribute $0 to cost axis
-and cost attribution. No crash, no warning — Shadow won't guess
+and cost attribution. No crash, no warning, Shadow won't guess
 pricing.
 
 ## Example

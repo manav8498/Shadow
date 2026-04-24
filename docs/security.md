@@ -39,10 +39,10 @@ coordinate a disclosure date with you.
 
 - **Any code path that handles untrusted `.agentlog` files.** The parser,
   canonicalization, and content-hashing routines are supply-chain critical.
-- **The Python SDK's redaction layer** — if a default regex mis-fires and
+- **The Python SDK's redaction layer**, if a default regex mis-fires and
   leaks PII/secrets through a reasonable input, that's in scope.
 - **The `shadow` CLI** invoked from CI or from a developer's shell.
-- **The `.github/actions/shadow-action`** composite action — it writes to
+- **The `.github/actions/shadow-action`** composite action, it writes to
   PR comments using the caller's `github-token`.
 
 ## What's out of scope
@@ -50,7 +50,7 @@ coordinate a disclosure date with you.
 - Bugs that require the attacker to be the *author* of the `.agentlog`
   file AND the consumer system admin AND the Judge. (I.e., threat models
   where the attacker already controls all layers.)
-- Issues in third-party dependencies — please report those upstream. We
+- Issues in third-party dependencies, please report those upstream. We
   pin every direct dep to an exact version; if an upstream CVE lands, file
   an issue here so we bump the pin.
 - Denial of service from a single maliciously-crafted trace file: we
@@ -79,37 +79,37 @@ channel is end-to-end between you and the maintainers and is the
 preferred transport. If you need a separate encrypted channel, open
 the advisory with a note asking for one and we'll coordinate.
 
-## v1.1 hardening pass — what changed
+## v1.1 hardening pass, what changed
 
 A concrete hardening pass was shipped alongside v1.1. Each item below
 names the attack surface, the mitigation, and (importantly) what is
 **not** addressed so you know where your own risk posture has to
 carry the load.
 
-### 1. `.agentlog` parser — resource exhaustion
+### 1. `.agentlog` parser, resource exhaustion
 
 **Risk**: a malicious or truncated `.agentlog` could exhaust memory
 via a newline-free stream (unbounded `read_line`), a deeply-nested
 JSON payload, or a multi-gigabyte file.
 
 **Hardened**:
-- `DEFAULT_MAX_LINE_BYTES = 16 MiB` — per-line cap enforced via
+- `DEFAULT_MAX_LINE_BYTES = 16 MiB`, per-line cap enforced via
   `Read::take`, so a newline-free stream errors out at the cap
   rather than growing the buffer.
-- `DEFAULT_MAX_TOTAL_BYTES = 1 GiB` — whole-trace cap that keeps
+- `DEFAULT_MAX_TOTAL_BYTES = 1 GiB`, whole-trace cap that keeps
   `parse_all` from accumulating an unbounded `Vec<Record>`.
 - Both limits are tunable per-`Parser` via `with_max_line_bytes` /
   `with_max_total_bytes`; callers ingesting legitimate larger
-  records (multimodal payloads, batch ingest) can raise explicitly.
+  records (multimodal payloads, batch ingest) can raise it.
 - New typed errors `LineTooLarge { line, bytes, limit }` and
-  `TraceTooLarge { bytes, limit }` — actionable, not silent.
+  `TraceTooLarge { bytes, limit }`, actionable, not silent.
 
 **NOT hardened**:
 - JSON depth limits beyond serde_json's default recursion guard.
   Out of scope for a local-first tool; for server-side ingestion,
   wrap the parser in your own JSON sanity layer.
 
-### 2. `shadow record` — env-var driven writes
+### 2. `shadow record`, env-var driven writes
 
 **Risk**: `SHADOW_SESSION_OUTPUT` lets the shim write wherever the
 invoking user can. A poisoned shell profile could redirect output
@@ -120,17 +120,16 @@ somewhere unwanted.
   before spawning the child. Test-locked via
   `test_shadow_record_fails_fast_on_unwritable_output_path`.
 - Env handling: no user-input splat; only `SHADOW_SESSION_OUTPUT`,
-  `SHADOW_SESSION_TAGS`, and an augmented `PYTHONPATH` are set
-  explicitly.
+  `SHADOW_SESSION_TAGS`, and an augmented `PYTHONPATH` are set.
 
 **NOT hardened**:
 - The shim doesn't verify the output path is inside the caller's
   project dir. Same posture as any env-var-driven test runner.
 
-### 3. `shadow init` / `shadow quickstart` — path arguments
+### 3. `shadow init` / `shadow quickstart`, path arguments
 
 **Risk**: path-traversal via `../../../etc/` style arguments. Always
-scoped to what the invoking user can write, so low-impact — but bad
+scoped to what the invoking user can write, so low-impact, but bad
 form and worth closing.
 
 **Hardened**:
@@ -139,24 +138,24 @@ form and worth closing.
   the current working directory fail cleanly.
 
 **NOT hardened**:
-- We don't disallow absolute paths outright — users legitimately
+- We don't disallow absolute paths outright, users legitimately
   want to scaffold into `~/projects/foo/`.
 
-### 4. Subprocess argv — shell injection
+### 4. Subprocess argv, shell injection
 
 **Not a real risk**: `subprocess.run(args, shell=False, env=env)` is
 the only spawn path. No shell-string concatenation. The user's argv
 is passed verbatim as an argument vector. Documented for reviewers
 who want to confirm by inspection.
 
-### 5. Supply-chain — wheel integrity
+### 5. Supply-chain, wheel integrity
 
 **Hardened** (v0.2.2):
 - Every wheel on PyPI is signed via Sigstore cosign (keyless OIDC).
   Attestations published alongside the GitHub Release.
 - CycloneDX 1.5 SBOMs attached to each release (Python + Rust +
   TypeScript components).
-- PyPI uploads use Trusted Publisher (OIDC) — no long-lived token
+- PyPI uploads use Trusted Publisher (OIDC), no long-lived token
   stored anywhere.
 
 **NOT hardened**:

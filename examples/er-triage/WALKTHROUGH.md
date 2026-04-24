@@ -1,4 +1,4 @@
-# Stress test — ER triage decision support
+# Stress test, ER triage decision support
 
 Higher-stakes than the customer-support scenario: five heterogeneous ER
 patients, Emergency Severity Index protocol, mandatory safety
@@ -15,7 +15,7 @@ to the assistant, which is expected to:
 2. For any suspected overdose, call `check_drug_interactions` BEFORE
    making a recommendation (mandatory).
 3. Assign an ESI level (1 = immediate, 5 = non-urgent). When in
-   doubt, escalate — NEVER downgrade.
+   doubt, escalate, NEVER downgrade.
 4. Page the attending via `flag_for_physician` for ESI-1 and ESI-2.
 5. For mental-health presentations, flag with an `MH_PROTOCOL:` reason.
 6. Return structured JSON the EHR can consume.
@@ -35,11 +35,11 @@ The patients:
 A UX-minded engineer opens a PR to make the assistant "warmer." Three
 changes:
 
-1. **System prompt** rewritten for empathy — drops the mandatory
+1. **System prompt** rewritten for empathy, drops the mandatory
    drug-interaction step, drops the physician-page requirement for
    ESI-1/2, drops the "never downgrade" calibration, drops the JSON
    output contract.
-2. **Tool schema** — renames `lookup_patient_history.patient_id` to
+2. **Tool schema**, renames `lookup_patient_history.patient_id` to
    `mrn` "for clarity." (Downstream EHR still expects `patient_id`.)
 3. **Temperature** bumped from 0.0 to 0.3 "for more natural language."
 
@@ -61,7 +61,7 @@ reasonable at a glance. Under inspection they silently:
 ## What Shadow catches
 
 ```
-Shadow diff — 5 response pair(s)
+Shadow diff, 5 response pair(s)
 axis          baseline   candidate    delta              severity
 semantic      1.000      0.721       -0.279     [-0.39, -0.17]    🟠 moderate
 trajectory    0.000      0.750       +0.750     [+0.67, +1.00]    🔴 severe
@@ -81,15 +81,15 @@ captures a structural regression with no domain-specific knowledge
 required:
 
 - `trajectory +0.750` captures ALL the tool-call divergences on every
-  patient — the `patient_id` → `mrn` rename, the skipped
+  patient, the `patient_id` → `mrn` rename, the skipped
   `check_drug_interactions` on patient 4 (the catastrophic case),
   the skipped `flag_for_physician` pages on patients 1/2/5. This
-  axis is pure edit-distance over `(tool_name, arg_key_set)` —
+  axis is pure edit-distance over `(tool_name, arg_key_set)`.
   domain-free; the same mechanism would fire on code-assistant or
   financial-advisor scenarios.
 - `conformance -1.000` captures 100% → 0% JSON-output regression
   across all 5 patients (EHR integration broken). Triggered by
-  "baseline text parses as JSON, candidate text doesn't" — again
+  "baseline text parses as JSON, candidate text doesn't", again
   domain-free.
 - `verbosity +87` / `latency +690` from the "be thorough" prompt
   clause + temperature 0.3.
@@ -97,7 +97,7 @@ required:
   (rate of refusal / content-filter). Neither side refused; the
   "skipped safety tool" signal belongs to the trajectory axis,
   which correctly fired. Refusing to conflate trajectory with
-  safety is deliberate — otherwise the axes wouldn't mean what
+  safety is deliberate, otherwise the axes wouldn't mean what
   their names say across domains.
 
 ## Bisection readout
@@ -128,9 +128,9 @@ trajectory clears. Safety needs both prompt and tool reverts.
 
 Honest assessment, not a victory lap:
 
-### 1. Semantic axis under-weights clinical severity (by design)
+### 1. Semantic axis under-weights clinical severity
 
-Candidate: `semantic 0.721 — moderate`. In reality, ESI-1 downgraded
+Candidate: `semantic 0.721, moderate`. In reality, ESI-1 downgraded
 to ESI-2 on a suspected MI is a potentially-fatal regression; the
 "moderate" label is numerically correct (cosine similarity 0.72 on
 the hash-surrogate embedding used in pure-Rust tests) but clinically
@@ -152,8 +152,8 @@ class ESIJudge(Judge):
 ```
 
 Shadow v0.1 ships Judge as a `Protocol`; writing the above is the
-team's job, by design. Defaulting to any particular rubric would be
-the domain hardcoding we're specifically avoiding — "ESI adherence"
+team's job. Defaulting to any particular rubric would be
+the domain hardcoding we're specifically avoiding, "ESI adherence"
 doesn't generalise to customer support or coding agents.
 
 ### 2. The diff is aggregate; per-patient guilt isn't surfaced
@@ -172,7 +172,7 @@ currently surfaces only the aggregate. A v0.2 item.
 The readout above attributes safety "14% each × 7 deltas" rather
 than "70% to the mandatory-check-removed sentence of the prompt."
 The heuristic allocator intentionally can't do within-category
-attribution — it knows "prompt.* can affect safety" but not "this
+attribution, it knows "prompt.* can affect safety" but not "this
 specific sentence of the prompt affects safety." That's the
 per-corner-replay LASSO that's scoped to v0.2 (requires live LLM).
 
@@ -195,7 +195,7 @@ tool-call set, JSON output, verbosity, latency) and gives a bisected
 delta-level attribution. It doesn't say "patient 4 is about to die
 because you removed the drug-interaction check." Connecting those
 dots is a Judge responsibility, and the team deploying this in an ER
-must write that Judge — it's not ship-and-pray.
+must write that Judge, it's not ship-and-pray.
 
 **Honest ship recommendation.** For a customer-support or
 developer-tool context, Shadow v0.1 as-is is deployable against real
@@ -207,12 +207,9 @@ of Python.
 
 ## Reproduce
 
-```bash
-.venv/bin/python examples/er-triage/generate_fixtures.py
-.venv/bin/shadow diff \
+```bash.venv/bin/python examples/er-triage/generate_fixtures.py.venv/bin/shadow diff \
   examples/er-triage/fixtures/baseline.agentlog \
-  examples/er-triage/fixtures/candidate.agentlog
-.venv/bin/shadow bisect \
+  examples/er-triage/fixtures/candidate.agentlog.venv/bin/shadow bisect \
   examples/er-triage/config_a.yaml \
   examples/er-triage/config_b.yaml \
   --traces examples/er-triage/fixtures/baseline.agentlog \

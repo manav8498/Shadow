@@ -1,14 +1,13 @@
 # Contributing to Shadow
 
 Thanks for considering a contribution. This file tells you what the workflow
-expects. If anything is unclear, open an issue or a draft PR — it's always
+expects. If anything is unclear, open an issue or a draft PR, it's always
 better to ask than to guess.
 
 ## Ground rules
 
 1. **Small, reviewable PRs.** One logical change per PR.
-2. **Conventional Commits** ([conventionalcommits.org](https://www.conventionalcommits.org/))
-   — `feat(scope):`, `fix(scope):`, `docs:`, `test:`, `chore:`, `refactor:`,
+2. **Conventional Commits** ([conventionalcommits.org](https://www.conventionalcommits.org/)), `feat(scope):`, `fix(scope):`, `docs:`, `test:`, `chore:`, `refactor:`,
    `spec:` (for `SPEC.md` changes).
 3. **TDD preferred.** Write the failing test first, commit; implement, commit.
    `CONTRIBUTING.md` §Workflow has the full protocol. Exception: typo fixes, docs-only
@@ -16,7 +15,7 @@ better to ask than to guess.
 4. **No behavior change without a test.** Every bug fix lands with a regression
    test that fails before the fix and passes after.
 5. **No `unwrap()` / `expect()` / `panic!()` in non-test Rust.** Enforced by
-   clippy lints inside `lib.rs`. Same rule for `# type: ignore` in Python —
+   clippy lints inside `lib.rs`. Same rule for `# type: ignore` in Python -
    don't use it unless a `# TODO(v0.x):` comment explains why.
 6. **Pin every new direct dependency exactly** (`=x.y.z`), update
    `CONTRIBUTING.md` §Dependency policy, and justify in the PR description.
@@ -26,7 +25,7 @@ better to ask than to guess.
 ```bash
 git clone https://github.com/manav8498/Shadow
 cd shadow
-just setup        # installs user-local rustup if missing, creates .venv,
+just setup        # installs user-local rustup if missing, creates.venv,
                   # installs pinned deps, builds the PyO3 extension
 ```
 
@@ -39,7 +38,7 @@ Windows isn't tested in v0.1.
 just test          # cargo test + pytest (fast, run on every save)
 just lint          # fmt/clippy + ruff/mypy (run before every commit)
 just demo          # end-to-end demo runs in ~1s (run before every PR)
-just ci            # what CI runs — everything above + coverage gates
+just ci            # what CI runs, everything above + coverage gates
 ```
 
 Before opening a PR, `just ci` must pass locally. CI will re-run the same
@@ -59,9 +58,7 @@ cargo llvm-cov --workspace                # coverage (gate: ≥85% line)
 
 ### Python SDK / CLI / bisect
 
-```bash
-.venv/bin/python -m pytest python/tests       # unit + integration
-.venv/bin/python -m ruff check python/
+```bash.venv/bin/python -m pytest python/tests       # unit + integration.venv/bin/python -m ruff check python/
 .venv/bin/python -m mypy --strict python/src  # gate: zero errors
 
 # When you change the Rust side that PyO3 exposes, rebuild:
@@ -79,7 +76,7 @@ python examples/edge-cases/probe.py           # 20-case adversarial probe
 
 1. Create `crates/shadow-core/src/diff/<axis>.rs` with a `compute(pairs,
    seed) -> AxisStat` function. Measure something **domain-free** and derivable
-   from a pair of `Record`s — if your measurement requires a domain rubric,
+   from a pair of `Record`s, if your measurement requires a domain rubric,
    it belongs in the `Judge` axis instead.
 2. Add a variant to `Axis` in `diff/axes.rs` and extend `Axis::all()` +
    `Axis::label()`.
@@ -91,7 +88,7 @@ python examples/edge-cases/probe.py           # 20-case adversarial probe
 
 ## The `Judge` axis and domain rules
 
-Shadow deliberately ships no default domain rubric — that's the whole point
+Shadow deliberately ships no default domain rubric, that's the whole point
 of keeping the core axes generic. If your contribution feels like "please add
 a detector for X specific thing my domain cares about," the right place is
 almost always a `Judge` implementation (Python side), not a new hardcoded
@@ -113,7 +110,7 @@ Touching `SPEC.md` is a bigger deal than touching code. Rules:
 - Additive changes (new record kinds, new optional fields) within `0.x.y` are
   fine and just need a SPEC section + a compatibility note in the CHANGELOG.
 - Every SPEC change should come with a conformance test in
-  `crates/shadow-core/tests/` — if we can't pin it, we can't claim it.
+  `crates/shadow-core/tests/`, if we can't pin it, we can't claim it.
 
 ## How reviewers will review your PR
 
@@ -132,7 +129,7 @@ Touching `SPEC.md` is a bigger deal than touching code. Rules:
 
 - Version lives in three places: `Cargo.toml` workspace, `python/pyproject.toml`,
   and `python/src/shadow/__init__.py`. Keep them aligned.
-- CHANGELOG.md: move the unreleased section under a new `[x.y.z] — YYYY-MM-DD`
+- CHANGELOG.md: move the unreleased section under a new `[x.y.z], YYYY-MM-DD`
   header.
 - Tag with `git tag -a vX.Y.Z -m "..."` and push tags.
 - `cargo publish -p shadow-core` (Rust) and `maturin publish` (Python).

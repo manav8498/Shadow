@@ -27,15 +27,15 @@ Cases are grouped into six regression classes:
 
 ## Current catch-rate: 19/20
 
-Case `10_formatting_loss` is marked as a **known limitation** — the
+Case `10_formatting_loss` is marked as a **known limitation**, the
 BM25 lexical semantic axis cannot distinguish markdown formatting
-from prose when token overlap is high. Catching it honestly requires
+from prose when token overlap is high. Catching it requires
 either the `[embeddings]` extra (real sentence-transformer
 similarity) or a format-aware custom Judge rubric.
 
 The runner returns exit 0 as long as every non-known-limit case is
 caught. If a case marked `known_limit: True` starts being caught, the
-runner prints a "consider un-marking" hint — a green light to tighten
+runner prints a "consider un-marking" hint, a green light to tighten
 the benchmark.
 
 ## Running

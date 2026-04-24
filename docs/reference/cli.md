@@ -9,7 +9,7 @@ Scaffold a working Shadow scenario in `PATH` (default
 ## `shadow init [PATH]`
 
 Scaffold `.shadow/` in `PATH`. `--github-action` also drops
-`.github/workflows/shadow-diff.yml`. Path-traversal hardened —
+`.github/workflows/shadow-diff.yml`. Path-traversal hardened -
 refuses system directories (`/etc`, `/usr`, etc.).
 
 ## `shadow record -- <cmd>`
@@ -17,8 +17,8 @@ refuses system directories (`/etc`, `/usr`, etc.).
 Run `<cmd>` with zero-config auto-instrumentation. Writes to
 `-o path.agentlog`. Flags:
 
-- `--tags KEY=V,K=V` — metadata tags
-- `--no-auto-instrument` — skip the sitecustomize shim
+- `--tags KEY=V,K=V`, metadata tags
+- `--no-auto-instrument`, skip the sitecustomize shim
 - Fail-fast writability preflight on the output path
 
 ## `shadow replay <config> --baseline <trace>`
@@ -31,8 +31,8 @@ Replay `<trace>` through `<config>` via
 Lock a baseline prefix verbatim and replay only the suffix through the
 backend:
 
-- `--partial` — enable partial-replay mode
-- `--branch-at N` — 0-based turn index where live replay begins
+- `--partial`, enable partial-replay mode
+- `--branch-at N`, 0-based turn index where live replay begins
   (`0` = fully live, same as default; `>= len(turns)` = full-baseline
   copy)
 
@@ -53,18 +53,18 @@ Nine-axis behavioural diff. Key flags:
 
 ### v1.2 additions
 
-- `--token-diff` — per-dimension token distribution (input / output /
+- `--token-diff`, per-dimension token distribution (input / output /
   thinking) with median + p25 + p75 + p95 + max + total; plus the
   top-k worst per-pair deltas. See
-  [Hierarchical diff — token-level](../features/hierarchical.md#token-level-v12).
-- `--policy path/to/rules.yaml` — check a declarative YAML policy
+  [Hierarchical diff, token-level](../features/hierarchical.md#token-level-v12).
+- `--policy path/to/rules.yaml`, check a declarative YAML policy
   overlay against both traces and classify rule violations as
   regressions vs fixes. Supports 8 rule kinds:
   `must_call_before`, `must_call_once`, `no_call`, `max_turns`,
   `required_stop_reason`, `max_total_tokens`, `must_include_text`,
   `forbidden_text`. See
-  [Hierarchical diff — policy-level](../features/hierarchical.md#policy-level-v12).
-- `--suggest-fixes` — layer an LLM pass on top of the deterministic
+  [Hierarchical diff, policy-level](../features/hierarchical.md#policy-level-v12).
+- `--suggest-fixes`, layer an LLM pass on top of the deterministic
   recommendation engine to produce concrete code-level fix proposals.
   Each suggestion is grounded on a deterministic anchor (ungrounded
   model output is rejected). Requires a live backend
@@ -91,16 +91,16 @@ Re-render a saved JSON report. `--format {terminal,markdown,github-pr}`.
 
 Import foreign traces to `.agentlog`. Supported formats (v1.2):
 
-- `langfuse` — Langfuse `traces` export
-- `braintrust` — Braintrust experiment row export (JSONL or array)
-- `langsmith` — LangSmith runs export (top-level array)
-- `openai-evals` — OpenAI Evals JSONL
-- `otel` — OpenTelemetry OTLP/JSON with GenAI semconv attributes
-- `mcp` — Model Context Protocol session log (JSONL, JSON array, or
+- `langfuse`, Langfuse `traces` export
+- `braintrust`, Braintrust experiment row export (JSONL or array)
+- `langsmith`, LangSmith runs export (top-level array)
+- `openai-evals`, OpenAI Evals JSONL
+- `otel`, OpenTelemetry OTLP/JSON with GenAI semconv attributes
+- `mcp`, Model Context Protocol session log (JSONL, JSON array, or
   wrapped `{messages: [...]}`)
-- `vercel-ai` *(new in v1.2)* — Vercel AI SDK telemetry export
+- `vercel-ai` *(new in v1.2)*, Vercel AI SDK telemetry export
   (OTLP-style `{spans: [...]}` or dashboard-style `{events: [...]}`)
-- `pydantic-ai` *(new in v1.2)* — PydanticAI `all_messages_json()`
+- `pydantic-ai` *(new in v1.2)*, PydanticAI `all_messages_json()`
   output or Logfire span export
 
 ## `shadow export <trace>`

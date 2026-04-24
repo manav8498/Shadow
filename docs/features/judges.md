@@ -16,7 +16,7 @@ domains, plus a `LlmJudge` base for custom rubrics.
 | `SanityJudge` | Generic "better / equal / worse" regression floor |
 | `PairwiseJudge` | Position-bias-free A/B preference (double-evaluates with flipped order) |
 | `CorrectnessJudge` | Matches candidate against a reference-answer rubric |
-| `FormatJudge` | Mechanical JSON schema conformance — no LLM calls |
+| `FormatJudge` | Mechanical JSON schema conformance, no LLM calls |
 | `LlmJudge` | User-configurable: rubric prompt + score map |
 | `SchemaConformanceJudge` | Semantic schema review (shape + meaning) |
 | `ProcedureAdherenceJudge` | Catches dropped safety-procedure steps |
@@ -37,7 +37,7 @@ shadow diff baseline.agentlog candidate.agentlog --judge auto
 ```
 
 `auto` picks `sanity` against whichever backend key is set
-(Anthropic preferred — cheaper). Turns axis 8 from an empty row into
+(Anthropic preferred, cheaper). Turns axis 8 from an empty row into
 a real signal. Budget: ~$0.0003 per diff run.
 
 If neither key is set, `auto` falls through to `none` cleanly with a
@@ -56,7 +56,7 @@ Emits a tight ~60-word narrative after the axis table:
 > Candidate agent regressed severely: tool set shrunk (4→1 tools),
 > format compliance failed (-1.0), semantic similarity collapsed
 > (-0.94), response bloated then truncated (-226 tokens), latency
-> spiked (+1110ms). Root cause: structural drift at turn 0—critical
+> spiked (+1110ms). Root cause: structural drift at turn 0-critical
 > database/notification tools removed, `run_migration` signature
 > changed. Priority: restore removed tools and verify parameter
 > signatures match baseline.
@@ -88,7 +88,7 @@ judge = LlmJudge(
 
 Allowed placeholders: `{task}`, `{baseline}`, `{candidate}`. Any
 other `{name}` in the rubric raises `ValueError` at construction
-time — fail fast.
+time, fail fast.
 
 Or drop a YAML config at `examples/judges/my-judge.yaml`:
 
