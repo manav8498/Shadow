@@ -297,8 +297,33 @@ def record(
     if not args:
         err_console.print("[red]error[/]: specify a command after `--`")
         raise typer.Exit(code=2)
+
+    # Fail fast if the output path isn't writable. Catching this here —
+    # before the agent runs — prevents wasting LLM API calls on a
+    # recording that can't be saved.
+    try:
+        resolved = output.resolve()
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        # Probe actual writability (mkdir tolerates read-only parents
+        # silently on some FSes; an open-for-append round-trips the real
+        # permission check and leaves no partial bytes behind).
+        with resolved.open("ab"):
+            pass
+        if resolved.stat().st_size == 0:
+            # We just created the file via append; clean up so an empty
+            # .agentlog doesn't mislead `shadow diff` later.
+            resolved.unlink()
+    except OSError as e:
+        err_console.print(
+            f"[red]error[/]: output path not writable: {output}\n"
+            f"  reason: {e}\n"
+            f"  hint: check the directory exists and you have write permission, "
+            "then re-run."
+        )
+        raise typer.Exit(code=2) from None
+
     env = dict(os.environ)
-    env["SHADOW_SESSION_OUTPUT"] = str(output.resolve())
+    env["SHADOW_SESSION_OUTPUT"] = str(resolved)
     if tags:
         env["SHADOW_SESSION_TAGS"] = tags
     if not no_auto_instrument:
