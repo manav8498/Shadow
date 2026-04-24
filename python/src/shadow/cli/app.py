@@ -420,11 +420,18 @@ class SemanticMode(StrEnum):
 class JudgeKind(StrEnum):
     """Judges available for the `diff --judge` flag.
 
-    `sanity` is domain-agnostic; the rest need rubric data supplied
-    via `--judge-config <file.yaml>` (see `_load_judge_config`).
+    - `none` — skip axis 8 entirely. The Rust core emits a zero row.
+    - `auto` — pick `sanity` + whichever backend has an API key in the
+      env. ANTHROPIC_API_KEY is preferred (cheaper Haiku), then
+      OPENAI_API_KEY (gpt-4o-mini). Falls through to `none` if
+      neither is set.
+    - `sanity`, `pairwise` — domain-agnostic; no config needed.
+    - `llm`, `procedure`, `schema`, `factuality`, `refusal`, `tone` —
+      need rubric data supplied via `--judge-config <file.yaml>`.
     """
 
     none = "none"
+    auto = "auto"
     sanity = "sanity"
     pairwise = "pairwise"
     llm = "llm"
@@ -468,9 +475,11 @@ def diff_cmd(
         JudgeKind,
         typer.Option(
             "--judge",
-            help="Populate axis 8 with a judge. `sanity`/`pairwise` are "
-            "domain-agnostic; `llm`/`procedure`/`schema`/`factuality`/"
-            "`refusal`/`tone` require rubric data via --judge-config.",
+            help="Populate axis 8 with a judge. `auto` picks `sanity` + whichever "
+            "API-key env var is set (ANTHROPIC_API_KEY preferred). `sanity` / "
+            "`pairwise` are domain-agnostic; `llm` / `procedure` / `schema` / "
+            "`factuality` / `refusal` / `tone` need rubric data via "
+            "--judge-config.",
         ),
     ] = JudgeKind.none,
     judge_backend: Annotated[
@@ -486,9 +495,20 @@ def diff_cmd(
         typer.Option(
             "--judge-config",
             help="YAML file supplying judge rubric data. Required by judges other "
-            "than `sanity` and `pairwise`. See examples/judges/ for templates.",
+            "than `sanity` / `pairwise` / `auto`. See examples/judges/ for templates.",
         ),
     ] = None,
+    explain: Annotated[
+        bool,
+        typer.Option(
+            "--explain",
+            help="After rendering the diff table, call an LLM to produce a one-"
+            "paragraph plain-English summary of what changed, why it matters, "
+            "and what to check first. Opt-in — requires a live backend + "
+            "--judge-backend anthropic|openai (same keys auto-detected for "
+            "--judge auto). ~300-500 tokens per run.",
+        ),
+    ] = False,
 ) -> None:
     """Compute a nine-axis diff between two traces and print the report."""
     from shadow.report import render_terminal
@@ -503,18 +523,48 @@ def diff_cmd(
         report = _core.compute_diff_report(b, c, price_map, seed)
         if semantic is SemanticMode.embeddings:
             report = _apply_embeddings_semantic(report, baseline=b, candidate=c, seed=seed)
-        if judge is not JudgeKind.none:
+
+        effective_judge, effective_backend = _resolve_auto_judge(judge, judge_backend)
+        if effective_judge is not JudgeKind.none:
             report = _apply_judge(
                 report,
                 baseline_records=b,
                 candidate_records=c,
-                judge_kind=judge,
-                judge_backend=judge_backend,
+                judge_kind=effective_judge,
+                judge_backend=effective_backend,
                 judge_model=judge_model,
                 judge_config=judge_config,
                 seed=seed,
             )
+
         render_terminal(report, console=console)
+
+        # Deterministic plain-English summary — always runs, no LLM call.
+        from shadow.report.summary import summarise_report
+
+        summary = summarise_report(report)
+        if summary:
+            console.print("")
+            console.print("[bold]What this means[/]")
+            console.print(summary)
+
+        if explain:
+            if effective_backend is JudgeBackend.mock:
+                err_console.print(
+                    "[yellow]warning[/]: --explain requested but --judge-backend is "
+                    "mock. Set --judge-backend anthropic|openai (or export "
+                    "ANTHROPIC_API_KEY / OPENAI_API_KEY and use --judge auto) "
+                    "for a real explanation."
+                )
+            else:
+                narrative = _generate_explanation(
+                    report, backend_name=effective_backend.value, model=judge_model
+                )
+                if narrative:
+                    console.print("")
+                    console.print("[bold]Explain[/]")
+                    console.print(narrative)
+
         if output_json is not None:
             output_json.parent.mkdir(parents=True, exist_ok=True)
             output_json.write_text(json.dumps(report, indent=2))
@@ -522,6 +572,71 @@ def diff_cmd(
         _fail(e)
     except Exception as e:
         _fail(e)
+
+
+def _resolve_auto_judge(judge: JudgeKind, backend: JudgeBackend) -> tuple[JudgeKind, JudgeBackend]:
+    """Expand `--judge auto` into a concrete (judge, backend) pair.
+
+    Preference order is ANTHROPIC_API_KEY (cheaper Haiku 4.5) then
+    OPENAI_API_KEY (gpt-4o-mini). If neither is set we quietly fall
+    through to `none` — never silently skip for user-selected values.
+    """
+    if judge is not JudgeKind.auto:
+        return judge, backend
+
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        err_console.print(
+            "[dim]judge: auto -> sanity on anthropic " "(Claude Haiku 4.5, ~$0.0003 per diff).[/]"
+        )
+        return JudgeKind.sanity, JudgeBackend.anthropic
+    if os.environ.get("OPENAI_API_KEY"):
+        err_console.print(
+            "[dim]judge: auto -> sanity on openai " "(gpt-4o-mini, ~$0.0003 per diff).[/]"
+        )
+        return JudgeKind.sanity, JudgeBackend.openai
+    err_console.print(
+        "[dim]judge: auto requested but no ANTHROPIC_API_KEY or OPENAI_API_KEY "
+        "found; axis 8 stays empty. Set either env var and re-run for a "
+        "one-cent signal.[/]"
+    )
+    return JudgeKind.none, backend
+
+
+def _generate_explanation(report: dict[str, Any], *, backend_name: str, model: str | None) -> str:
+    """One-paragraph plain-English summary via the judge backend."""
+    from shadow.llm import get_backend
+    from shadow.report.summary import summarise_report
+
+    determ = summarise_report(report)
+    prompt = (
+        "You are reviewing a Shadow behavioural diff between a baseline and a "
+        "candidate agent trace. The deterministic summary below is the raw "
+        "signal. Restate it for a tech lead in one short paragraph: what "
+        "regressed, by how much, and the single highest-priority thing to "
+        "verify. No pleasantries, no hedging, no preamble. <= 80 words.\n\n"
+        f"Deterministic summary:\n{determ}"
+    )
+    backend = get_backend(backend_name)
+    request: dict[str, Any] = {
+        "model": model or "",
+        "messages": [{"role": "user", "content": prompt}],
+        "params": {"temperature": 0.0, "max_tokens": 256},
+    }
+    try:
+        response = asyncio.run(backend.complete(request))
+    except Exception as e:
+        err_console.print(f"[yellow]warning[/]: --explain call failed: {e}")
+        return ""
+    content = response.get("content") or []
+    if isinstance(content, str):
+        return content.strip()
+    parts: list[str] = []
+    for part in content:
+        if isinstance(part, dict) and part.get("type") == "text":
+            text = part.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+    return "\n".join(parts).strip()
 
 
 def _parse_pricing_table(raw: dict[str, Any]) -> dict[str, Any]:

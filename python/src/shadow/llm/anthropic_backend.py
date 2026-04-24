@@ -30,6 +30,11 @@ from shadow.errors import ShadowBackendError
 class AnthropicLLM:
     """Live Anthropic backend — implements the `shadow.llm.LlmBackend` Protocol."""
 
+    # Default model used when neither the caller nor the request payload
+    # carries a model name. Haiku 4.5 is the cheapest + fastest current-gen
+    # model; callers who care about quality should set their own.
+    DEFAULT_MODEL: str = "claude-haiku-4-5-20251001"
+
     def __init__(
         self,
         model_override: str | None = None,
@@ -83,7 +88,10 @@ class AnthropicLLM:
 
     def _to_provider(self, request: dict[str, Any]) -> dict[str, Any]:
         """Convert a Shadow chat_request payload → anthropic.messages.create kwargs."""
-        model = self._model_override or request["model"]
+        # Model resolution: explicit override beats request payload; if
+        # both are empty we fall back to DEFAULT_MODEL rather than sending
+        # model="" to the API (which rejects with invalid_request_error).
+        model = self._model_override or request.get("model") or self.DEFAULT_MODEL
         messages = list(request.get("messages", []))
         # Anthropic takes `system` as a top-level parameter, not a message.
         system = None

@@ -6,6 +6,73 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-04-24
+
+### Added — first-real-diff experience (Phase A)
+
+Turns "cool diff" into "actionable PR review" — the natural follow-up to
+v0.3.x's adoption focus. A new user who just `pip install shadow-diff`'d
+now sees a useful diff on first run, not a noisy blank-judge table.
+
+- **`--judge auto`** — new value for `--judge` that resolves to `sanity`
+  against whichever API-key env var is present (ANTHROPIC_API_KEY
+  preferred for Claude Haiku 4.5's cost, then OPENAI_API_KEY for
+  gpt-4o-mini). Falls through to `none` cleanly with no key. A
+  one-cent judge signal that doesn't require flag archaeology.
+
+- **Low-n guidance banner** — terminal and markdown renderers both
+  warn loudly when `pair_count < 5`: bootstrap CIs at that sample
+  size are unreliable, and the user needs to know before reading
+  severities.
+
+- **"What this means" deterministic summary** — new
+  `shadow.report.summary.summarise_report`. Turns the nine-axis
+  table into a 2–4 line paragraph a PR reviewer can read in one
+  breath: leads with structural axes (trajectory / conformance /
+  safety), cites verbatim deltas with axis-appropriate units (ms,
+  tokens, USD), embeds the first-divergence line, calls out the
+  worst drill-down pair when its regression_score > 1.0, and
+  surfaces the top error-severity recommendation. Rendered above
+  the axis table in both terminal and markdown output. No LLM
+  involved — fully reproducible.
+
+- **`shadow diff --explain`** — opt-in flag that pipes the
+  deterministic summary through the judge backend to produce a
+  ~60-word prose narrative. Verified end-to-end against live Claude
+  Haiku 4.5 on the real devops-agent fixture; produces a tight,
+  accurate rundown ("tool set shrunk 4→1, format compliance failed
+  (-1.0), root cause: structural drift at turn 0"). ~$0.0003 per
+  run. Never fires without explicit opt-in — respects zero-friction
+  defaults.
+
+### Fixed
+
+- **`AnthropicLLM` / `OpenAILLM` default model**. Real-API verification
+  surfaced this: when neither `--judge-model` nor the request's model
+  field was set, the backends forwarded an empty string, and the API
+  rejected with `invalid_request_error: model: String should have at
+  least 1 character`. Judges returned `error` → neutral 0.5 scores
+  silently. Added `DEFAULT_MODEL` class constants
+  (`claude-haiku-4-5-20251001` and `gpt-4o-mini`) used when both the
+  override and the request payload are empty. Every live judge call
+  from the CLI now works with no model override, fixing the
+  accidental 0.5-axis-8 behaviour for users running
+  `--judge sanity` or `--judge auto`.
+
+### Tests
+
+- 17 new `test_summary.py` tests (low-n caveats, axis priority,
+  delta unit formatting, first-divergence embedding, worst-pair
+  threshold, recommendation ranking, byte-budget discipline).
+- 5 new `test_auto_judge.py` tests (no keys → fall-through, only
+  anthropic → anthropic, only openai → openai, both → anthropic,
+  explicit `none` bypasses auto).
+- Hero harness extended from 47 to **54 end-to-end assertions**
+  covering the new UX on committed fixtures.
+- Live-API end-to-end: `--judge auto` + `--explain` against real
+  Claude Haiku 4.5 produces a correct narrative; 17/17 judge-live
+  tests still pass after the default-model fix.
+
 ## [0.3.1] - 2026-04-24
 
 ### Fixed

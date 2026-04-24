@@ -27,6 +27,11 @@ from shadow.errors import ShadowBackendError
 class OpenAILLM:
     """Live OpenAI backend — implements the `shadow.llm.LlmBackend` Protocol."""
 
+    # Default model used when neither the caller nor the request payload
+    # carries a model name. gpt-4o-mini is the cheapest + fastest usable
+    # model right now; callers who care about quality should override.
+    DEFAULT_MODEL: str = "gpt-4o-mini"
+
     def __init__(
         self,
         model_override: str | None = None,
@@ -65,7 +70,10 @@ class OpenAILLM:
         return self._from_provider(response, latency_ms)
 
     def _to_provider(self, request: dict[str, Any]) -> dict[str, Any]:
-        model = self._model_override or request["model"]
+        # Model resolution: explicit override beats request payload; if
+        # both are empty we fall back to DEFAULT_MODEL rather than sending
+        # model="" to the API (which rejects with invalid_request_error).
+        model = self._model_override or request.get("model") or self.DEFAULT_MODEL
         provider_messages: list[dict[str, Any]] = []
         for m in request.get("messages", []):
             provider_messages.append(self._convert_message_to_openai(m))
