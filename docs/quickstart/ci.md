@@ -37,7 +37,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install --upgrade "shadow-diff>=1.0,<2.0"
+      - run: pip install --upgrade "shadow-diff>=1.2,<2"
       - run: shadow diff "$BASELINE" "$CANDIDATE" --output-json diff.json || true
       - run: shadow report diff.json --format github-pr > comment.md
       - env:
