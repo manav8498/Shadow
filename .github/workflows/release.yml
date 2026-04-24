@@ -51,10 +51,12 @@ jobs:
           maturin build --release --out dist/
 
       - name: Generate Python SBOM (CycloneDX)
-        # Wheels land in `python/dist/`; write the SBOM there too so the
-        # upload-artifact step's single `path:` glob works on every OS.
-        # (A bare `dist/` at the repo root didn't exist -> the old path
-        # broke across all three runners.)
+        # Only produce the SBOM from the ubuntu runner. Python deps
+        # are identical across OS matrix entries, so a single SBOM is
+        # authoritative — and avoids the upload collision that would
+        # otherwise happen when three matrix jobs try to attach a
+        # file with the same name to the same GitHub release.
+        if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
           cyclonedx-py environment -o python/dist/sbom-python.cdx.json
@@ -66,6 +68,9 @@ jobs:
           path: |
             python/dist/*.whl
             python/dist/sbom-python.cdx.json
+          # SBOM is only present on the ubuntu runner; silence the
+          # warning on the other two.
+          if-no-files-found: ignore
 
   # ----------------------------------------------------------------------
   # TypeScript package (npm)

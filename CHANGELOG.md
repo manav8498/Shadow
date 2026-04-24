@@ -6,6 +6,18 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-04-24
+
+### Fixed
+
+- **Release pipeline** — the `sign-and-release` job in `release.yml`
+  failed uploading wheels because all three OS matrix jobs were
+  producing a file named `sbom-python.cdx.json`, and the GitHub
+  release API rejects a second attempt to attach a same-named
+  asset. SBOM generation is now gated to the `ubuntu-latest` matrix
+  entry only — Python deps are identical across OSes, so a single
+  SBOM is authoritative.
+
 ## [0.4.0] - 2026-04-24
 
 ### Added — first-real-diff experience (Phase A)
