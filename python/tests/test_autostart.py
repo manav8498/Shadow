@@ -201,6 +201,14 @@ def test_autostart_doesnt_crash_when_shadow_import_fails(monkeypatch: pytest.Mon
     assert "_BOOTSTRAP_DONE" in src
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "Windows ignores chmod(0o500) on directories — the pre-flight "
+        "writability check correctly succeeds, then the wrapped child "
+        "runs and exits 99. This asserts POSIX-only permission semantics."
+    ),
+)
 def test_shadow_record_fails_fast_on_unwritable_output_path(tmp_path: Path) -> None:
     """A read-only output location must fail *before* the agent runs.
 
