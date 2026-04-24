@@ -23,6 +23,7 @@ Both importers are best-effort: unknown fields are ignored, missing
 required fields raise `ShadowConfigError` with a helpful hint.
 """
 
+from shadow.importers.a2a import A2A_FORMAT, a2a_to_agentlog
 from shadow.importers.braintrust import BRAINTRUST_FORMAT, braintrust_to_agentlog
 from shadow.importers.langfuse import LANGFUSE_FORMAT, langfuse_to_agentlog
 from shadow.importers.langsmith import LANGSMITH_FORMAT, langsmith_to_agentlog
@@ -33,6 +34,7 @@ from shadow.importers.pydantic_ai import PYDANTIC_AI_FORMAT, pydantic_ai_to_agen
 from shadow.importers.vercel_ai import VERCEL_AI_FORMAT, vercel_ai_to_agentlog
 
 __all__ = [
+    "A2A_FORMAT",
     "BRAINTRUST_FORMAT",
     "LANGFUSE_FORMAT",
     "LANGSMITH_FORMAT",
@@ -41,6 +43,7 @@ __all__ = [
     "OTEL_FORMAT",
     "PYDANTIC_AI_FORMAT",
     "VERCEL_AI_FORMAT",
+    "a2a_to_agentlog",
     "braintrust_to_agentlog",
     "langfuse_to_agentlog",
     "langsmith_to_agentlog",
