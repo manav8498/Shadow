@@ -798,6 +798,105 @@ def stage_zero_friction_adoption() -> None:
         )
 
 
+def stage_first_real_diff_experience() -> None:
+    """Phase A: auto-judge, low-n guidance, deterministic summary, --explain.
+
+    Validates the post-adoption first-diff UX on the same real
+    devops-agent fixtures the rest of the harness uses.
+    """
+    _heading("7. Phase A — first-real-diff experience")
+
+    # 7a. Deterministic summary produced from the real DiffReport.
+    from shadow.report.summary import summarise_report
+
+    report = _run_cli_diff()
+    summary = summarise_report(report)
+    _assert(len(summary) > 0, "deterministic summary is non-empty for a real PR")
+    _assert(
+        "tool-call trajectory" in summary.lower()
+        or "format conformance" in summary.lower(),
+        "summary surfaces the leading structural axis (trajectory / conformance)",
+    )
+    _assert(
+        "first divergence" in summary.lower(),
+        "summary embeds the first-divergence line",
+    )
+    _assert(len(summary) < 800, f"summary byte budget holds (got {len(summary)})")
+
+    # 7b. CLI end-to-end produces the "What this means" block.
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "shadow.cli.app",
+            "diff",
+            str(BASELINE_LOG),
+            str(CANDIDATE_LOG),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    combined = result.stdout + result.stderr
+    _assert(
+        "What this means" in combined,
+        "shadow diff terminal output includes a 'What this means' header",
+    )
+
+    # 7c. --judge auto without API keys falls through cleanly.
+    import os
+
+    env_no_keys = {k: v for k, v in os.environ.items() if not k.endswith("_API_KEY")}
+    env_no_keys["ANTHROPIC_API_KEY"] = ""
+    env_no_keys["OPENAI_API_KEY"] = ""
+    r2 = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "shadow.cli.app",
+            "diff",
+            str(BASELINE_LOG),
+            str(CANDIDATE_LOG),
+            "--judge",
+            "auto",
+        ],
+        capture_output=True,
+        text=True,
+        env=env_no_keys,
+        check=True,
+    )
+    _assert(
+        "ANTHROPIC_API_KEY" in (r2.stdout + r2.stderr),
+        "--judge auto with no keys explains which env vars to set",
+    )
+
+    # 7d. --judge auto with ANTHROPIC_API_KEY (dummy) picks anthropic
+    # — we only check the decision-log line, not the network call.
+    env_with_key = dict(env_no_keys)
+    env_with_key["ANTHROPIC_API_KEY"] = "sk-ant-test-DO-NOT-USE"
+    r3 = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "shadow.cli.app",
+            "diff",
+            str(BASELINE_LOG),
+            str(CANDIDATE_LOG),
+            "--judge",
+            "auto",
+        ],
+        capture_output=True,
+        text=True,
+        env=env_with_key,
+        check=False,  # backend call may fail on dummy key, that's fine
+    )
+    combined3 = r3.stdout + r3.stderr
+    _assert(
+        "auto -> sanity on anthropic" in combined3.lower(),
+        "--judge auto resolves to anthropic when ANTHROPIC_API_KEY is set",
+    )
+
+
 def main() -> int:
     print("Hero end-to-end: DevOps-agent PR safety review")
     print(f"  baseline: {BASELINE_LOG.relative_to(REPO_ROOT)}")
@@ -811,6 +910,7 @@ def main() -> int:
         stage_bisect()
         stage_customer_support_cross_domain()
         stage_zero_friction_adoption()
+        stage_first_real_diff_experience()
     except Exception as e:  # noqa: BLE001
         print(f"\nEXCEPTION: {type(e).__name__}: {e}", file=sys.stderr)
         FAILURES.append(f"uncaught: {e}")

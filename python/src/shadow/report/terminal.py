@@ -11,9 +11,19 @@ from rich.table import Table
 def render_terminal(report: dict[str, Any], console: Console | None = None) -> None:
     """Pretty-print a DiffReport dict to a Rich console (stderr by default)."""
     con = console or Console()
-    con.print(f"[bold]Shadow diff[/bold] — {report.get('pair_count', 0)} response pair(s)")
+    pair_count = int(report.get("pair_count", 0))
+    con.print(f"[bold]Shadow diff[/bold] — {pair_count} response pair(s)")
     con.print(f"baseline : {report.get('baseline_trace_id', '')}")
     con.print(f"candidate: {report.get('candidate_trace_id', '')}")
+    # Low-n banner: bootstrap CIs at n < 5 are unreliable, so signal
+    # this before the user reads the severity column. Matches the
+    # `LowPower` flag the Rust differ emits per-row.
+    if 0 < pair_count < 5:
+        con.print(
+            f"[yellow]⚠  Only {pair_count} paired response(s) — severities "
+            "below are directional, not definitive. Record 10+ turns for "
+            "stable confidence intervals.[/]"
+        )
     con.print()
     table = Table(show_lines=False, pad_edge=False)
     for col, justify in (
