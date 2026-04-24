@@ -199,6 +199,33 @@ class Session:
         self._records.append(self._envelope("tool_call", payload, record_id, parent=parent))
         return record_id
 
+    def record_metadata(
+        self,
+        payload: dict[str, Any],
+        parent_id: str | None = None,
+    ) -> str:
+        """Append an explicit ``metadata`` record to mark a session boundary.
+
+        Framework adapters that know a new logical session has begun —
+        a ``CrewKickoffStartedEvent`` in CrewAI, a new LangGraph run
+        that isn't continuing a thread, an AG2 ``initiate_chat`` — can
+        call this to write an authoritative marker. Shadow's session
+        detector treats multiple metadata records in a trace as the
+        canonical session boundary signal, superseding the stop-reason
+        / last-message heuristics. Traces without such markers keep
+        using those heuristics (back-compat preserved).
+
+        The payload is redacted just like chat payloads so no sensitive
+        identifiers leak into the marker.
+        """
+        if self._root_id is None:
+            raise RuntimeError("Session not entered; use `with Session(...) as s:`")
+        parent = parent_id if parent_id is not None else self._last_id()
+        redacted = self._redact(payload)
+        record_id = _core.content_id(redacted)
+        self._records.append(self._envelope("metadata", redacted, record_id, parent=parent))
+        return record_id
+
     def record_tool_result(
         self,
         tool_call_id: str,

@@ -41,6 +41,7 @@ Design notes
 
 from __future__ import annotations
 
+import contextlib
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -147,13 +148,43 @@ class ShadowCrewAIListener(BaseEventListener):
 
             @event_bus.on(CrewKickoffStartedEvent)
             def _on_kickoff_start(_source: Any, event: CrewKickoffStartedEvent) -> None:
-                # No-op for now; hook left here so future
-                # session-tagging work has a documented home.
-                _ = event
+                self._handle_kickoff_start(event)
 
             @event_bus.on(CrewKickoffCompletedEvent)
             def _on_kickoff_end(_source: Any, event: CrewKickoffCompletedEvent) -> None:
+                # Completed events don't need a marker — the next
+                # kickoff's Started event is the boundary for session N+1.
                 _ = event
+
+    # ---- kickoff markers ------------------------------------------------
+
+    def _handle_kickoff_start(self, event: CrewKickoffStartedEvent) -> None:
+        """Write an explicit session-boundary marker to the trace.
+
+        Without this marker, Shadow's heuristic session detector
+        fragments CrewAI traces: every ``LLMCallCompleted`` with
+        ``stop_reason=end_turn`` looks like a session boundary, and
+        a single crew kickoff that triggers N LLM calls ends up as
+        N single-call sessions. The explicit marker trumps the
+        heuristic so one kickoff == one session.
+        """
+        crew_name = _stringify(getattr(event, "crew_name", None))
+        crew_id = _stringify(getattr(event, "event_id", None))
+        task_id = _stringify(getattr(event, "task_id", None))
+        payload: dict[str, Any] = {
+            "source": "shadow.adapters.crewai",
+            "kind_detail": "crew_kickoff",
+        }
+        if crew_name:
+            payload["crew_name"] = crew_name
+        if crew_id:
+            payload["crew_id"] = crew_id
+        if task_id:
+            payload["task_id"] = task_id
+        # Session not yet entered - swallow so a misbehaving event-bus
+        # replay doesn't crash the user's crew.
+        with contextlib.suppress(RuntimeError):
+            self._session.record_metadata(payload)
 
     # ---- LLM pair handlers ---------------------------------------------
 
