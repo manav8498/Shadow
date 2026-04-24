@@ -11,6 +11,10 @@ runs offline — no API keys needed.
 | [`er-triage/`](er-triage/) | Clinical decision support for ER nurses across 5 heterogeneous patients. PR drops mandatory safety steps + downgrades ESI levels + loses JSON for EHR integration. | **High-stakes multi-tool scenario** showing what Shadow catches vs what needs a domain Judge. |
 | [`devops-agent/`](devops-agent/) | Autonomous prod-DB agent with 10 tools across 5 scenarios. Scenario 4 is a deliberate **tool-order reversal** (`pause_replication` and `restore_database` swapped → would corrupt replicas). | **Ordering regressions, tool-schema renames, negative-direction latency/verbosity regressions.** |
 | [`edge-cases/`](edge-cases/) | 20-case adversarial probe suite: identical traces, empty traces, Unicode NFC collisions, deeply nested payloads, order-only divergence, monotone signals, n=1 stats, etc. | **Permanent regression guard** against silent misbehaviour on unusual inputs. |
+| [`acme-extreme/`](acme-extreme/) | End-to-end stress scenario exercising every Shadow feature at once: multi-session trace, bisect, cost attribution, span diff, schema-watch, judge rubrics. | **Feature-integration proof** that the whole pipeline composes. |
+| [`judges/`](judges/) | Ready-to-copy rubric files for the four data-driven judges: `factuality`, `llm`, `procedure`, `refusal`. | **Judge templates** — drop one into your repo and point `--judge-config` at it. |
+| [`mcp-session/`](mcp-session/) | MCP (Model Context Protocol) server-session log → `shadow import --format mcp` → diff. Walkthrough shows what MCP captures vs what it doesn't. | **Bridge from MCP tooling** (Claude Desktop, Cursor, Zed) into Shadow. |
+| [`integrations/`](integrations/) | Push Shadow traces to Datadog, Splunk, or any OTel collector. Three sub-dirs: `datadog/`, `splunk/`, `otel-collector/`. | **Observability-platform hand-off** for teams that already have a dashboard. |
 
 ## Running any of them
 

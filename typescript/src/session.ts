@@ -1,7 +1,9 @@
 /** Shadow Session — records chat pairs into a `.agentlog` file. */
 
+import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { contentId, writeAgentlog, type AgentlogRecord } from './agentlog.js';
 import {
@@ -32,6 +34,36 @@ export interface SessionOptions {
 
 const SPEC_VERSION = '0.1';
 
+// Package version — read from the shipped package.json so SDK-provenance
+// records carry the actual installed version, not a stale literal. Reading
+// at module-load time (cheap, once per process) is standard practice for
+// Node SDKs that emit version headers.
+function _readSdkVersion(): string {
+  try {
+    // Walk up from the compiled file location (dist/session.js) to the
+    // package root, which contains package.json for this package.
+    const here = dirname(fileURLToPath(import.meta.url));
+    for (const candidate of [
+      `${here}/../package.json`,
+      `${here}/../../package.json`,
+    ]) {
+      try {
+        const raw = readFileSync(candidate, 'utf-8');
+        const parsed = JSON.parse(raw) as { version?: string; name?: string };
+        if (parsed.name === '@shadow/sdk' && typeof parsed.version === 'string') {
+          return parsed.version;
+        }
+      } catch {
+        continue;
+      }
+    }
+  } catch {
+    // fall through
+  }
+  return '0.0.0';
+}
+const SDK_VERSION: string = _readSdkVersion();
+
 export class Session {
   private readonly outputPath: string;
   private readonly tags: Record<string, string>;
@@ -59,7 +91,7 @@ export class Session {
 
   async enter(): Promise<this> {
     const metaPayload: Record<string, unknown> = {
-      sdk: { name: 'shadow', version: '0.1.0' },
+      sdk: { name: 'shadow', version: SDK_VERSION },
       runtime: {
         node: process.version,
         platform: `${process.platform}-${process.arch}`,
