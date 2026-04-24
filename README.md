@@ -3,7 +3,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-1.2.4-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.3.0-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -139,6 +139,33 @@ shadow init --github-action
 
 Drops a ready-to-commit workflow at `.github/workflows/shadow-diff.yml`. Point the `BASELINE` and `CANDIDATE` paths at fixtures you commit, and every PR gets a behavior-diff comment.
 
+## Use Shadow from an agentic CLI (MCP server)
+
+Shadow speaks the Model Context Protocol. Any MCP-aware client (Claude Desktop, Claude Code, Cursor, Zed, Windsurf, and others) can invoke Shadow as a tool:
+
+```json
+{
+  "mcpServers": {
+    "shadow": {
+      "command": "shadow",
+      "args": ["mcp-serve"]
+    }
+  }
+}
+```
+
+Tools exposed: `shadow_diff`, `shadow_check_policy`, `shadow_token_diff`, `shadow_schema_watch`, `shadow_summarise`. Install the extra first: `pip install 'shadow-diff[mcp]'`.
+
+## Mine production traces into a regression suite
+
+Most teams never write eval sets because it's tedious. Let Shadow do it from your production traces:
+
+```bash
+shadow mine production.agentlog --output suite.agentlog --max-cases 50
+```
+
+Clusters every turn-pair by tool sequence, stop reason, and verbosity, picks the most interesting example from each cluster (errors, refusals, high cost, heavy reasoning, very long or empty responses), and writes a new `.agentlog` you can commit as your CI baseline.
+
 ## Why regressions happened, not just that they happened
 
 When a PR changes three things at once (prompt + model + tool schema), a diff alone cannot tell you which one broke the agent. `shadow bisect` fits a sparse linear model (LASSO over corners with Meinshausen-Bühlmann stability selection) that attributes each behavioral axis's regression to specific config deltas:
@@ -216,7 +243,9 @@ Every example runs offline from committed fixtures. No API key required:
 | `shadow diff <baseline> <candidate>` | Nine-axis behavior diff. `--policy <f>` to enforce rules. `--token-diff` for per-turn token distribution. `--suggest-fixes` for LLM-assisted fix proposals. |
 | `shadow bisect <cfg-a> <cfg-b> --traces <set>` | Attribute each axis regression to specific config deltas. |
 | `shadow schema-watch <cfg-a> <cfg-b>` | Classify tool-schema changes before replaying. |
-| `shadow import <src> --format <fmt>` | Import foreign traces (langfuse, braintrust, langsmith, openai-evals, otel, mcp, vercel-ai, pydantic-ai). |
+| `shadow import <src> --format <fmt>` | Import foreign traces (langfuse, braintrust, langsmith, openai-evals, otel, mcp, a2a, vercel-ai, pydantic-ai). |
+| `shadow mine <traces...>` | Cluster production traces and pick representative cases as a regression suite. |
+| `shadow mcp-serve` | Run Shadow as a Model Context Protocol server so agentic CLIs can invoke it as a tool. |
 | `shadow report <report.json>` | Re-render a diff as terminal, markdown, or PR-comment. |
 
 ## Project layout

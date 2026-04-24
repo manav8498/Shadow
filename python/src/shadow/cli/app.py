@@ -1172,6 +1172,7 @@ class ImportFormat(StrEnum):
     mcp = "mcp"
     vercel_ai = "vercel-ai"
     pydantic_ai = "pydantic-ai"
+    a2a = "a2a"
 
 
 @app.command("import")
@@ -1190,6 +1191,7 @@ def import_cmd(
     you run Shadow's differ over traces you already have.
     """
     from shadow.importers import (
+        a2a_to_agentlog,
         braintrust_to_agentlog,
         langfuse_to_agentlog,
         langsmith_to_agentlog,
@@ -1271,6 +1273,22 @@ def import_cmd(
             else:
                 data = _parse_jsonl_or_array(text, "PydanticAI")
             records = pydantic_ai_to_agentlog(data)
+        elif fmt is ImportFormat.a2a:
+            # A2A session logs use the same JSON-RPC 2.0 shape family as
+            # MCP. The importer accepts JSONL, JSON array, and wrapped
+            # object forms.
+            stripped = text.lstrip()
+            if stripped.startswith("["):
+                data = json.loads(text)
+            elif stripped.startswith("{"):
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    parsed = None
+                data = parsed if isinstance(parsed, dict) else _parse_jsonl_or_array(text, "A2A")
+            else:
+                data = _parse_jsonl_or_array(text, "A2A")
+            records = a2a_to_agentlog(data)
         else:  # pragma: no cover — enum is exhaustive
             raise ValueError(f"unknown import format: {fmt}")
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -1454,6 +1472,106 @@ def schema_watch_cmd(
     )
     if worst <= threshold:
         raise typer.Exit(code=1)
+
+
+# ---- mine -----------------------------------------------------------------
+
+
+@app.command("mine")
+def mine_cmd(
+    traces: Annotated[
+        list[Path],
+        typer.Argument(
+            help="One or more .agentlog files to mine for representative cases.",
+        ),
+    ],
+    output: Annotated[
+        Path, typer.Option("--output", "-o", help="Where to write the mined .agentlog")
+    ],
+    max_cases: Annotated[
+        int,
+        typer.Option(
+            "--max-cases",
+            help="Cap on total selected pairs (default 50).",
+        ),
+    ] = 50,
+    per_cluster: Annotated[
+        int,
+        typer.Option(
+            "--per-cluster",
+            help="Cap on how many pairs to keep from each cluster (default 1).",
+        ),
+    ] = 1,
+    pricing: Annotated[
+        Path | None,
+        typer.Option("--pricing", help="Optional pricing.json for cost-aware scoring."),
+    ] = None,
+) -> None:
+    """Pick representative turn-pairs out of a production trace set.
+
+    Clusters all chat_request/chat_response pairs by tool-sequence +
+    stop_reason + verbosity and latency buckets, then picks the most
+    interesting example from each cluster (errors, refusals, high
+    cost, heavy reasoning, very short/long responses). Writes a new
+    .agentlog containing just the selected turns.
+
+    The result is a compact, representative fixture set suitable for
+    running `shadow diff` in CI against every PR.
+    """
+    from shadow.mine import mine as do_mine
+
+    try:
+        parsed_traces = []
+        for path in traces:
+            parsed_traces.append(_core.parse_agentlog(path.read_bytes()))
+        price_map: dict[str, Any] | None = None
+        if pricing is not None:
+            price_map = json.loads(pricing.read_text())
+        result = do_mine(
+            parsed_traces,
+            max_cases=max_cases,
+            per_cluster=per_cluster,
+            pricing=price_map,
+        )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(_core.write_agentlog(result.to_agentlog()))
+        err_console.print(
+            f"[green]✓[/] mined {len(result.cases)} cases from "
+            f"{result.total_input_pairs} pairs in "
+            f"{result.clusters_found} clusters → {output}"
+        )
+    except ShadowError as e:
+        _fail(e)
+    except Exception as e:
+        _fail(e)
+
+
+# ---- mcp-serve ------------------------------------------------------------
+
+
+@app.command("mcp-serve")
+def mcp_serve() -> None:
+    """Run Shadow as a Model Context Protocol server over stdio.
+
+    Exposes Shadow's diff, policy, token-diff, schema-watch, and summary
+    capabilities as MCP tools so any MCP client (Claude Desktop, Claude
+    Code, Cursor, Zed, and others) can invoke them. Typical config in
+    a client's mcpServers block:
+
+        "shadow": { "command": "shadow", "args": ["mcp-serve"] }
+
+    The server speaks stdio, which is the standard local transport for
+    MCP. Runs until the client closes the connection.
+    """
+    try:
+        from shadow.mcp_server import main as mcp_main
+    except ImportError as e:
+        err_console.print(
+            "[red]error[/]: mcp package is not installed.\n"
+            "hint: pip install 'shadow-diff[mcp]' (or pip install mcp)"
+        )
+        raise typer.Exit(code=1) from e
+    mcp_main()
 
 
 # ---- version (hidden convenience) -----------------------------------------

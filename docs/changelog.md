@@ -6,6 +6,56 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-04-24
+
+### Added
+
+Three features aimed at the April 2026 agent ecosystem.
+
+#### `shadow mcp-serve`: run Shadow as a Model Context Protocol server
+
+Shadow now speaks MCP. Any MCP-aware client (Claude Desktop, Claude Code, Cursor, Zed, Windsurf, and others) can connect over stdio and invoke Shadow's capabilities as tools. Five tools exposed:
+
+- `shadow_diff`: nine-axis diff between two `.agentlog` files, with optional policy enforcement
+- `shadow_check_policy`: run a YAML/JSON policy against two traces
+- `shadow_token_diff`: per-dimension token distribution summary
+- `shadow_schema_watch`: classify tool-schema changes before replay
+- `shadow_summarise`: plain-English summary from a saved DiffReport
+
+Wire it into a client's config:
+
+```json
+{ "shadow": { "command": "shadow", "args": ["mcp-serve"] } }
+```
+
+Install the extra: `pip install 'shadow-diff[mcp]'`.
+
+#### `shadow import --format a2a`: Agent-to-Agent session logs
+
+The A2A protocol (Linux Foundation, used in production at Microsoft, AWS, Salesforce, SAP, ServiceNow) is the agent-to-agent companion to MCP. Shadow's A2A importer:
+
+- Reads JSONL, JSON-array, and wrapped session shapes
+- Maps `tasks/send` and `tasks/result` pairs into `chat_request` and `chat_response`
+- Extracts Signed Agent Cards (A2A v1.0) into the metadata payload
+- Captures error responses as `stop_reason=error`
+
+The resulting `.agentlog` plugs into every existing Shadow command (`diff`, `bisect`, `policy`, `suggest-fixes`).
+
+#### `shadow mine`: turn production traces into regression suites
+
+```bash
+shadow mine production.agentlog --output suite.agentlog --max-cases 50
+```
+
+Clusters turn-pairs by tool sequence, stop reason, verbosity, and latency. Picks the most interesting representative from each cluster (errors, refusals, high cost, heavy reasoning, empty or very long responses). Writes a new `.agentlog` suitable as a committed baseline for CI. Optional `--pricing pricing.json` biases the selection toward expensive pairs.
+
+### Tests
+
+- 31 new tests covering MCP server, A2A importer, and mine
+- Full pytest suite: 519 passed (up from 488)
+- MCP server verified live over stdio: initialize, notifications/initialized, tools/list return 5 tools cleanly
+- cargo test, mypy --strict, ruff, ruff format --check, clippy -D warnings, cargo fmt --check all clean
+
 ## [1.2.4] - 2026-04-24
 
 ### Fixed, fourth discrepancy-sweep pass (deepest)
