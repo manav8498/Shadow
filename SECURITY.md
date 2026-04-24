@@ -1,8 +1,7 @@
 # Security Policy
 
-> **Honest scope note (v1.1):** Shadow has **not** had a formal
-> third-party security audit. The v1.1 hardening pass (below)
-> addresses resource-exhaustion, path-traversal, and subprocess-
+> **Honest scope note (as of v1.2.x):** Shadow has **not** had a formal
+> third-party security audit. The v1.1 hardening pass addresses resource-exhaustion, path-traversal, and subprocess-
 > injection classes of bug, but is not a substitute for a penetration
 > test by a qualified firm. If you run Shadow on untrusted inputs in
 > a multi-tenant context, commission an audit.

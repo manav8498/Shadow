@@ -1,6 +1,6 @@
 {
   "name": "@shadow/sdk",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "Shadow — Git-native behavioral diff for LLM agents (TypeScript SDK)",
   "license": "MIT",
   "repository": "github:manav8498/Shadow",
