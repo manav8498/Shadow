@@ -6,6 +6,79 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-24
+
+### Added — hierarchical diff (Phase D)
+
+New `shadow.hierarchical` module closing the last remaining gap from
+the four-phase plan. Shadow's reports previously sat at two levels —
+`trace` (nine-axis table) and `turn` (drill-down). Two real-world
+questions those couldn't answer:
+
+1. *Which session in a multi-conversation trace regressed?*
+2. *Within a regressed turn, which content block actually changed?*
+
+Phase D adds both layers:
+
+- **`diff_by_session(baseline, candidate, ...)`** — partitions both
+  traces by `metadata` record, runs `compute_diff_report` on each
+  session pair, returns one `SessionDiff` per session with its own
+  `DiffReport` and `worst_severity`. Mismatched session counts pad
+  the shorter side with empty sessions (pair_count 0 rows).
+
+- **`span_diff(baseline_response, candidate_response)`** —
+  content-block-level classifier. Surfaces: `text_block_changed`
+  (with char-Jaccard similarity + previews), `tool_use_added/
+  _removed`, `tool_use_args_changed` (arg-level deltas including
+  rename-as-remove-plus-add), `tool_result_changed` (is_error flip
+  + content differ), `stop_reason_changed`, `block_type_changed`.
+  Uses greedy index alignment — per-turn block counts are small
+  enough that Needleman-Wunsch's extra alignment artefacts
+  outweigh the benefits.
+
+- **CLI**: new `--hierarchical` flag on `shadow diff` prints a
+  worst-severity-per-session rollup after the nine-axis table.
+  Defaults off — on single-session traces it's redundant with the
+  top-level severity.
+
+### 1.0 milestone
+
+v1.0.0 marks feature-complete for the four-phase strategic plan:
+
+- **Phase A** (first-real-diff experience) — auto-judge, low-n
+  guidance, "what this means" deterministic summary, `--explain`
+  LLM narrative (shipped in v0.4.0).
+- **Phase B** (MCP server importer) — `shadow import --format mcp`
+  ingests Anthropic's Model Context Protocol session logs
+  (shipped in v0.5.0).
+- **Phase C** (session-cost attribution) — per-session cost delta
+  decomposition into model_swap + token_movement + mix_residual
+  (shipped in v0.6.0).
+- **Phase D** (hierarchical diff) — session-level + span-level
+  breakdowns (this release).
+
+Test state at v1.0.0:
+- **374 Python unit tests** (all green, no skips outside live-API)
+- **199 Rust tests**
+- **17 live-LLM judge tests** (verified against real Claude Haiku
+  4.5 and GPT-4o-mini)
+- **79 hero end-to-end assertions** across 10 stages on real
+  committed `.agentlog` fixtures
+- `cargo fmt/clippy -D warnings`, `ruff check/format --check`,
+  `mypy --strict` all clean across 68 source files
+
+### Tests (Phase D)
+
+- 18 new `test_hierarchical.py` tests: session partitioning,
+  worst-severity propagation, mismatched-session padding, span-level
+  type-swap / tool-use arg changes / tool-result flips /
+  stop_reason changes / identity-mapped block indices, both
+  renderers.
+- Hero harness: 73 → **79 assertions**. New
+  `stage_hierarchical_diff` asserts exactly 1 session detected in
+  the devops-agent trace, worst_severity = severe, 5 paired
+  responses, and span-level detects ≥ 1 tool_use change on turn #0.
+
 ## [0.6.0] - 2026-04-24
 
 ### Added — session-cost attribution (Phase C)
