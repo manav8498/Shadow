@@ -680,13 +680,27 @@ def render_token_diff(diff: TokenDiff) -> str:
 
 @dataclass
 class PolicyRule:
-    """One declarative constraint a policy can check against a trace."""
+    """One declarative constraint a policy can check against a trace.
+
+    `scope` controls how the rule is applied to traces containing multiple
+    user-initiated sessions (e.g. a production trace with N tickets
+    concatenated). ``"trace"`` (the default, for back-compat) runs the rule
+    once across the whole record list. ``"session"`` partitions the trace
+    into user-initiated sessions — each request whose most recent
+    non-system message is from the user starts a new session — and runs
+    the rule independently within each session, emitting one violation
+    per offending session. For ordering rules like ``must_call_before``,
+    session scope is almost always what you want on multi-ticket traces:
+    otherwise a correct ordering in ticket #1 masks every subsequent
+    violation.
+    """
 
     id: str  # e.g. "call-backup-before-migration"
     kind: str  # see _POLICY_KINDS
     params: dict[str, Any]
     severity: str = "error"  # "warning" | "error" | "critical"
     description: str = ""
+    scope: str = "trace"  # "trace" | "session"
 
 
 @dataclass
@@ -767,6 +781,11 @@ def load_policy(data: Any) -> list[PolicyRule]:
                 f"policy rule #{i} has unknown kind {kind!r}.\n"
                 f"hint: supported kinds are {sorted(_POLICY_KINDS)}"
             )
+        scope = raw.get("scope", "trace")
+        if scope not in ("trace", "session"):
+            raise ShadowConfigError(
+                f"policy rule #{i} has invalid scope {scope!r}; " f"must be 'trace' or 'session'."
+            )
         out.append(
             PolicyRule(
                 id=str(raw.get("id") or f"rule-{i}"),
@@ -774,19 +793,31 @@ def load_policy(data: Any) -> list[PolicyRule]:
                 params=dict(raw.get("params") or {}),
                 severity=str(raw.get("severity") or "error"),
                 description=str(raw.get("description") or ""),
+                scope=scope,
             )
         )
     return out
 
 
 def check_policy(records: list[dict[str, Any]], rules: list[PolicyRule]) -> list[PolicyViolation]:
-    """Run every rule against one trace; return the flat violation list."""
+    """Run every rule against one trace; return the flat violation list.
+
+    Rules with ``scope="session"`` are applied independently within each
+    user-initiated session (see :func:`_compute_session_of_pair`), so a
+    single well-ordered ticket cannot mask subsequent violations.
+    """
     violations: list[PolicyViolation] = []
     tool_calls = _extract_tool_call_sequence(records)
     responses = [r for r in records if r.get("kind") == "chat_response"]
 
+    needs_sessions = any(rule.scope == "session" for rule in rules)
+    session_of_pair = _compute_session_of_pair(records) if needs_sessions else []
+
     for rule in rules:
-        violations.extend(_check_single_rule(rule, records, tool_calls, responses))
+        if rule.scope == "session":
+            violations.extend(_check_rule_per_session(rule, tool_calls, responses, session_of_pair))
+        else:
+            violations.extend(_check_single_rule(rule, records, tool_calls, responses))
     return violations
 
 
@@ -804,6 +835,123 @@ def _extract_tool_call_sequence(
         for block in payload.get("content") or []:
             if isinstance(block, dict) and block.get("type") == "tool_use":
                 out.append((pair_idx, str(block.get("name") or ""), dict(block.get("input") or {})))
+    return out
+
+
+def _is_session_start(request_payload: dict[str, Any]) -> bool:
+    """True when a ``chat_request`` begins a new user-initiated session.
+
+    Detection walks ``payload.messages`` backward, skipping ``system``
+    entries, and checks whether the most recent remaining role is
+    ``"user"``. Tool-result follow-ups (``role == "tool"``) and assistant
+    continuations (``role == "assistant"``) are correctly treated as
+    mid-session turns. Requests whose ``messages`` array is absent or
+    empty are conservatively treated as session starts — the typical
+    shape for importers (A2A, MCP) that flatten every task into a
+    single-message request.
+    """
+    messages = request_payload.get("messages")
+    if not isinstance(messages, list) or not messages:
+        return True
+    for m in reversed(messages):
+        if not isinstance(m, dict):
+            continue
+        role = m.get("role")
+        if role == "system":
+            continue
+        return role == "user"
+    return True
+
+
+# Only `tool_use` marks a mid-turn response: the agent pauses to run a
+# tool and will resume. Every other stop_reason — end_turn, max_tokens,
+# stop_sequence, content_filter, refusal, error, and any novel value a
+# foreign importer might introduce — signals the agent is done speaking,
+# which means the next request is necessarily a new session. Treating
+# unknown stop_reasons as terminal is the robust default for foreign
+# trace shapes; a non-tool_use value never legitimately continues a turn.
+_CONTINUATION_STOP_REASON = "tool_use"
+
+
+def _compute_session_of_pair(records: list[dict[str, Any]]) -> list[int]:
+    """Map each response's pair_index → session index.
+
+    Walks records in order, tracking which session each ``chat_request``
+    belongs to, and tags the following ``chat_response`` with that
+    session. Two independent signals mark a session boundary so detection
+    stays correct even when one of them is absent:
+
+    1. **Request shape** — the request's most recent non-system message
+       is from the user (see :func:`_is_session_start`). Covers the
+       common path where tool results are appended to ``messages``
+       mid-session.
+    2. **Prior terminal stop reason** — the previous response ended with
+       anything other than ``tool_use``. The agent finished its turn, so
+       the following request is necessarily a new session regardless of
+       how the trace recorded its message history. Recovers session
+       boundaries in traces where ``messages`` were abbreviated,
+       post-mutated, or imported from a foreign format that didn't
+       preserve them.
+
+    Records without request/response pairing (orphan responses at the
+    start, pure metadata-only traces) are handled defensively. Returns
+    a list of length ``len(responses)``.
+    """
+    session_of_pair: list[int] = []
+    session_idx = -1
+    pending_session: int | None = None
+    prior_stop_terminal = True  # before any response, the "prior" state
+    # is "agent not mid-turn" → the first request starts session 0.
+    for rec in records:
+        kind = rec.get("kind")
+        if kind == "chat_request":
+            payload = rec.get("payload") or {}
+            if _is_session_start(payload) or prior_stop_terminal:
+                session_idx += 1
+            pending_session = session_idx if session_idx >= 0 else 0
+            if session_idx < 0:
+                session_idx = 0
+            # Consume the terminal marker — only the first request after
+            # a terminal response gets the boundary; subsequent requests
+            # inside the same session don't.
+            prior_stop_terminal = False
+        elif kind == "chat_response":
+            if pending_session is None:
+                session_idx = max(session_idx, 0)
+                pending_session = session_idx
+            session_of_pair.append(pending_session)
+            pending_session = None
+            stop = (rec.get("payload") or {}).get("stop_reason", "")
+            prior_stop_terminal = stop != _CONTINUATION_STOP_REASON
+    return session_of_pair
+
+
+def _check_rule_per_session(
+    rule: PolicyRule,
+    tool_calls: list[tuple[int, str, dict[str, Any]]],
+    responses: list[dict[str, Any]],
+    session_of_pair: list[int],
+) -> list[PolicyViolation]:
+    """Apply ``rule`` once per session; combine the per-session violations.
+
+    Sessions with no tool calls *and* no responses are skipped (nothing
+    to check). Sessions with only one of the two are still evaluated so
+    rules like ``no_call`` (tool-call only) and ``required_stop_reason``
+    (response only) both work correctly.
+    """
+    if not session_of_pair:
+        # No session info — safest fallback is to treat the entire trace as
+        # one session so behavior matches the trace-scoped path.
+        return _check_single_rule(rule, [], tool_calls, responses)
+
+    num_sessions = max(session_of_pair) + 1
+    out: list[PolicyViolation] = []
+    for s_idx in range(num_sessions):
+        s_tool_calls = [tc for tc in tool_calls if session_of_pair[tc[0]] == s_idx]
+        s_responses = [r for i, r in enumerate(responses) if session_of_pair[i] == s_idx]
+        if not s_tool_calls and not s_responses:
+            continue
+        out.extend(_check_single_rule(rule, [], s_tool_calls, s_responses))
     return out
 
 

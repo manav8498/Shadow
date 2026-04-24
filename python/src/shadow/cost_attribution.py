@@ -109,10 +109,18 @@ class CostAttributionReport:
 def partition_sessions(records: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     """Split a flat record list into per-session chunks.
 
-    A session starts at a `metadata` record and runs until the next
-    `metadata` record (or end of trace). Records before any
-    `metadata` — a corrupt or truncated log — become a single
-    leading session.
+    Primary signal: a session starts at a ``metadata`` record and runs
+    until the next ``metadata`` record. This is the shape the Shadow
+    SDK emits — one metadata marker per ``Session()`` context.
+
+    Fallback: if the primary partition returns exactly one session but
+    that session contains multiple user-initiated sub-sessions (imports
+    from foreign tracers like A2A, MCP, or OTel often concatenate
+    multiple tickets under a single metadata record), split on implicit
+    boundaries inferred from request shape + terminal stop reasons.
+    Without this fallback, imported multi-ticket traces would silently
+    appear as one giant session in ``diff_by_session`` — the same bug
+    that masked the original policy-check regressions.
     """
     sessions: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
@@ -127,7 +135,53 @@ def partition_sessions(records: list[dict[str, Any]]) -> list[list[dict[str, Any
                 current.append(rec)
     if current:
         sessions.append(current)
+
+    if len(sessions) == 1:
+        split = _split_by_implicit_boundaries(sessions[0])
+        if len(split) > 1:
+            return split
     return sessions
+
+
+def _split_by_implicit_boundaries(
+    session_records: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    """Fall back to user-initiated boundary detection when a single
+    metadata-delimited block contains multiple sub-sessions.
+
+    Uses the same two-signal detector as the policy checker
+    (:func:`shadow.hierarchical._compute_session_of_pair`): a new
+    sub-session starts at a ``chat_request`` whose most recent
+    non-system message role is ``user``, *or* whose preceding response
+    had a non-``tool_use`` stop reason. The leading metadata record
+    stays with the first sub-session; subsequent sub-sessions carry no
+    metadata and rely on the metadata from the outer partition.
+    """
+    # Imported lazily to avoid a circular import with hierarchical.
+    from shadow.hierarchical import _CONTINUATION_STOP_REASON, _is_session_start
+
+    out: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    prior_stop_terminal = True  # first request after metadata starts a session
+    for rec in session_records:
+        kind = rec.get("kind")
+        if kind == "chat_request":
+            payload = rec.get("payload") or {}
+            starts_new = _is_session_start(payload) or prior_stop_terminal
+            if starts_new and any(
+                r.get("kind") in ("chat_request", "chat_response") for r in current
+            ):
+                # Close off the previous sub-session and begin a new one.
+                out.append(current)
+                current = []
+            prior_stop_terminal = False
+        elif kind == "chat_response":
+            stop = (rec.get("payload") or {}).get("stop_reason", "")
+            prior_stop_terminal = stop != _CONTINUATION_STOP_REASON
+        current.append(rec)
+    if current:
+        out.append(current)
+    return out
 
 
 # ---- per-session cost rollup ---------------------------------------------

@@ -90,6 +90,11 @@ pub enum Flag {
     /// reject "no effect"; the observed delta may be noise. Severity
     /// is capped at `Minor` in this case regardless of `|delta|`.
     CiCrossesZero,
+    /// Cost axis could not price any pair — either no pricing table was
+    /// supplied or the table has no entries for the traced models.
+    /// A `0.00` cost delta in this state means "unknown", not "equal".
+    /// Emitted only on [`Axis::Cost`].
+    NoPricing,
 }
 
 impl Flag {
@@ -98,6 +103,7 @@ impl Flag {
         match self {
             Flag::LowPower => "low_power",
             Flag::CiCrossesZero => "ci_crosses_zero",
+            Flag::NoPricing => "no_pricing",
         }
     }
 }

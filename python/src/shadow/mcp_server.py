@@ -196,8 +196,12 @@ def _build_tools() -> list[Any]:
                 "Supported rule kinds: must_call_before, must_call_once, "
                 "no_call, max_turns, required_stop_reason, "
                 "max_total_tokens, must_include_text, forbidden_text. "
-                "Returns baseline_violations, candidate_violations, "
-                "regressions, and fixes."
+                "Each rule accepts `scope: trace` (default) or "
+                "`scope: session` — session-scoped rules are evaluated "
+                "independently per user-initiated session, which is "
+                "almost always what you want on multi-ticket production "
+                "traces. Returns baseline_violations, "
+                "candidate_violations, regressions, and fixes."
             ),
             inputSchema={
                 "type": "object",
