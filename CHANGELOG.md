@@ -6,6 +6,26 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-04-23
+
+### Changed
+
+- **PyPI distribution name renamed from `shadow` to `shadow-diff`.**
+  The short `shadow` name was already registered on PyPI by an
+  unrelated 2015 btrfs-snapshot utility, so the project is now
+  published as `pip install shadow-diff`. The Python import path
+  (`import shadow`), the installed CLI command (`shadow`), and the
+  GitHub repo slug (`manav8498/Shadow`) are unchanged — only the
+  PyPI distribution name differs.
+
+### Fixed
+
+- **Release pipeline** — `cargo cyclonedx --output-pattern package`
+  rejected the `--output-pattern` flag on `cargo-cyclonedx` 0.5.7
+  (upstream removed it). Dropped the flag and rely on the default
+  per-crate output path; the schema-valid minimal-SBOM fallback
+  still catches any future upstream path drift.
+
 ## [0.2.1] - 2026-04-23
 
 ### Fixed

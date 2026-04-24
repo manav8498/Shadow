@@ -23,7 +23,7 @@ allowed to publish to the `shadow` name.
 
    | Field | Value |
    |---|---|
-   | PyPI Project Name | `shadow` |
+   | PyPI Project Name | `shadow-diff` |
    | Owner | `manav8498` |
    | Repository name | `Shadow` |
    | Workflow name | `release.yml` |
@@ -32,8 +32,14 @@ allowed to publish to the `shadow` name.
 4. Click **Add**.
 
 This creates a *pending* trusted publisher. The first successful
-publish from the matching workflow claims the `shadow` name and
-promotes the pending publisher to a permanent one.
+publish from the matching workflow claims the `shadow-diff` name
+and promotes the pending publisher to a permanent one.
+
+> **Note on the name:** the PyPI project is `shadow-diff` because
+> the bare `shadow` name was already registered on PyPI (an
+> unrelated btrfs-snapshot utility from 2015). The Python import,
+> CLI, and repo slug all stay `shadow`; only the `pip install`
+> name differs.
 
 ### 2. Create the `pypi` GitHub Environment
 
@@ -69,7 +75,7 @@ https://github.com/manav8498/Shadow/actions/workflows/release.yml.
 If a required reviewer is configured, the `publish-pypi` job waits
 for approval.
 
-On success: `pip install shadow==0.2.1` works within ~60 s.
+On success: `pip install shadow-diff==0.2.2` works within ~60 s.
 
 ## Backfilling v0.2.0
 
