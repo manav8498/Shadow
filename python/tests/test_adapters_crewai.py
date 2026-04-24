@@ -255,6 +255,41 @@ def test_kickoff_events_emit_session_markers(tmp_path: Path) -> None:
     assert sessions[0] != sessions[2]
 
 
+def test_quiet_internal_listeners_silences_synthetic_event_noise(
+    tmp_path: Path, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """With quiet_internal_listeners=True, CrewAI's built-in handlers
+    that choke on synthetic event sources are detached and no
+    ``'str' object has no attribute 'id'`` errors print to stderr.
+    """
+    out = tmp_path / "trace.agentlog"
+    with Session(output_path=out, auto_instrument=False) as s:
+        ShadowCrewAIListener(s, quiet_internal_listeners=True)
+        _emit(CrewKickoffStartedEvent(crew_name="c", inputs={}))
+        _emit(
+            LLMCallStartedEvent(
+                model="m", call_id="c1", messages=[{"role": "user", "content": "q"}]
+            )
+        )
+        _emit(
+            LLMCallCompletedEvent(
+                model="m",
+                call_id="c1",
+                messages=[],
+                response="a",
+                call_type="llm_call",
+                usage={},
+            )
+        )
+
+    err = capfd.readouterr().err
+    assert "'str' object has no attribute 'id'" not in err, "noisy internal handler still fired"
+    # And we still record the chat pair and kickoff marker.
+    records = _core.parse_agentlog(out.read_bytes())
+    assert any(r["kind"] == "chat_response" for r in records)
+    assert sum(1 for r in records if r["kind"] == "metadata") >= 2
+
+
 def test_tool_error_event_marks_result_as_error(tmp_path: Path) -> None:
     out = tmp_path / "trace.agentlog"
     with Session(output_path=out, auto_instrument=False) as s:

@@ -106,7 +106,30 @@ class ShadowCrewAIListener(BaseEventListener):
         *,
         session_tag: str | None = None,
         capture_kickoff: bool = True,
+        quiet_internal_listeners: bool = False,
     ) -> None:
+        """Wire the listener to CrewAI's event bus.
+
+        Parameters
+        ----------
+        session
+            Active Shadow session to record into.
+        session_tag
+            Optional label stamped on ``meta.session_tag`` per record.
+        capture_kickoff
+            Emit an authoritative metadata marker on every
+            ``CrewKickoffStartedEvent`` so Shadow's session detector
+            groups one kickoff into one session. Default on.
+        quiet_internal_listeners
+            Detach CrewAI's built-in telemetry handlers for the events
+            we care about (LLM, tool, crew kickoff). Set this when
+            driving the event bus with synthetic events in tests — the
+            built-in ``TraceCollectionListener`` expects the event's
+            ``source`` to be a real ``Crew`` / ``Task`` object and
+            raises ``'str' object has no attribute 'id'`` otherwise.
+            In production with ``Crew.kickoff()`` the sources are
+            always real, so the default is False (no interference).
+        """
         self._session = session
         self._session_tag = session_tag
         self._capture_kickoff = capture_kickoff
@@ -114,6 +137,8 @@ class ShadowCrewAIListener(BaseEventListener):
         self._pending_calls: dict[str, tuple[dict[str, Any], float]] = {}
         # call_id -> (tool_name, tool_call_id, started_at_monotonic)
         self._pending_tools: dict[str, tuple[str, str, float]] = {}
+        if quiet_internal_listeners:
+            _detach_noisy_internal_handlers()
         # Must run last so handlers are registered.
         super().__init__()
 
@@ -286,6 +311,42 @@ class ShadowCrewAIListener(BaseEventListener):
             is_error=True,
             latency_ms=latency_ms,
         )
+
+
+# ---- noise suppression ---------------------------------------------------
+
+
+# Names of CrewAI's built-in handlers that crash when the event's
+# ``source`` isn't a real Crew/Task object. When driving the bus with
+# synthetic events from a test harness they print
+# ``[CrewAIEventsBus] Sync handler error in on_crew_started: 'str'
+# object has no attribute 'id'`` — benign but noisy.
+_NOISY_HANDLER_QUALNAMES = frozenset(
+    {
+        "TraceCollectionListener._register_context_event_handlers.<locals>.on_crew_started",
+        "EventListener.setup_listeners.<locals>.on_crew_kickoff_hooks",
+        "EventListener.setup_listeners.<locals>.on_crew_started",
+    }
+)
+
+
+def _detach_noisy_internal_handlers() -> None:
+    """Remove CrewAI's built-in handlers that choke on synthetic events.
+
+    Walks the event bus's per-event-type handler lists, matches
+    handlers by their ``__qualname__`` against an allowlist, and
+    unregisters each match via the public ``off()`` method. Idempotent:
+    re-running on an already-clean bus is a no-op.
+    """
+    try:
+        sync_handlers = crewai_event_bus._sync_handlers
+    except AttributeError:
+        return
+    for event_type, handlers in list(sync_handlers.items()):
+        for handler in list(handlers):
+            qual = getattr(handler, "__qualname__", "")
+            if qual in _NOISY_HANDLER_QUALNAMES:
+                crewai_event_bus.off(event_type, handler)
 
 
 # ---- helpers --------------------------------------------------------------
