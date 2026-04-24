@@ -56,17 +56,33 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.11", "3.12"]
+        # POSIX venvs put python at `.venv/bin/python`; Windows venvs
+        # put it at `.venv/Scripts/python.exe`. Pre-compute the right
+        # path per-OS via `include` so every step can just call
+        # `${{ matrix.venv_py }}` without branching at runtime.
+        include:
+          - os: ubuntu-latest
+            python: "3.11"
+            venv_py: .venv/bin/python
+          - os: ubuntu-latest
+            python: "3.12"
+            venv_py: .venv/bin/python
+          - os: macos-latest
+            python: "3.11"
+            venv_py: .venv/bin/python
+          - os: macos-latest
+            python: "3.12"
+            venv_py: .venv/bin/python
+          - os: windows-latest
+            python: "3.11"
+            venv_py: .venv/Scripts/python.exe
+          - os: windows-latest
+            python: "3.12"
+            venv_py: .venv/Scripts/python.exe
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash  # force bash on Windows too; avoids pwsh syntax mismatches.
-    env:
-      # POSIX venvs put python at `.venv/bin/python`; Windows venvs put it
-      # at `.venv/Scripts/python.exe`. Compose one var per OS so subsequent
-      # steps can just call $VENV_PY without branching.
-      VENV_PY: ${{ runner.os == 'Windows' && '.venv/Scripts/python.exe' || '.venv/bin/python' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -90,27 +106,27 @@ jobs:
       - name: Create venv and install shadow (with dev extras)
         run: |
           uv venv --python ${{ matrix.python }} .venv
-          uv pip install --python "$VENV_PY" -e "python[dev]"
+          uv pip install --python "${{ matrix.venv_py }}" -e "python[dev]"
 
       - name: Build PyO3 extension
         env:
           VIRTUAL_ENV: ${{ github.workspace }}/.venv
         run: |
           cd python
-          "../$VENV_PY" -m maturin develop --features extension --release
+          "../${{ matrix.venv_py }}" -m maturin develop --features extension --release
 
       - name: ruff check
-        run: "$VENV_PY -m ruff check python/ examples/"
+        run: "${{ matrix.venv_py }} -m ruff check python/ examples/"
 
       - name: ruff format --check
-        run: "$VENV_PY -m ruff format --check python/ examples/"
+        run: "${{ matrix.venv_py }} -m ruff format --check python/ examples/"
 
       - name: mypy --strict
-        run: "$VENV_PY -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py"
+        run: "${{ matrix.venv_py }} -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py"
 
       - name: pytest (coverage gate 85%)
         run: |
-          "$VENV_PY" -m pytest python/tests \
+          "${{ matrix.venv_py }}" -m pytest python/tests \
             --cov=shadow --cov-config=python/pyproject.toml --cov-fail-under=85 \
             --cov-report=term-missing
 
