@@ -192,15 +192,6 @@ Full details in [`SPEC.md`](SPEC.md).
 
 Shadow is complementary to the dashboard tools. They capture traces; Shadow compares behavior between a baseline and a candidate and decides whether the change is safe to merge. You can pair Shadow with any of them.
 
-## Honest limits
-
-Shadow is a young project. Version 1.2 is stable enough to run in CI on small and medium projects. A few things to know:
-
-- **No third-party security audit yet.** See [`SECURITY.md`](SECURITY.md). If you plan to run Shadow on untrusted input in a multi-tenant environment, commission one.
-- **Semantic axis defaults to lexical comparison.** Real sentence-transformer embeddings are opt-in (`pip install 'shadow-diff[embeddings]'`). The default is fine for most PR-review uses; turn embeddings on if your agent's outputs are often paraphrased.
-- **Judge axis needs a rubric.** Domain-specific judges (refund policy, medical triage, code review) are supplied by you as YAML rubric files. See [`examples/judges/`](examples/judges/) for templates.
-- **Solo-maintained today.** Small response time on issues and PRs. Contributions welcome.
-
 ## Examples
 
 Every example runs offline from committed fixtures. No API key required:
