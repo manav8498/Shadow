@@ -6,6 +6,86 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-04-24
+
+### Fixed — fourth discrepancy-sweep pass (deepest)
+
+A last deep audit turned up real user-facing drift in docs + metadata:
+
+#### Docs-site was missing every v1.2 feature
+
+- **`docs/reference/cli.md`** didn't document any v1.2 flag: no
+  `--token-diff`, `--policy`, `--suggest-fixes`, `--partial`,
+  `--branch-at`, `vercel-ai`, `pydantic-ai`. Users reading the
+  published CLI reference couldn't find half the v1.2 release's
+  features. Rewrote with full v1.2 coverage.
+- **`docs/features/hierarchical.md`** claimed **"token-level: deferred
+  to v1.1+"** — but we shipped token-level in v1.2.0. The table now
+  documents all six real levels (trace/session/turn/span/token/policy)
+  with actual shipped-in-version labels, plus dedicated sections for
+  the two v1.2 levels covering CLI flags, rule kinds, and scale.
+- **`docs/index.md` Highlights** was pre-v1.2: no mention of token/
+  policy diff, partial replay, Vercel AI + PydanticAI importers,
+  LLM-assisted fixes, or Python 3.13 support. Updated.
+
+#### SPEC.md drift from code
+
+- `replay_summary` §4.7 documented a `candidate_config_hash` field
+  that the implementation has **never** emitted; the actual field is
+  `backend_id`. Also missing the v1.2 `branch_at` + `prefix_turn_count`
+  optional fields for partial replay. SPEC now documents the real
+  shape with both required and optional fields in a proper table.
+
+#### Platform-claim alignment
+
+- `pyproject.toml` classifiers claimed **Linux + macOS** only but
+  Shadow has shipped a working **Windows CI matrix since v1.1**. Added
+  `Operating System :: Microsoft :: Windows`.
+- `pyproject.toml` classifies **Python 3.13** support but CI didn't
+  test it. Added `python: "3.13"` for all three OSs in the CI matrix
+  (9 pytest jobs now: 3 OS × 3 Python versions). Verified Shadow
+  1.2.x imports and runs cleanly under a fresh Python 3.13 venv.
+
+#### TypeScript license inconsistency
+
+- `typescript/package.json` was licensed `"MIT"` only while Rust +
+  Python packages are dual-licensed `"MIT OR Apache-2.0"`. SPDX form
+  `"(MIT OR Apache-2.0)"` now matches.
+
+#### Stale version references
+
+- `.github/ISSUE_TEMPLATE/bug_report.yml` placeholder said
+  `"shadow 0.1.0"` → now `"1.2.4"`.
+- `docs/PYPI-PUBLISHING.md` example used `v0.2.1` as the tag to push
+  → now `v1.2.4`.
+
+### Added — crates.io publish (gated, auto-skip if token absent)
+
+Noticed during this audit: `shadow-core` is published on crates.io at
+**v0.1.0** and has never been updated — the release workflow builds a
+Rust source tarball but doesn't push to crates.io. Added a new
+`publish-crates` job to `.github/workflows/release.yml` that:
+
+- Runs on every `v*` tag push after `sign-and-release`.
+- Emits a `::notice::` and exits clean if `CARGO_REGISTRY_TOKEN` is
+  not configured as a repo secret (so the release pipeline still
+  succeeds).
+- Publishes `shadow-core` via `cargo publish` when the token is set.
+
+Maintainers can enable crates.io auto-publish by adding the
+`CARGO_REGISTRY_TOKEN` secret to the repo — no workflow change
+needed.
+
+### Verified
+
+- 488 pytest green
+- Python 3.13 compat confirmed against the PyPI 1.2.2 wheel in a
+  fresh venv
+- `cargo test` + clippy + fmt clean
+- mypy `--strict`, ruff check + format clean
+- Docs auto-sync (`CHANGELOG.md` / `SECURITY.md` → `docs/`) continues
+  to run on every docs build
+
 ## [1.2.3] - 2026-04-24
 
 ### Fixed — third discrepancy-sweep pass (deep dependency + docs audit)

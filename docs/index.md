@@ -42,12 +42,18 @@ for the full walkthrough.
   95% CIs on attribution weights
 - **Session-cost attribution**: decomposes cost delta into model-swap,
   token-movement, mix-residual
-- **Hierarchical diff**: trace → session → turn → span levels
-- **MCP importer**: first behavioural-diff tool that understands
-  Model Context Protocol session logs
+- **Six-level hierarchical diff** — trace, session, turn, span,
+  **token** *(v1.2)*, **policy** *(v1.2)*
+- **Eight importers** for bridging from existing observability
+  tooling: Langfuse, Braintrust, LangSmith, OpenAI Evals, OTLP, MCP,
+  **Vercel AI SDK** *(v1.2)*, **PydanticAI** *(v1.2)*
+- **Partial replay** *(v1.2)* — lock a baseline prefix, replay only
+  the suffix through a live backend
+- **LLM-assisted prescriptive fixes** *(v1.2)* — grounded, anchored
+  to deterministic recommendations; ungrounded model output rejected
 - **Zero-config instrumentation**: `shadow record -- python agent.py`
   works on any agent, zero code changes
-- **Cross-OS**: Ubuntu, macOS, Windows, py3.11 + 3.12
+- **Cross-OS**: Ubuntu, macOS, Windows × Python 3.11, 3.12, 3.13
 
 ## Where to next
 

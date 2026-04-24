@@ -67,17 +67,26 @@ jobs:
           - os: ubuntu-latest
             python: "3.12"
             venv_py: .venv/bin/python
+          - os: ubuntu-latest
+            python: "3.13"
+            venv_py: .venv/bin/python
           - os: macos-latest
             python: "3.11"
             venv_py: .venv/bin/python
           - os: macos-latest
             python: "3.12"
+            venv_py: .venv/bin/python
+          - os: macos-latest
+            python: "3.13"
             venv_py: .venv/bin/python
           - os: windows-latest
             python: "3.11"
             venv_py: .venv/Scripts/python.exe
           - os: windows-latest
             python: "3.12"
+            venv_py: .venv/Scripts/python.exe
+          - os: windows-latest
+            python: "3.13"
             venv_py: .venv/Scripts/python.exe
     runs-on: ${{ matrix.os }}
     defaults:
