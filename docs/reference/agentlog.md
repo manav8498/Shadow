@@ -1,4 +1,4 @@
-# The.agentlog format
+# The .agentlog format
 
 Shadow's on-disk trace format. JSON-Lines, content-addressed, streaming-safe.
 
