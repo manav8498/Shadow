@@ -185,6 +185,28 @@ def stage_diff_core() -> dict[str, Any]:
         any(r.get("severity") == "error" for r in recs),
         f"at least one error-severity recommendation (got {len(recs)} total)",
     )
+    # Drill-down populated and sorted by regression_score desc.
+    drill = report.get("drill_down", [])
+    _assert(
+        len(drill) >= 3,
+        f"drill-down surfaces ≥ 3 regressive pairs (got {len(drill)})",
+    )
+    scores = [row["regression_score"] for row in drill]
+    _assert(
+        scores == sorted(scores, reverse=True),
+        "drill-down pairs sorted by regression_score desc",
+    )
+    _assert(
+        drill[0]["regression_score"] > 1.0,
+        f"top drill-down pair has a clearly-regressive score (got {drill[0]['regression_score']:.2f})",
+    )
+    # On this scenario, trajectory or verbosity should dominate the
+    # top regressive pair — the agent dropped safety tool calls AND
+    # abandoned the JSON output contract.
+    _assert(
+        drill[0]["dominant_axis"] in ("trajectory", "verbosity"),
+        f"top pair dominated by trajectory/verbosity (got {drill[0]['dominant_axis']})",
+    )
     return report
 
 
