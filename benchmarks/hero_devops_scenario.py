@@ -673,6 +673,131 @@ def stage_customer_support_cross_domain() -> None:
 # ---- main ----------------------------------------------------------------
 
 
+def stage_zero_friction_adoption() -> None:
+    """End-to-end prove the `pip install → quickstart → diff` onboarding path.
+
+    Simulates the exact commands a brand-new user would run straight
+    after `pip install shadow-diff`, using the installed Shadow (via
+    `python -m shadow.cli.app`, which matches the console-script).
+
+    `shadow record` runs a tiny child script that contains NO shadow
+    imports at all — the autostart sitecustomize must fire via the
+    PYTHONPATH shim for the trace to exist.
+    """
+    _heading("6. zero-friction adoption — record + quickstart + init --github-action")
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as _tmp:
+        tmp = Path(_tmp)
+
+        # 6a. `shadow quickstart` scaffolds a working scenario.
+        qs_dir = tmp / "quickstart"
+        result = subprocess.run(
+            [sys.executable, "-m", "shadow.cli.app", "quickstart", str(qs_dir)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        _assert(result.returncode == 0, "shadow quickstart exits 0")
+        _assert(
+            (qs_dir / "fixtures" / "baseline.agentlog").is_file(),
+            "quickstart drops fixtures/baseline.agentlog",
+        )
+        _assert(
+            (qs_dir / "fixtures" / "candidate.agentlog").is_file(),
+            "quickstart drops fixtures/candidate.agentlog",
+        )
+        _assert(
+            (qs_dir / "QUICKSTART.md").is_file(),
+            "quickstart drops QUICKSTART.md with next-step instructions",
+        )
+
+        # 6b. `shadow diff` on the scaffolded fixtures produces a real
+        # nine-axis report with drill-down populated.
+        diff_json = qs_dir / "diff.json"
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "shadow.cli.app",
+                "diff",
+                str(qs_dir / "fixtures" / "baseline.agentlog"),
+                str(qs_dir / "fixtures" / "candidate.agentlog"),
+                "--output-json",
+                str(diff_json),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        report = json.loads(diff_json.read_text())
+        _assert(len(report["rows"]) == 9, "quickstart diff has 9 axes")
+        _assert(
+            "drill_down" in report and len(report["drill_down"]) >= 1,
+            "quickstart diff populates drill_down",
+        )
+
+        # 6c. `shadow record -- python <agent-with-zero-shadow-imports>` produces
+        # a valid .agentlog via the PYTHONPATH autostart shim.
+        agent_py = tmp / "clean_agent.py"
+        agent_py.write_text("print('zero-config adoption path — no shadow imports')\n")
+        trace_path = tmp / "recorded.agentlog"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "shadow.cli.app",
+                "record",
+                "-o",
+                str(trace_path),
+                "--",
+                sys.executable,
+                str(agent_py),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        _assert(result.returncode == 0, "shadow record exits 0 on zero-shadow agent")
+        _assert(
+            trace_path.exists(),
+            "shadow record produces an agentlog via autostart sitecustomize",
+        )
+        records = [
+            json.loads(line) for line in trace_path.read_text().splitlines() if line
+        ]
+        _assert(len(records) >= 1, "recorded agentlog has ≥ 1 record")
+        _assert(
+            records[0]["kind"] == "metadata",
+            "first record is metadata (proves Session.__enter__ fired)",
+        )
+
+        # 6d. `shadow init --github-action` drops a valid workflow.
+        init_dir = tmp / "init"
+        init_dir.mkdir()
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "shadow.cli.app",
+                "init",
+                str(init_dir),
+                "--github-action",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        wf = init_dir / ".github" / "workflows" / "shadow-diff.yml"
+        _assert(wf.is_file(), "init --github-action writes the workflow file")
+        import yaml as _yaml
+
+        wf_parsed = _yaml.safe_load(wf.read_text())
+        _assert(wf_parsed["name"] == "shadow diff", "workflow name is 'shadow diff'")
+        _assert(
+            "diff" in wf_parsed["jobs"],
+            "workflow has a 'diff' job",
+        )
+
+
 def main() -> int:
     print("Hero end-to-end: DevOps-agent PR safety review")
     print(f"  baseline: {BASELINE_LOG.relative_to(REPO_ROOT)}")
@@ -685,6 +810,7 @@ def main() -> int:
         stage_judges()
         stage_bisect()
         stage_customer_support_cross_domain()
+        stage_zero_friction_adoption()
     except Exception as e:  # noqa: BLE001
         print(f"\nEXCEPTION: {type(e).__name__}: {e}", file=sys.stderr)
         FAILURES.append(f"uncaught: {e}")

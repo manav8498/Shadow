@@ -3,7 +3,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-0.2.2-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.3.0-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -45,20 +45,50 @@ If multiple things changed at once, Shadow tells you which specific
 change caused which part of the regression. This is the part that makes
 it useful in real PR review: you don't have to guess.
 
-## Try it
+## 5-minute adoption
+
+Three commands — nothing else on your machine, nothing to configure:
 
 ```bash
-pip install shadow-diff     # PyPI name is `shadow-diff`; import path + CLI stay `shadow`
-shadow version              # confirms install
+pip install shadow-diff          # PyPI name is `shadow-diff`; import + CLI stay `shadow`
+shadow quickstart                # scaffolds a working scenario in ./shadow-quickstart/
+shadow diff shadow-quickstart/fixtures/baseline.agentlog \
+            shadow-quickstart/fixtures/candidate.agentlog
 ```
 
-Or from source (for the full development experience):
+That's a real nine-axis diff on pre-recorded `.agentlog` fixtures —
+no API keys, no agent code. Next, run it on your own agent:
+
+```bash
+# Zero code changes needed; shadow auto-instruments anthropic + openai:
+shadow record -o baseline.agentlog -- python your_agent.py
+
+# Make a change (new prompt, swap model, edit a tool), re-record:
+shadow record -o candidate.agentlog -- python your_agent.py
+
+# Diff:
+shadow diff baseline.agentlog candidate.agentlog
+```
+
+And to wire it into every pull request, one more command:
+
+```bash
+shadow init --github-action      # drops .github/workflows/shadow-diff.yml
+```
+
+Edit the `BASELINE` / `CANDIDATE` paths in that workflow to point at
+fixtures you commit; every PR gets a behavioural-diff comment.
+
+<details>
+<summary>Developing Shadow itself (contributors only)</summary>
 
 ```bash
 git clone https://github.com/manav8498/Shadow && cd Shadow
 just setup    # installs Rust + Python deps, builds the native extension
-just demo     # runs an end-to-end diff in under 10 seconds, no API key
+just demo     # end-to-end diff in under 10 seconds, no API key
+just ci       # full test + lint + coverage replica
 ```
+</details>
 
 You'll see a table like this:
 
@@ -102,17 +132,30 @@ prescriptive fixes, no dashboard needed.
 
 ## Instrument your own agent
 
+Two ways, both zero-code-change for the agent itself.
+
+**Zero-config (recommended)** — wrap any Python script with
+`shadow record`. Shadow's auto-instrumentor patches
+`anthropic.*` and `openai.*` via a PYTHONPATH-injected
+sitecustomize at interpreter startup:
+
+```bash
+shadow record -o trace.agentlog -- python your_agent.py
+```
+
+**Explicit** — use the `Session` context manager when you need
+custom tags, a non-default redactor, or nested sessions:
+
 ```python
 from shadow.sdk import Session
 
-with Session(output_path="trace.agentlog"):
-    # Your existing Anthropic / OpenAI code. No changes.
+with Session(output_path="trace.agentlog", tags={"env": "prod"}):
     client.messages.create(model="claude-sonnet-4-6", messages=[...])
 ```
 
-Shadow automatically wraps the Anthropic and OpenAI Python SDKs (plus
-their TypeScript equivalents) and captures every request and response.
-Secrets are redacted by default.
+Either way Shadow captures every Anthropic / OpenAI request and
+response (Python + TypeScript SDKs). Secrets are redacted by
+default.
 
 Then in CI:
 
@@ -176,8 +219,9 @@ Every example runs offline from committed fixtures. No API key required:
 
 | Command | Does |
 |---|---|
-| `shadow init` | Scaffold a `.shadow/` folder in the current repo |
-| `shadow record -- <cmd>` | Run `<cmd>`, auto-capture its LLM calls |
+| `shadow quickstart` | Drop a working demo scenario into `./shadow-quickstart/` — no API key needed |
+| `shadow init` | Scaffold a `.shadow/` folder; `--github-action` also drops a ready-to-commit CI workflow |
+| `shadow record -- <cmd>` | Run `<cmd>`, auto-capture its LLM calls (zero code changes to the wrapped script) |
 | `shadow replay <cfg> --baseline <trace>` | Replay baseline through a new config |
 | `shadow diff <baseline> <candidate>` | Nine-axis behavioural diff |
 | `shadow bisect <cfg-a> <cfg-b> --traces <set>` | Which config delta moved which axis |
