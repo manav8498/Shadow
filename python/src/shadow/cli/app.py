@@ -548,6 +548,22 @@ def diff_cmd(
             console.print("[bold]What this means[/]")
             console.print(summary)
 
+        # Session-cost attribution — always run, but only print when
+        # the cost axis actually moved (otherwise pure noise on zero-
+        # pricing traces). A PR-reviewer-friendly decomposition of
+        # where the cost delta went.
+        from shadow.cost_attribution import (
+            attribute_cost,
+        )
+        from shadow.cost_attribution import (
+            render_terminal as render_cost_terminal,
+        )
+
+        cost_report = attribute_cost(b, c, price_map or {})
+        if abs(cost_report.total_delta_usd) > 1e-9:
+            console.print("")
+            console.print(render_cost_terminal(cost_report))
+
         if explain:
             if effective_backend is JudgeBackend.mock:
                 err_console.print(

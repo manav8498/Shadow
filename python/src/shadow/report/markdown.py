@@ -92,6 +92,42 @@ def render_markdown(report: dict[str, Any]) -> str:
         for rec in recommendations:
             lines.append(_render_recommendation_markdown(rec))
 
+    # Session-cost attribution block, if the caller attached one.
+    # The CLI doesn't currently embed the attribution in the DiffReport
+    # dict (it renders to terminal separately), but the markdown
+    # renderer accepts an optional `cost_attribution` key for PR-
+    # comment integrations that want the full story inline.
+    cost_attr = report.get("cost_attribution")
+    if cost_attr and abs(float(cost_attr.get("total_delta_usd", 0.0))) > 1e-9:
+        from shadow.cost_attribution import (
+            CostAttributionReport,
+            SessionAttribution,
+        )
+        from shadow.cost_attribution import (
+            render_markdown as render_cost_md,
+        )
+
+        # Accept either a live CostAttributionReport or the serialised
+        # dict form (what `to_dict()` produces).
+        if isinstance(cost_attr, dict):
+            per_session = [SessionAttribution(**s) for s in cost_attr["per_session"]]
+            cost_report = CostAttributionReport(
+                per_session=per_session,
+                total_baseline_usd=cost_attr["total_baseline_usd"],
+                total_candidate_usd=cost_attr["total_candidate_usd"],
+                total_delta_usd=cost_attr["total_delta_usd"],
+                total_model_swap_usd=cost_attr["total_model_swap_usd"],
+                total_token_movement_usd=cost_attr["total_token_movement_usd"],
+                total_mix_residual_usd=cost_attr["total_mix_residual_usd"],
+                attribution_is_noisy=cost_attr["attribution_is_noisy"],
+            )
+        else:
+            cost_report = cost_attr  # already a CostAttributionReport
+        md = render_cost_md(cost_report)
+        if md:
+            lines.append("")
+            lines.append(md)
+
     drill_down = report.get("drill_down") or []
     if drill_down:
         lines.append("")
