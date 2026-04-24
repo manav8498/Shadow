@@ -18,6 +18,10 @@ readme = "../../README.md"
 # not listed is excluded from `cargo publish`.
 include = [
     "src/**/*.rs",
+    # SQLite schema files are referenced via `include_str!()` from the
+    # compiled code, so `cargo package` must bundle them too or the
+    # published crate fails to compile.
+    "src/**/*.sql",
     "Cargo.toml",
     "LICENSE-MIT",
     "LICENSE-APACHE",
