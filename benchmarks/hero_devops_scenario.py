@@ -1085,6 +1085,53 @@ def stage_session_cost_attribution() -> None:
     _assert("sonnet" in rendered, "renderer names the candidate model")
 
 
+def stage_hierarchical_diff() -> None:
+    """Phase D: session-level + span-level diff on real devops-agent fixtures."""
+    _heading("10. Phase D — hierarchical diff (sessions + spans)")
+    from shadow import _core
+    from shadow.hierarchical import diff_by_session, span_diff
+
+    baseline = _core.parse_agentlog(BASELINE_LOG.read_bytes())
+    candidate = _core.parse_agentlog(CANDIDATE_LOG.read_bytes())
+
+    # Session-level: devops-agent fixtures have a single metadata
+    # record each, so we expect exactly one SessionDiff.
+    sessions = diff_by_session(baseline, candidate)
+    _assert(
+        len(sessions) == 1,
+        f"devops-agent trace partitions into 1 session (got {len(sessions)})",
+    )
+    _assert(
+        sessions[0].worst_severity == "severe",
+        f"session-level worst severity = severe (got {sessions[0].worst_severity})",
+    )
+    _assert(
+        sessions[0].pair_count == 5,
+        f"session #0 has 5 paired responses (got {sessions[0].pair_count})",
+    )
+
+    # Span-level: compare the first chat_response pair and verify the
+    # importer-style tool-use + argument rename signals surface.
+    base_responses = [r for r in baseline if r["kind"] == "chat_response"]
+    cand_responses = [r for r in candidate if r["kind"] == "chat_response"]
+    _assert(
+        len(base_responses) >= 1 and len(cand_responses) >= 1,
+        "both traces have ≥ 1 chat_response",
+    )
+    spans = span_diff(base_responses[0]["payload"], cand_responses[0]["payload"])
+    _assert(
+        len(spans) >= 1,
+        f"span_diff surfaces ≥ 1 change on turn #0 of devops-agent (got {len(spans)})",
+    )
+    # At least one span must be a tool_use change (remove / add / args)
+    # because the candidate drops 3 safety-sequence tools.
+    tool_related = [s for s in spans if "tool" in s.kind]
+    _assert(
+        len(tool_related) >= 1,
+        f"span-level detects tool_use changes on turn #0 (got {len(tool_related)})",
+    )
+
+
 def main() -> int:
     print("Hero end-to-end: DevOps-agent PR safety review")
     print(f"  baseline: {BASELINE_LOG.relative_to(REPO_ROOT)}")
@@ -1101,6 +1148,7 @@ def main() -> int:
         stage_first_real_diff_experience()
         stage_mcp_importer()
         stage_session_cost_attribution()
+        stage_hierarchical_diff()
     except Exception as e:  # noqa: BLE001
         print(f"\nEXCEPTION: {type(e).__name__}: {e}", file=sys.stderr)
         FAILURES.append(f"uncaught: {e}")
