@@ -49,7 +49,9 @@ the LLM grounded on concrete evidence.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import random
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -58,6 +60,85 @@ from shadow.llm.base import LlmBackend
 MAX_EVIDENCE_CHARS = 1800  # per-record payload truncation budget
 MIN_CONFIDENCE = 0.0  # keep all, but flag < 0.3
 FLAG_CONFIDENCE = 0.3
+
+# Retry knobs. Tuned against Anthropic + OpenAI's published guidance
+# (both recommend exponential backoff starting at ~1s for 429/503).
+DEFAULT_MAX_RETRIES = 4
+DEFAULT_INITIAL_BACKOFF_S = 1.0
+DEFAULT_BACKOFF_MULT = 2.0
+DEFAULT_BACKOFF_JITTER = 0.25  # ± 25% random jitter so concurrent callers don't synchronise
+
+# Error-message substrings that mark a call as transient. We match on
+# the exception message because Anthropic/OpenAI SDKs raise typed
+# exceptions that don't share a common base class — but their messages
+# consistently mention status codes or transport keywords.
+_TRANSIENT_MARKERS = (
+    "rate limit",
+    "429",
+    "503",
+    "502",
+    "504",
+    "overloaded",
+    "timeout",
+    "connection reset",
+    "connection aborted",
+    "temporarily unavailable",
+    "service unavailable",
+    "try again",
+)
+
+
+def _is_transient(err: BaseException) -> bool:
+    """Classify whether an exception is worth retrying.
+
+    We err on the side of retrying: if we can't tell, we treat it as
+    transient once, then stop. 400-class auth/validation errors
+    bypass this because their messages don't match the markers.
+    """
+    msg = str(err).lower()
+    if any(marker in msg for marker in _TRANSIENT_MARKERS):
+        return True
+    # Common auth / bad-request markers — definitively NOT transient.
+    if any(
+        m in msg for m in ("401", "403", "invalid api key", "authentication", "bad request", "400")
+    ):
+        return False
+    return False
+
+
+async def _complete_with_retry(
+    backend: LlmBackend,
+    payload: dict[str, Any],
+    *,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    initial_backoff: float = DEFAULT_INITIAL_BACKOFF_S,
+    backoff_mult: float = DEFAULT_BACKOFF_MULT,
+    jitter: float = DEFAULT_BACKOFF_JITTER,
+    on_retry: Any = None,
+) -> dict[str, Any]:
+    """Call `backend.complete` with exponential backoff on transient errors.
+
+    `on_retry(attempt, delay, error)` is called before each sleep for
+    observability; pass None to skip. Non-transient errors (400, 401,
+    invalid input) raise immediately.
+    """
+    attempt = 0
+    delay = initial_backoff
+    while True:
+        try:
+            return await backend.complete(payload)
+        except Exception as err:
+            if attempt >= max_retries or not _is_transient(err):
+                raise
+            if on_retry is not None:
+                # Observability callback must never crash the caller.
+                with contextlib.suppress(Exception):
+                    on_retry(attempt + 1, delay, err)
+            # Jitter: multiply delay by a uniform [1-j, 1+j] factor.
+            jittered = delay * (1 + random.uniform(-jitter, jitter))
+            await asyncio.sleep(max(0.0, jittered))
+            attempt += 1
+            delay *= backoff_mult
 
 
 @dataclass
@@ -118,8 +199,9 @@ def suggest_fixes(
     *,
     model: str | None = None,
     max_anchors: int = 6,
+    max_retries: int = DEFAULT_MAX_RETRIES,
 ) -> SuggestFixesResult:
-    """Synchronous entry point. Calls the backend once, filters the result."""
+    """Synchronous entry point. Calls the backend (with retry on 429/5xx/timeout)."""
     anchors = _collect_anchors(report, limit=max_anchors)
     if not anchors:
         return SuggestFixesResult(
@@ -150,7 +232,7 @@ def suggest_fixes(
         ],
         "params": {"temperature": 0.0, "max_tokens": 2048},
     }
-    response = asyncio.run(backend.complete(request_payload))
+    response = asyncio.run(_complete_with_retry(backend, request_payload, max_retries=max_retries))
     raw_text = _extract_text(response)
     parsed = _parse_llm_json(raw_text)
     suggestions = _filter_suggestions(parsed, anchors)
