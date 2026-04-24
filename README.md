@@ -7,66 +7,38 @@
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
-**Behavioural code review for LLM agents.** Shadow records the calls your agent makes to Claude or GPT, replays them against a new config, and tells you on the pull request what changed, why, and what to do about it.
+**Behavior testing for LLM agents, in the pull request.**
 
-## What problem it solves
+Shadow catches behavior regressions in AI agents before they merge. You change a prompt, swap a model, or rename a tool argument. Your agent still runs, tests still pass, but the behavior quietly shifts. Shadow replays your change against recorded agent traces and posts a behavior diff on the PR so a reviewer can see what broke and why.
 
-A code diff tool breaks down when the change is a prompt edit, a model swap, or a tool-schema rename. The agent still runs. It just behaves differently. The regression ships, the customer complains, nobody knows which line of the PR caused it.
+## The problem
 
-Shadow reviews the PR like a senior engineer would. It compares before and after behaviour on a fixed set of traces, ranks the differences by severity across nine dimensions with statistical confidence, names the first point the candidate diverged from the baseline, attributes each regression to the specific config delta that caused it, and ends with a short list of concrete fixes.
+You have a working agent in production. A teammate opens a PR that tweaks the system prompt, swaps GPT-4o for a cheaper model, or adjusts a tool schema. Code review looks fine. Unit tests pass. You merge.
 
-## How it works
+A week later a customer reports that the refund bot started issuing refunds without confirming the amount. It turns out the prompt edit dropped the "ask before refunding" step. The PR that caused it was merged days ago. Nobody saw it coming because the code looked harmless.
 
-1. **Record.** Your agent talks to Claude or GPT as usual. Shadow's SDK saves every request and response to a `.agentlog` file. Your code does not change.
-2. **Replay.** In CI, Shadow runs those recorded requests through your new config (new prompt, new model, whatever changed) and collects the new responses.
-3. **Diff.** Shadow compares the two sets across nine behavioural dimensions: meaning, tool use, refusals, verbosity, speed, cost, reasoning depth, an LLM-judge score, and output format. It posts the report as a pull-request comment.
+This is a common class of bug with LLM agents. The agent runs, responses look plausible, tests pass. The behavior just silently changed.
 
-If multiple things changed at once, Shadow names which change caused which part of the regression. That is the part that makes it useful in real PR review. You do not have to guess.
+## What Shadow does
 
-## Five-minute adoption
+Shadow treats agent behavior as a thing you can test in CI, the same way you test code. Given a recorded set of real agent interactions (a baseline), and a candidate change (new prompt, new model, renamed tool), Shadow answers three questions on the PR:
 
-Three commands. Nothing else to configure:
+1. **What behavior changed?** A nine-axis diff scores the candidate against the baseline on things like meaning, tool use, refusals, latency, and output structure.
+2. **Why did it change?** If the PR touched multiple things at once, causal bisection isolates which specific change caused which specific regression.
+3. **Is it safe to merge?** A policy file lets you declare rules the agent must follow (tool ordering, output shape, token budgets, forbidden outputs). Shadow reports regressions against those rules.
+
+The report lands in the PR comment. No dashboard, no separate login, no trace upload. Traces stay on your disk.
+
+## Try it in sixty seconds
 
 ```bash
-pip install shadow-diff          # PyPI name is shadow-diff; import + CLI stay "shadow"
-shadow quickstart                # scaffolds a working scenario in ./shadow-quickstart/
+pip install shadow-diff
+shadow quickstart
 shadow diff shadow-quickstart/fixtures/baseline.agentlog \
             shadow-quickstart/fixtures/candidate.agentlog
 ```
 
-That is a real nine-axis diff on pre-recorded `.agentlog` fixtures. No API keys, no agent code. Then run it on your own agent:
-
-```bash
-# Zero code changes. shadow auto-instruments anthropic + openai:
-shadow record -o baseline.agentlog -- python your_agent.py
-
-# Make a change (new prompt, swap model, edit a tool) and re-record:
-shadow record -o candidate.agentlog -- python your_agent.py
-
-# Diff:
-shadow diff baseline.agentlog candidate.agentlog
-```
-
-To wire it into every pull request, one more command:
-
-```bash
-shadow init --github-action      # drops .github/workflows/shadow-diff.yml
-```
-
-Edit the `BASELINE` and `CANDIDATE` paths in that workflow to point at fixtures you commit. Every PR gets a behavioural-diff comment.
-
-<details>
-<summary>Developing Shadow itself (contributors only)</summary>
-
-```bash
-git clone https://github.com/manav8498/Shadow && cd Shadow
-just setup    # installs Rust + Python deps, builds the native extension
-just demo     # end-to-end diff in under 10 seconds, no API key
-just ci       # full test + lint + coverage replica
-```
-</details>
-
-You will see a table like this:
+That runs a real nine-axis diff on recorded `.agentlog` fixtures. No API key, no agent code. The output looks like this:
 
 ```
 axis         baseline  candidate     delta     severity
@@ -89,9 +61,6 @@ top divergences (3 shown):
   #2  baseline turn #2 ↔ candidate turn #2
       kind: decision_drift    ·  axis: safety      ·  confidence: 32%
       stop_reason changed: `end_turn` → `content_filter`
-  #3  baseline turn #1 ↔ candidate turn #1
-      kind: decision_drift    ·  axis: semantic    ·  confidence: 9%
-      response text diverged (text similarity 0.21); same tool sequence
 
 recommendations (3):
   error   REVIEW  Review tool-schema change at turn 0: call shape diverged.
@@ -99,19 +68,59 @@ recommendations (3):
   warning REVIEW  Review response text at turn 1: semantic content shifted.
 ```
 
-Each row is one behavioural dimension. The severity column shows where to look. The top-divergences list names the exact changes responsible. The recommendations list tells you what to do about them. One pass, under 30 seconds, no clicking through traces. Root-cause attribution plus fixes, no dashboard needed.
+The severity column points the reviewer at the four axes that moved. The top-divergences list names the specific changes. The recommendations tell them what to check first.
 
-## Instrument your own agent
+## Writing behavior rules
 
-Two ways. Both are zero-code-change for the agent itself.
+The diff tells you what changed. A policy tells you what is not allowed to change. Write one YAML file that declares the agent's behavioral contract:
 
-**Zero-config.** Wrap any Python script with `shadow record`. Shadow's auto-instrumentor patches `anthropic.*` and `openai.*` via a PYTHONPATH-injected sitecustomize at interpreter startup:
+```yaml
+# shadow-policy.yaml
+rules:
+  - id: confirm-before-refund
+    kind: must_call_before
+    params: { first: confirm_refund_amount, then: issue_refund }
+    severity: critical
 
-```bash
-shadow record -o trace.agentlog -- python your_agent.py
+  - id: never-leak-ssn
+    kind: forbidden_text
+    params: { text: "SSN:" }
+    severity: critical
+
+  - id: finish-cleanly
+    kind: required_stop_reason
+    params: { allowed: [end_turn, tool_use] }
+    severity: error
+
+  - id: cost-ceiling
+    kind: max_total_tokens
+    params: { limit: 100000 }
 ```
 
-**Session context manager.** For custom tags, a non-default redactor, or nested sessions:
+Run:
+
+```bash
+shadow diff baseline.agentlog candidate.agentlog --policy shadow-policy.yaml
+```
+
+The candidate trace is checked against every rule. Violations that are new in the candidate are flagged as regressions. Violations that existed in the baseline and are now cleared are flagged as fixes. Eight rule kinds ship today: `must_call_before`, `must_call_once`, `no_call`, `max_turns`, `required_stop_reason`, `max_total_tokens`, `must_include_text`, `forbidden_text`.
+
+This is the part that makes Shadow feel like CI for agents instead of monitoring.
+
+## Recording real agent traces
+
+Shadow's SDK auto-instruments the Anthropic and OpenAI SDKs. No code changes to the agent itself:
+
+```bash
+shadow record -o baseline.agentlog -- python your_agent.py
+
+# change a prompt, swap a model, re-record
+shadow record -o candidate.agentlog -- python your_agent.py
+
+shadow diff baseline.agentlog candidate.agentlog
+```
+
+If you want more control (custom tags, a non-default redactor, nested sessions), use the `Session` context manager:
 
 ```python
 from shadow.sdk import Session
@@ -120,35 +129,41 @@ with Session(output_path="trace.agentlog", tags={"env": "prod"}):
     client.messages.create(model="claude-sonnet-4-6", messages=[...])
 ```
 
-Either way Shadow captures every Anthropic / OpenAI request and response (Python and TypeScript SDKs). Secrets are redacted by default.
+Secrets (API keys, emails, credit cards) are redacted by default. The TypeScript SDK works the same way.
 
-Then in CI:
+## Wire it into every pull request
 
 ```bash
-shadow replay new-config.yaml --baseline trace.agentlog
-shadow diff trace.agentlog candidate.agentlog
-shadow bisect old-config.yaml new-config.yaml --traces trace.agentlog
+shadow init --github-action
 ```
 
-## What's different about Shadow
+Drops a ready-to-commit workflow at `.github/workflows/shadow-diff.yml`. Point the `BASELINE` and `CANDIDATE` paths at fixtures you commit, and every PR gets a behavior-diff comment.
 
-|  | Langfuse | Braintrust | LangSmith | **Shadow** |
-|---|:---:|:---:|:---:|:---:|
-| Raw trace logging | ✅ | ✅ | ✅ | ✅ |
-| Dashboard UI | ✅ | ✅ | ✅ | no |
-| Self-hostable | ✅ | no | no | ✅ |
-| PR comment from CI | partial | partial | partial | ✅ |
-| Nine pre-built behavioural axes | no | no | no | ✅ |
-| Causal bisection | no | no | no | ✅ |
-| Content-addressed open trace format | no | no | no | ✅ |
+## Why regressions happened, not just that they happened
 
-Shadow lives in your pull request, not a separate dashboard. It runs locally. Traces stay on your disk, the diff runs in your CI, the comment posts to your PR. The `.agentlog` format is an open spec ([`SPEC.md`](SPEC.md)) that any tool can read or write.
+When a PR changes three things at once (prompt + model + tool schema), a diff alone cannot tell you which one broke the agent. `shadow bisect` fits a sparse linear model (LASSO over corners with Meinshausen-Bühlmann stability selection) that attributes each behavioral axis's regression to specific config deltas:
 
-## The nine axes
+```bash
+shadow bisect config_a.yaml config_b.yaml \
+  --traces baseline.agentlog --candidate-traces candidate.agentlog
+```
 
-Each axis is measured independently with a bootstrap 95% confidence interval and a severity rating (none, minor, moderate, severe):
+Output:
 
-| # | Axis | What it measures |
+```
+attribution:
+  trajectory   ← search_files.arguments.limit added     (weight 0.72)
+  semantic     ← system_prompt line 42 changed          (weight 0.19)
+  latency      ← model: claude-haiku → gpt-4o-mini      (weight 0.61)
+```
+
+The review comment tells you: "72% of the trajectory regression is explained by the tool-schema change. Revert that line and the agent should behave."
+
+## The nine behavioral dimensions
+
+Each dimension is measured independently with a bootstrap 95% confidence interval. Severity is one of none, minor, moderate, severe:
+
+| # | Dimension | What it measures |
 |--:|---|---|
 | 1 | `semantic` | How different are the outputs' meanings? |
 | 2 | `trajectory` | Did the agent use a different sequence of tools? |
@@ -158,9 +173,33 @@ Each axis is measured independently with a bootstrap 95% confidence interval and
 | 6 | `cost` | Are token costs up or down? |
 | 7 | `reasoning` | Is the agent thinking less or more? |
 | 8 | `judge` | Your own LLM-judge rubric (optional). |
-| 9 | `conformance` | Does the output still match the expected structure? |
+| 9 | `conformance` | Does the output match the expected structure? |
 
 Full details in [`SPEC.md`](SPEC.md).
+
+## Where Shadow fits among existing tools
+
+| | Langfuse | Braintrust | LangSmith | **Shadow** |
+|---|:---:|:---:|:---:|:---:|
+| Trace logging | ✅ | ✅ | ✅ | ✅ |
+| Dashboard UI | ✅ | ✅ | ✅ | no |
+| Self-hostable | ✅ | no | no | ✅ |
+| PR comment from CI | partial | partial | partial | ✅ |
+| Behavior policy rules | no | no | no | ✅ |
+| Causal attribution | no | no | no | ✅ |
+| Nine pre-built behavior axes | no | no | no | ✅ |
+| Open content-addressed trace format | no | no | no | ✅ |
+
+Shadow is complementary to the dashboard tools. They capture traces; Shadow compares behavior between a baseline and a candidate and decides whether the change is safe to merge. You can pair Shadow with any of them.
+
+## Honest limits
+
+Shadow is a young project. Version 1.2 is stable enough to run in CI on small and medium projects. A few things to know:
+
+- **No third-party security audit yet.** See [`SECURITY.md`](SECURITY.md). If you plan to run Shadow on untrusted input in a multi-tenant environment, commission one.
+- **Semantic axis defaults to lexical comparison.** Real sentence-transformer embeddings are opt-in (`pip install 'shadow-diff[embeddings]'`). The default is fine for most PR-review uses; turn embeddings on if your agent's outputs are often paraphrased.
+- **Judge axis needs a rubric.** Domain-specific judges (refund policy, medical triage, code review) are supplied by you as YAML rubric files. See [`examples/judges/`](examples/judges/) for templates.
+- **Solo-maintained today.** Small response time on issues and PRs. Contributions welcome.
 
 ## Examples
 
@@ -169,31 +208,31 @@ Every example runs offline from committed fixtures. No API key required:
 | Example | What it shows |
 |---|---|
 | [`examples/demo/`](examples/demo/) | The fastest working example. `just demo`. |
-| [`examples/customer-support/`](examples/customer-support/) | Refund bot that regresses after a prompt edit |
-| [`examples/devops-agent/`](examples/devops-agent/) | Production database agent with a tool-ordering bug |
-| [`examples/er-triage/`](examples/er-triage/) | High-stakes clinical-style agent |
-| [`examples/edge-cases/`](examples/edge-cases/) | 20 adversarial cases used as a permanent regression guard |
-| [`examples/acme-extreme/`](examples/acme-extreme/) | End-to-end scenario exercising every Shadow feature |
+| [`examples/customer-support/`](examples/customer-support/) | Refund bot that regresses after a well-meaning prompt edit |
+| [`examples/devops-agent/`](examples/devops-agent/) | Database agent with a tool-ordering bug that unit tests would miss |
+| [`examples/er-triage/`](examples/er-triage/) | High-stakes clinical scenario with safety rules |
+| [`examples/edge-cases/`](examples/edge-cases/) | 20 adversarial probes used as a regression guard |
 | [`examples/integrations/`](examples/integrations/) | Push traces to Datadog, Splunk, or any OTel collector |
 
 ## CLI reference
 
 | Command | Does |
 |---|---|
-| `shadow quickstart` | Drop a working demo scenario into `./shadow-quickstart/`. No API key needed. |
-| `shadow init` | Scaffold a `.shadow/` folder. `--github-action` also drops a ready-to-commit CI workflow. |
-| `shadow record -- <cmd>` | Run `<cmd>`, auto-capture its LLM calls. Zero code changes to the wrapped script. |
-| `shadow replay <cfg> --baseline <trace>` | Replay baseline through a new config |
-| `shadow diff <baseline> <candidate>` | Nine-axis behavioural diff |
-| `shadow bisect <cfg-a> <cfg-b> --traces <set>` | Which config delta moved which axis |
-| `shadow schema-watch <cfg-a> <cfg-b>` | Classify tool-schema changes (renames, breaking edits) before replaying |
-| `shadow report <report.json>` | Re-render a diff as terminal, markdown, or PR-comment |
+| `shadow quickstart` | Drop a working demo scenario. No API key needed. |
+| `shadow init` | Scaffold a `.shadow/` folder. `--github-action` drops a CI workflow. |
+| `shadow record -- <cmd>` | Run `<cmd>`, auto-capture its LLM calls. Zero code changes. |
+| `shadow replay <cfg> --baseline <trace>` | Replay baseline through a new config. `--partial --branch-at N` locks a prefix, replays only the suffix. |
+| `shadow diff <baseline> <candidate>` | Nine-axis behavior diff. `--policy <f>` to enforce rules. `--token-diff` for per-turn token distribution. `--suggest-fixes` for LLM-assisted fix proposals. |
+| `shadow bisect <cfg-a> <cfg-b> --traces <set>` | Attribute each axis regression to specific config deltas. |
+| `shadow schema-watch <cfg-a> <cfg-b>` | Classify tool-schema changes before replaying. |
+| `shadow import <src> --format <fmt>` | Import foreign traces (langfuse, braintrust, langsmith, openai-evals, otel, mcp, vercel-ai, pydantic-ai). |
+| `shadow report <report.json>` | Re-render a diff as terminal, markdown, or PR-comment. |
 
 ## Project layout
 
 ```
 Shadow/
-├── SPEC.md                    Open spec for the.agentlog format
+├── SPEC.md                    Open spec for the .agentlog format
 ├── crates/shadow-core/        Rust: parser, differ, replay, bisect
 ├── python/src/shadow/         Python SDK + CLI
 ├── typescript/                TypeScript SDK
