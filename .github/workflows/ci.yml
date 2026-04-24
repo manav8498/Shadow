@@ -56,9 +56,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.11", "3.12"]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash  # force bash on Windows too; avoids pwsh syntax mismatches.
+    env:
+      # POSIX venvs put python at `.venv/bin/python`; Windows venvs put it
+      # at `.venv/Scripts/python.exe`. Compose one var per OS so subsequent
+      # steps can just call $VENV_PY without branching.
+      VENV_PY: ${{ runner.os == 'Windows' && '.venv/Scripts/python.exe' || '.venv/bin/python' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -82,26 +90,27 @@ jobs:
       - name: Create venv and install shadow (with dev extras)
         run: |
           uv venv --python ${{ matrix.python }} .venv
-          uv pip install --python .venv/bin/python -e "python[dev]"
+          uv pip install --python "$VENV_PY" -e "python[dev]"
 
       - name: Build PyO3 extension
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
         run: |
           cd python
-          VIRTUAL_ENV=${{ github.workspace }}/.venv \
-            ../.venv/bin/maturin develop --features extension --release
+          "../$VENV_PY" -m maturin develop --features extension --release
 
       - name: ruff check
-        run: .venv/bin/python -m ruff check python/ examples/
+        run: "$VENV_PY -m ruff check python/ examples/"
 
       - name: ruff format --check
-        run: .venv/bin/python -m ruff format --check python/ examples/
+        run: "$VENV_PY -m ruff format --check python/ examples/"
 
       - name: mypy --strict
-        run: .venv/bin/python -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py
+        run: "$VENV_PY -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py"
 
       - name: pytest (coverage gate 85%)
         run: |
-          .venv/bin/python -m pytest python/tests \
+          "$VENV_PY" -m pytest python/tests \
             --cov=shadow --cov-config=python/pyproject.toml --cov-fail-under=85 \
             --cov-report=term-missing
 

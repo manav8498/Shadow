@@ -46,10 +46,12 @@ import asyncio
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+TMP_DIR = Path(tempfile.gettempdir())
 DEVOPS = REPO_ROOT / "examples/devops-agent"
 BASELINE_LOG = DEVOPS / "fixtures/baseline.agentlog"
 CANDIDATE_LOG = DEVOPS / "fixtures/candidate.agentlog"
@@ -125,7 +127,7 @@ def _run_cli_diff() -> dict[str, Any]:
     plain `python benchmarks/...` and can't assume the venv is
     activated.
     """
-    out_path = Path("/tmp/hero_diff_report.json")
+    out_path = TMP_DIR / "hero_diff_report.json"
     cmd = [
         sys.executable,
         "-m",
@@ -527,7 +529,7 @@ def stage_customer_support_cross_domain() -> None:
     )
 
     # 5b. Run shadow diff as a subprocess on the support trace pair.
-    out_path = Path("/tmp/hero_support_diff.json")
+    out_path = TMP_DIR / "hero_support_diff.json"
     result = subprocess.run(
         [
             sys.executable,
