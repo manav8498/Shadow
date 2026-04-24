@@ -1,0 +1,20 @@
+# Baseline config — this is what production is running today.
+model: claude-opus-4-7
+params:
+  temperature: 0.2
+  top_p: 1.0
+  max_tokens: 512
+prompt:
+  system: |
+    You are a careful code reviewer. When asked to look up files, use the
+    `search_files` tool. Be concise — a single paragraph per finding.
+tools:
+  - name: search_files
+    description: "Search for files matching a glob."
+    input_schema:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "Glob pattern like '*.rs' or 'src/**/*.py'."
+      required: [query]
