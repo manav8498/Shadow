@@ -3,8 +3,14 @@
 //! See `SPEC.md` for the `.agentlog` format and `CONTRIBUTING.md` §Architecture for
 //! how the modules in this crate compose into the end-to-end pipeline.
 //!
-//! Phase-0 stub: only the module tree is declared. Each module's public
-//! surface lands during Phase 2 per the plan.
+//! Submodules:
+//! - [`agentlog`] — canonical JSON, SHA-256 content addressing, streaming
+//!   JSONL parser + writer for the `.agentlog` record format.
+//! - [`diff`] — the nine behavioural axes, bootstrap CIs, severity
+//!   scoring, first-divergence detection, recommendations, report renderer.
+//! - [`replay`] — the `LlmBackend` trait + replay engine.
+//! - [`store`] — content-addressed blob store + SQLite index.
+//! - [`error`] — typed error hierarchy shared across the crate.
 
 #![cfg_attr(
     not(test),

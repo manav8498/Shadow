@@ -32,6 +32,8 @@ from __future__ import annotations
 import datetime
 from typing import Any
 
+from shadow import __version__
+
 
 def agentlog_to_otel(records: list[dict[str, Any]]) -> dict[str, Any]:
     """Convert a parsed `.agentlog` record list to OTLP/JSON.
@@ -93,7 +95,7 @@ def agentlog_to_otel(records: list[dict[str, Any]]) -> dict[str, Any]:
                 },
                 "scopeSpans": [
                     {
-                        "scope": {"name": "shadow", "version": "0.1.0"},
+                        "scope": {"name": "shadow", "version": __version__},
                         "spans": spans,
                     }
                 ],
