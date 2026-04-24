@@ -178,16 +178,23 @@ def _collect_anchors(report: dict[str, Any], *, limit: int) -> list[dict[str, An
     ranked = sorted(recs, key=lambda r: (sev_order.get(r.get("severity", "info"), 3),))
     out: list[dict[str, Any]] = []
     for r in ranked[:limit]:
-        axis = r.get("axis") or _infer_axis_from_title(r.get("title", ""))
+        # Rust-side `Recommendation` uses `message` (human-readable)
+        # + `turn`; there is no `id`/`title` field. Python-side test
+        # fixtures use `id`/`title`/`turn_index`. Accept both.
+        title = r.get("title") or r.get("message") or ""
+        axis = r.get("axis") or _infer_axis_from_title(title)
+        turn = r.get("turn_index")
+        if turn is None:
+            turn = r.get("turn", 0)
         out.append(
             {
-                "id": str(r.get("id") or r.get("title") or f"rec-{len(out)}"),
-                "title": str(r.get("title") or ""),
+                "id": str(r.get("id") or title or f"rec-{len(out)}"),
+                "title": str(title),
                 "severity": str(r.get("severity") or "info"),
                 "axis": str(axis or "trace"),
                 "action": str(r.get("action") or ""),
                 "rationale": str(r.get("rationale") or ""),
-                "turn_index": int(r.get("turn_index") or 0),
+                "turn_index": int(turn or 0),
             }
         )
     return out
