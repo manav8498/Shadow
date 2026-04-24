@@ -6,6 +6,8 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-04-24
+
 ### Added
 
 **OTel GenAI semconv v1.40 compliance.** The `shadow import --format otel` importer now parses the full v1.40 attribute surface: structured `gen_ai.input.messages` / `gen_ai.output.messages` (whether carried as span attributes or inside the `gen_ai.client.inference.operation.details` event), `gen_ai.provider.name`, cache-token attributes (`gen_ai.usage.cache_read.input_tokens` and `cache_creation.input_tokens`), `gen_ai.response.id`, `gen_ai.output.type`, `gen_ai.conversation.id`, `gen_ai.tool.definitions`, agent spans (`create_agent`/`invoke_agent` land in metadata with id/name/description/version), and evaluation events. The deprecated v1.28-v1.36 flat-indexed `gen_ai.prompt.N.*` / `gen_ai.completion.N.*` shape still parses, so traces from OpenLLMetry and other implementers that haven't tracked the v1.37 restructure round-trip cleanly. Spans are sorted by `startTimeUnixNano` so content IDs are deterministic.
@@ -25,6 +27,7 @@ Three correctness gaps surfaced by a real-world MCP adversarial test on 10 suppo
 - **Session-scoped policy rules.** `must_call_before` and the other rule kinds now accept `scope: session` in the policy YAML. Under session scope the rule is evaluated independently within each user-initiated session — inferred from `messages[-1].role == "user"` on the request — so a correct ordering in one ticket can no longer mask violations in later tickets of the same multi-ticket trace. Default stays `scope: trace` for back-compat; the MCP tool description and policy loader both document the new field. Real-world test: the adversarial candidate trace went from 0 reported violations (bug) to 6 (correct — one per offending ticket).
 - **Cost axis `no_pricing` flag.** When no pricing table is supplied, or the traced models aren't in the table, the cost axis previously reported `delta=0, severity=none` — indistinguishable from "both sides priced equally." The axis now emits `flags: ["no_pricing"]` when fewer than half the pairs can be priced. The summariser surfaces this as "per-call cost not comparable (no pricing table supplied)" rather than omitting cost silently.
 - **Mining metadata field name.** `MiningResult.to_agentlog()` now writes `cases_selected` (was `selected_cases`), aligning with the sibling keys `total_input_pairs` and `clusters_found`.
+- **Explicit session markers for adapter traces.** `Session.record_metadata(payload)` appends an authoritative session-boundary marker. When a trace contains two or more metadata records, Shadow's session detector uses them exclusively instead of falling back to the stop-reason heuristic. The CrewAI adapter now emits a marker on every `CrewKickoffStartedEvent`, so one kickoff equals one session even when every `LLMCallCompleted` ends with `end_turn`. Verified end-to-end on real GPT-4o-mini traces: 3 topics run through CrewAI produce 3 sessions (previously fragmented).
 
 ## [1.3.0] - 2026-04-24
 
