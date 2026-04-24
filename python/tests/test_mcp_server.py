@@ -14,8 +14,14 @@ from pathlib import Path
 
 import pytest
 
-from shadow import _core
-from shadow.mcp_server import (
+# The MCP server module pulls in the `mcp` SDK at import time for the
+# protocol types. When the user hasn't installed `shadow-diff[mcp]`
+# we skip the whole file — matches how the adapter test files handle
+# their optional framework deps.
+pytest.importorskip("mcp")
+
+from shadow import _core  # noqa: E402
+from shadow.mcp_server import (  # noqa: E402
     TOOL_HANDLERS,
     _build_tools,
     _call_tool_impl,
