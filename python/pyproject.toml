@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "shadow"
-version = "0.1.0"
+version = "0.2.0"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
 # Dual-licensed to match the Rust community convention (tokio, serde,
 # ruff, uv). MIT keeps embedding frictionless; Apache-2.0 adds an

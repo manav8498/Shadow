@@ -188,6 +188,8 @@ def test_bisect_runs_end_to_end_on_differing_configs(tmp_path: Path) -> None:
 
 
 def test_version_prints_version() -> None:
+    from shadow import __version__
+
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
-    assert "shadow 0.1.0" in result.stdout
+    assert f"shadow {__version__}" in result.stdout
