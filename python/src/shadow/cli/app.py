@@ -379,10 +379,29 @@ def replay(
     output: Annotated[
         Path | None, typer.Option("--output", "-o", help="Where to write the candidate .agentlog")
     ] = None,
+    partial: Annotated[
+        bool,
+        typer.Option(
+            "--partial",
+            help="Partial replay: lock turns 0..--branch-at to the baseline "
+            "verbatim and replay only the suffix through the backend. "
+            "Isolates behaviour change to a specific branch point — useful "
+            "for 'if the agent took this path for 3 turns, what happens "
+            "from turn 4 under config B?' experiments.",
+        ),
+    ] = False,
+    branch_at: Annotated[
+        int,
+        typer.Option(
+            "--branch-at",
+            help="(with --partial) 0-based turn index where live replay "
+            "begins. 0 = fully live (equivalent to the default replay).",
+        ),
+    ] = 0,
 ) -> None:
     """Replay BASELINE's requests through BACKEND, writing a candidate trace."""
     from shadow.llm import MockLLM, PositionalMockLLM
-    from shadow.replay import run_replay
+    from shadow.replay import run_partial_replay, run_replay
 
     try:
         # Validate the config is readable YAML (not used by Rust core in v0.1;
@@ -397,7 +416,10 @@ def replay(
                 err_console.print("[red]error[/]: --backend positional requires --reference <path>")
                 raise typer.Exit(code=2)
             bk = PositionalMockLLM.from_path(reference)
-        candidate = asyncio.run(run_replay(baseline_records, bk))
+        if partial:
+            candidate = asyncio.run(run_partial_replay(baseline_records, branch_at, bk))
+        else:
+            candidate = asyncio.run(run_replay(baseline_records, bk))
         out_path = output or _default_replay_output()
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_bytes(_core.write_agentlog(candidate))
@@ -526,6 +548,37 @@ def diff_cmd(
             "regressed.",
         ),
     ] = False,
+    token_breakdown: Annotated[
+        bool,
+        typer.Option(
+            "--token-diff",
+            help="Print the token-level distribution breakdown (input / output "
+            "/ thinking tokens, median+p95+total per side, plus the top-k "
+            "worst per-pair deltas). Complements the verbosity axis with "
+            "structured numbers instead of a single severity roll-up.",
+        ),
+    ] = False,
+    policy_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--policy",
+            help="YAML/JSON policy overlay to check against both traces. A "
+            "policy is a list of rules (must_call_before, no_call, "
+            "max_turns, required_stop_reason, max_total_tokens, "
+            "must_include_text, forbidden_text). Regressions (new "
+            "violations in candidate) and fixes are reported.",
+        ),
+    ] = None,
+    suggest_fixes_flag: Annotated[
+        bool,
+        typer.Option(
+            "--suggest-fixes",
+            help="Layer LLM-assisted code-level fix proposals on top of the "
+            "deterministic recommendations. Requires a live backend (same "
+            "selection rules as --judge-backend / --explain). Opt-in — "
+            "~1-2k output tokens per diff depending on severity.",
+        ),
+    ] = False,
 ) -> None:
     """Compute a nine-axis diff between two traces and print the report."""
     from shadow.report import render_terminal
@@ -592,6 +645,50 @@ def diff_cmd(
             if rollup:
                 console.print("")
                 console.print(rollup)
+
+        if token_breakdown:
+            from shadow.hierarchical import render_token_diff, token_diff
+
+            t_diff = token_diff(b, c)
+            console.print("")
+            console.print(render_token_diff(t_diff))
+
+        if policy_file is not None:
+            from shadow.hierarchical import load_policy, policy_diff, render_policy_diff
+
+            raw_policy: Any
+            if policy_file.suffix.lower() in (".yaml", ".yml"):
+                raw_policy = yaml.safe_load(policy_file.read_text())
+            else:
+                raw_policy = json.loads(policy_file.read_text())
+            rules = load_policy(raw_policy)
+            p_diff = policy_diff(b, c, rules)
+            console.print("")
+            console.print(render_policy_diff(p_diff))
+
+        if suggest_fixes_flag:
+            if effective_backend is JudgeBackend.mock:
+                err_console.print(
+                    "[yellow]warning[/]: --suggest-fixes requires a live backend. "
+                    "Set --judge-backend anthropic|openai (or export "
+                    "ANTHROPIC_API_KEY / OPENAI_API_KEY and use --judge auto)."
+                )
+            else:
+                from shadow.llm import get_backend
+                from shadow.suggest_fixes import (
+                    render_terminal as render_suggest_terminal,
+                )
+                from shadow.suggest_fixes import suggest_fixes
+
+                try:
+                    backend = get_backend(effective_backend.value)
+                    result = suggest_fixes(report, b, c, backend, model=judge_model)
+                    console.print("")
+                    console.print(render_suggest_terminal(result))
+                except ShadowError as e:
+                    err_console.print(f"[yellow]warning[/]: --suggest-fixes failed: {e}")
+                except Exception as e:
+                    err_console.print(f"[yellow]warning[/]: --suggest-fixes call failed: {e}")
 
         if explain:
             if effective_backend is JudgeBackend.mock:
@@ -1073,6 +1170,8 @@ class ImportFormat(StrEnum):
     langsmith = "langsmith"
     openai_evals = "openai-evals"
     mcp = "mcp"
+    vercel_ai = "vercel-ai"
+    pydantic_ai = "pydantic-ai"
 
 
 @app.command("import")
@@ -1097,6 +1196,8 @@ def import_cmd(
         mcp_to_agentlog,
         openai_evals_to_agentlog,
         otel_to_agentlog,
+        pydantic_ai_to_agentlog,
+        vercel_ai_to_agentlog,
     )
 
     try:
@@ -1140,6 +1241,36 @@ def import_cmd(
             else:
                 data = _parse_jsonl_or_array(text, "MCP")
             records = mcp_to_agentlog(data)
+        elif fmt is ImportFormat.vercel_ai:
+            # Vercel AI SDK telemetry exports arrive as either an
+            # OTLP-style `{spans: [...]}` object or the AI Observability
+            # dashboard's `{events: [...]}` shape. Try full-file parse
+            # first; fall back to JSONL (OTLP exporters sometimes emit
+            # one span per line when a batch is broken up).
+            stripped = text.lstrip()
+            if stripped.startswith("["):
+                data = json.loads(text)
+            elif stripped.startswith("{"):
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    parsed = None
+                data = (
+                    parsed if isinstance(parsed, dict) else _parse_jsonl_or_array(text, "Vercel AI")
+                )
+            else:
+                data = _parse_jsonl_or_array(text, "Vercel AI")
+            records = vercel_ai_to_agentlog(data)
+        elif fmt is ImportFormat.pydantic_ai:
+            # PydanticAI's `all_messages_json()` emits a JSON array.
+            # Logfire exports may wrap it under `{spans: [...]}`. The
+            # importer accepts both — feed it whatever parses.
+            stripped = text.lstrip()
+            if stripped.startswith("[") or stripped.startswith("{"):
+                data = json.loads(text)
+            else:
+                data = _parse_jsonl_or_array(text, "PydanticAI")
+            records = pydantic_ai_to_agentlog(data)
         else:  # pragma: no cover — enum is exhaustive
             raise ValueError(f"unknown import format: {fmt}")
         output.parent.mkdir(parents=True, exist_ok=True)
