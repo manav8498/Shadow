@@ -125,6 +125,15 @@ def multimodal_diff(
     one-sided deltas with severity ``severe`` (the candidate either
     introduced an unrelated blob or lost a recorded one).
 
+    .. warning::
+
+       Positional matching only. If the candidate inserts an extra
+       blob early (e.g. an extra screenshot at turn 0), every
+       subsequent pair is misaligned and will look like a regression.
+       Keep blob ordering stable across baseline and candidate runs;
+       a best-match alignment mode is on the wishlist but not
+       implemented.
+
     Severity decision tree per pair:
 
     1. If both sides have an ``embedding`` of the same model dim:
@@ -134,8 +143,9 @@ def multimodal_diff(
        ``dhash_threshold_near_dup`` → none, ≤16 → minor, else
        moderate. Lexical-tier-only never goes to severe (we don't
        have enough signal to claim it).
-    3. Else: blob_id-equal → none; not equal → minor (the most
-       conservative thing to say without semantic signal).
+    3. Else: blob_id-equal → none; not equal → moderate (no
+       similarity signal so we surface for review; quieten by adding
+       phash or embedding to the recording side).
     """
     base_blobs = _extract_blob_refs(baseline)
     cand_blobs = _extract_blob_refs(candidate)
