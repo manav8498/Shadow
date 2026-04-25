@@ -14,6 +14,7 @@ What's shipping and what we're working on. Open an issue if you want to see some
 - Counterfactual primitives over the agent loop: `branch_at_turn`, `replace_tool_result`, `replace_tool_args` (each preserves the baseline prefix verbatim with content-addressed ids and drives forward from the pivot)
 - Behaviour-policy rules with conditional `when:` gating: `must_call_before`, `must_call_once`, `no_call`, `max_turns`, `required_stop_reason`, `max_total_tokens`, `must_include_text`, `forbidden_text`, `must_match_json_schema`, plus stateful and RAG-aware kinds `must_remain_consistent`, `must_followup`, `must_be_grounded`. Ten condition operators (`==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`, `not_contains`) over dotted paths into request / response / model / stop_reason
 - Runtime policy enforcement via `shadow.policy_runtime.EnforcedSession` and `PolicyEnforcer`. Three modes: `replace` (default — swap the offending response for a refusal payload), `raise` (throw `PolicyViolationError`), `warn` (log only). The enforcer is incremental: a whole-trace rule fires once when crossed, not once per recorded record
+- **Pre-tool-call enforcement** via `shadow.policy_runtime.wrap_tools` and `Session.wrap_tools`. Synthesises a candidate `tool_call` record before each tool fires, probes the enforcer non-mutatingly, and either runs the underlying function (allow), raises (`raise`), returns a placeholder (`replace`), or runs anyway with a warning (`warn`). Catches `no_call`, `must_call_before`, `must_call_once` AT the dispatch site for dangerous tools (`issue_refund`, `send_email`, `execute_sql`, `delete_user`)
 - Agent Behavior Certificate (ABOM) via `shadow certify` / `shadow verify-cert`: a content-addressed JSON release artefact capturing the trace id, models, prompt hashes, tool schema hashes, policy hash, and an optional baseline-vs-candidate regression-suite rollup. Self-verifying — `verify-cert` exits non-zero on tamper, so it can gate a release pipeline.
 - Cosign / sigstore keyless signing for certificates via `shadow certify --sign` and `shadow verify-cert --verify-signature` (optional `[sign]` extra). Writes a sidecar sigstore Bundle containing the signature, Fulcio-issued signing certificate, and Rekor transparency-log entry. Verification binds to a specific signer identity (workflow URL or email) so leaked Bundles signed by another identity fail.
 - `shadow diff --fail-on {minor,moderate,severe}` exits non-zero on regressions, so the GitHub Action can gate merges instead of just commenting
@@ -54,9 +55,9 @@ We import MCP session logs today and serve diff/policy/token-diff/schema-watch/s
 
 The Python SDK's streaming auto-instrumentation aggregates streamed responses into a single trace record. The TypeScript SDK currently passes streaming calls (`stream: true`) through unrecorded — the comment is in `typescript/src/instrumentation.ts`. Bringing TS to parity requires intercepting the `AsyncIterable` and aggregating chunks the way the Python layer does.
 
-### Tool-call pre-dispatch interception
+### Auto-instrument layer pre-dispatch
 
-`EnforcedSession` evaluates `record_chat` after the model responded. Pre-tool-call interception (block a `tool_use` from firing before the tool function executes) is a separate surface — it requires hooking into the auto-instrument layer's tool dispatch path or providing a wrapper around user tool registries.
+`wrap_tools` requires the user to wrap their own tool registry. The complementary direction — automatic interception via the SDK's auto-instrument layer (so an OpenAI/Anthropic-driven agent gets pre-dispatch enforcement without touching the tool functions) — is the next step. Today users on auto-instrument paths still get post-response enforcement and can layer `wrap_tools` for the dangerous subset.
 
 ## Not on the roadmap
 
