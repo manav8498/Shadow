@@ -201,7 +201,13 @@ class ReplayClientSession:
     :meth:`async_call_tool` etc.
     """
 
-    def __init__(self, index: RecordingIndex, *, strict: bool = False) -> None:
+    def __init__(self, index: RecordingIndex, *, strict: bool = True) -> None:
+        # Default to strict because the docstring above promises that
+        # an un-recorded call "fails fast (rather than silently
+        # returning stale data)". A non-strict default would have
+        # contradicted that, and replay determinism is the whole
+        # point of the surface. Pass strict=False to opt back in to
+        # silent-None on miss.
         self._index = index
         self._strict = strict
 
