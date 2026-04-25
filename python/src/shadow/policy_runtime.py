@@ -131,9 +131,13 @@ class PolicyEnforcer:
         self._on_violation = on_violation
         self._replacement_builder = replacement_builder or default_replacement_response
         # Track violation identities we've already reported so the same
-        # whole-trace violation doesn't re-fire on every subsequent
-        # turn. Identity is (rule_id, pair_index, detail).
-        self._known: set[tuple[str, int | None, str]] = set()
+        # whole-trace violation doesn't re-fire on every subsequent turn.
+        # Key is (rule_id, pair_index) — NOT including detail. Whole-
+        # trace rules (max_turns, must_call_once) embed running counts
+        # in their detail string, so detail-keyed dedup let those rules
+        # spam a "new" violation every turn after the first crossing.
+        # The detail is human-output, not identity.
+        self._known: set[tuple[str, int | None]] = set()
 
     @classmethod
     def from_policy_file(
@@ -183,7 +187,7 @@ class PolicyEnforcer:
         all_violations = check_policy(records, self._rules)
         new_violations: list[PolicyViolation] = []
         for v in all_violations:
-            key = (v.rule_id, v.pair_index, v.detail)
+            key = (v.rule_id, v.pair_index)
             if key in self._known:
                 continue
             self._known.add(key)

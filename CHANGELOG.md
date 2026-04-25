@@ -6,6 +6,13 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-04-25
+
+### Fixed
+
+- **`PolicyEnforcer` was respamming whole-trace rules every turn after they crossed.** The dedup key was `(rule_id, pair_index, detail)`. Whole-trace rules like `max_turns` and `must_call_once` embed a running count in their detail string ("trace has 5 turns; max is 4", then "trace has 6 turns; max is 4", etc.), so each subsequent turn produced a new detail and the enforcer reported it as new. Now keyed on `(rule_id, pair_index)` only — detail is human-output, not identity. Caught by the v2.0 real-LLM stress harness; existing 15 runtime tests still pass and a new regression test (`test_enforcer_whole_trace_rule_with_growing_count_does_not_respam`) locks the fix.
+- New committed real-LLM stress harness at `examples/stress_v20x/run_stress.py` — 13 assertions against real OpenAI gpt-4o-mini covering `must_remain_consistent` against live agent behavior, `must_be_grounded` against real RAG context (both grounded and off-topic prompts), all three `EnforcedSession` modes (replace/raise/warn) verifying the on-disk trace shape, incremental violation detection across a 6-turn live trace, the certify+verify-cert pipeline against an `EnforcedSession` output, and three concurrent `EnforcedSessions`. 13/13 passes against real OpenAI in ~17 seconds at well under $0.05.
+
 ## [2.0.0] - 2026-04-25
 
 Major version bump because v2.0 grows the SDK's public surface (new `shadow.policy_runtime` module with `EnforcedSession` / `PolicyEnforcer`). All v1.x APIs remain backwards-compatible — existing `Session`, `policy_diff`, `shadow diff --policy`, certificate workflow are unchanged. The major bump reflects the new public module, not a breaking change to existing code.
