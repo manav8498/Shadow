@@ -6,6 +6,13 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.7.3] - 2026-04-25
+
+### Fixed
+
+- `docs/reference/cli.md` had drifted four releases behind the CLI: missing entries for `shadow mine`, `shadow mcp-serve`, `shadow certify`, `shadow verify-cert`. Added all four. Also corrected a stale "8 rule kinds" line under `shadow diff --policy` (now nine, including `must_match_json_schema`) and added the `--fail-on` flag with explanation.
+- `shadow mcp-serve` reference section enumerates all seven MCP tools, including `shadow_certify` and `shadow_verify_cert` (added in v1.7.2).
+
 ## [1.7.2] - 2026-04-25
 
 ### Added
