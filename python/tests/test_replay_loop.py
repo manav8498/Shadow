@@ -185,10 +185,10 @@ def test_engine_caps_at_max_turns_with_truncation_marker() -> None:
     # Build a baseline whose mock LLM always responds with a tool_use,
     # never end_turn — engine will loop forever without max_turns.
     baseline = _build_baseline()
-    llm = MockLLM.from_trace(baseline)
 
-    # Patch the mock to ALWAYS return a tool_use response so the loop
-    # never terminates organically.
+    # We don't use MockLLM here — the LoopingLLM below replaces it so
+    # the engine never sees an end_turn response. We still build the
+    # baseline so the engine has a session seed to start from.
     looping_response = {
         "model": "m",
         "content": [{"type": "tool_use", "id": "t1", "name": "search", "input": {"q": "rust"}}],

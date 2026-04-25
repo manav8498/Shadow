@@ -27,7 +27,7 @@ Best-effort isolation, not a security boundary. The patch list is:
     ``datetime.datetime.utcnow`` are patched to return that fixed
     instant.
 
-Each patch raises a clear :class:`SandboxViolation` so a tool that
+Each patch raises a clear :class:`SandboxViolationError` so a tool that
 secretly tries to phone home surfaces in the trace as an
 ``is_error=True`` ``tool_result`` rather than silently succeeding.
 None of this stops a tool from doing CPU computation, calling another
@@ -66,7 +66,7 @@ from typing import Any
 from shadow.tools.base import ToolBackend, ToolCall, ToolResult
 
 
-class SandboxViolation(RuntimeError):
+class SandboxViolationError(RuntimeError):
     """A sandboxed tool tried to perform a blocked side effect.
 
     Carries the operation name (``connect``, ``Popen``, ``open(w)``)
@@ -164,7 +164,7 @@ class SandboxedToolBackend(ToolBackend):
         try:
             async with _SANDBOX_LOCK, self._patches():
                 output = await fn(call.arguments)
-        except SandboxViolation as exc:
+        except SandboxViolationError as exc:
             return ToolResult(
                 tool_call_id=call.id,
                 output=f"sandbox violation: {exc}",
@@ -228,10 +228,10 @@ def _install_network_block() -> list[Callable[[], None]]:
     original_connect_ex = socket.socket.connect_ex
 
     def blocked_connect(self: socket.socket, address: Any) -> None:
-        raise SandboxViolation("socket.connect", str(address))
+        raise SandboxViolationError("socket.connect", str(address))
 
     def blocked_connect_ex(self: socket.socket, address: Any) -> int:
-        raise SandboxViolation("socket.connect_ex", str(address))
+        raise SandboxViolationError("socket.connect_ex", str(address))
 
     socket.socket.connect = blocked_connect  # type: ignore[method-assign]
     socket.socket.connect_ex = blocked_connect_ex  # type: ignore[method-assign]
@@ -254,16 +254,16 @@ def _install_subprocess_block() -> list[Callable[[], None]]:
     original_execvp = os.execvp
 
     def blocked_popen_init(self: Any, *args: Any, **kwargs: Any) -> None:
-        raise SandboxViolation("subprocess.Popen", str(args[0]) if args else "")
+        raise SandboxViolationError("subprocess.Popen", str(args[0]) if args else "")
 
     def blocked_run(*args: Any, **kwargs: Any) -> Any:
-        raise SandboxViolation("subprocess.run", str(args[0]) if args else "")
+        raise SandboxViolationError("subprocess.run", str(args[0]) if args else "")
 
     def blocked_system(command: str) -> int:
-        raise SandboxViolation("os.system", command)
+        raise SandboxViolationError("os.system", command)
 
     def blocked_execvp(file: str, args: Any) -> None:
-        raise SandboxViolation("os.execvp", file)
+        raise SandboxViolationError("os.execvp", file)
 
     subprocess.Popen.__init__ = blocked_popen_init  # type: ignore[method-assign]
     subprocess.run = blocked_run  # type: ignore[assignment]
@@ -374,7 +374,13 @@ def _normalize_output(value: Any) -> str | dict[str, Any]:
     return str(value)
 
 
+# Backward-compat alias for any user already importing the old name
+# from a v1.6.0-rc tag. Removed in v2.
+SandboxViolation = SandboxViolationError
+
+
 __all__ = [
     "SandboxViolation",
+    "SandboxViolationError",
     "SandboxedToolBackend",
 ]

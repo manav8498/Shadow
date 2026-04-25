@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from shadow.tools.base import ToolCall
-from shadow.tools.sandbox import SandboxedToolBackend, SandboxViolation
+from shadow.tools.sandbox import SandboxedToolBackend, SandboxViolationError
 
 # ---- success path -------------------------------------------------------
 
@@ -66,7 +66,7 @@ def test_sandbox_with_block_network_false_lets_socket_through() -> None:
     """When the user explicitly opts out of network blocking, the
     patch isn't installed. We can't prove a real connect succeeds in
     a hermetic test, but we can verify the flag at least disables
-    the SandboxViolation on a no-op path."""
+    the SandboxViolationError on a no-op path."""
 
     async def harmless(args: dict[str, Any]) -> str:
         # Construct a socket but don't connect — proves the patch
@@ -159,11 +159,11 @@ def test_sandbox_restores_patches_after_call() -> None:
     assert completed.returncode == 0
 
 
-# ---- the SandboxViolation type itself ---------------------------------
+# ---- the SandboxViolationError type itself ---------------------------------
 
 
 def test_sandbox_violation_carries_operation_and_detail() -> None:
-    err = SandboxViolation("socket.connect", "1.1.1.1:80")
+    err = SandboxViolationError("socket.connect", "1.1.1.1:80")
     assert err.operation == "socket.connect"
     assert err.detail == "1.1.1.1:80"
     assert "socket.connect" in str(err)
