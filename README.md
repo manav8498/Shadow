@@ -3,7 +3,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-2.1.0-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.2.0-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -195,7 +195,7 @@ The TypeScript SDK covers the recording side of this same workflow. The Python a
 | Distributed-trace (W3C) propagation | ✅ | ✅ |
 | OpenAI Chat Completions + Anthropic Messages auto-instrument | ✅ | ✅ |
 | OpenAI Responses API auto-instrument | ✅ | ✅ |
-| Streaming aggregation in auto-instrument | ✅ | ❌ (passes through unrecorded) |
+| Streaming aggregation in auto-instrument | ✅ | ✅ |
 | Runtime policy enforcement (`EnforcedSession`) | ✅ | ❌ |
 | `shadow certify` / `--sign` / `verify-cert` | ✅ (CLI) | ❌ |
 | `shadow diff` / `bisect` / `replay` / `mine` | ✅ (CLI) | ❌ |

@@ -6,6 +6,24 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-04-25
+
+Two roadmap items shipped together. Both researched against canonical guardrail / auto-instrumentation patterns (NeMo Guardrails, Bedrock Guardrails, OpenTelemetry openai-instrumentation) before implementation — buffer-to-completion + replace-whole-response is the production norm, not strip-individual-blocks.
+
+### Added
+
+- **Auto-instrument-layer pre-dispatch enforcement.** When an `EnforcedSession` is active, the OpenAI / Anthropic `.create` wrapper now probes the enforcer with every `tool_use` block in the non-streaming response BEFORE returning to user code. Violating tool calls raise `PolicyViolationError` at the wrapped `.create` site — the user's tool dispatcher never sees the violating response, so dangerous tools (`issue_refund`, `send_email`, `execute_sql`, `delete_user`, `deploy_service`) can't fire. No code changes to user tool functions; works for any OpenAI / Anthropic-driven agent. Replace mode at this layer is approximated by raise (modifying SDK response objects across versions is fragile — use `wrap_tools` for finer control). Plain `Session` (no enforcer) is a complete no-op; users who never opted into runtime enforcement see zero behaviour change. 9 new tests at `python/tests/test_instrumentation_predispatch.py` cover the no-op, raise / replace / warn modes, allowed pass-through, repeated-block probe-state cleanliness, and translator-error graceful handling, plus an end-to-end test driving a fake OpenAI Completions class through the full Instrumentor pipeline.
+- **TypeScript SDK streaming aggregation.** The TS SDK's auto-instrument wrapper now intercepts `stream: true` calls via an async-iterator proxy that yields each chunk through to the caller AND feeds it to a per-provider aggregator. On stream end (or caller-side break), a single `chat_response` record lands with the assembled content. Two production aggregators:
+  - **OpenAI**: rebuilds text from `choice.delta.content` deltas, reconstructs interleaved `tool_calls` by index (each tool's id / name / arguments string assembled across chunks), captures `finish_reason` from the final chunk, and folds in `usage` if `stream_options: {include_usage: true}` was set.
+  - **Anthropic**: tracks content blocks by index across `content_block_start` / `content_block_delta` / `content_block_stop` events, accumulates text deltas / `input_json_delta` partial JSON / thinking deltas, captures `stop_reason` from `message_delta`, finalises into the same Message shape `anthropicTranslators.resp()` consumes for non-streaming responses.
+  - 4 new tests at `typescript/test/instrumentation_streaming.test.ts` covering OpenAI text aggregation, OpenAI tool-call argument-delta reassembly, Anthropic mixed text + `tool_use` block reassembly, and caller-side-break early termination.
+- New exports from `typescript/src/instrumentation.ts`: `Translators`, `StreamAggregator`, `openaiTranslators`, `anthropicTranslators`. Lets integration code drive the production aggregators directly.
+
+### Changed
+
+- README TypeScript / Python parity matrix updated — streaming aggregation row now ✅ on both.
+- ROADMAP "What's next" loses two entries (TS streaming, auto-instrument pre-dispatch). Remaining items: streaming replay (`.agentlog` v0.2 chunk records), multimodal traces, harness-diff instrumentation, MCP-native replay.
+
 ## [2.1.0] - 2026-04-25
 
 ### Added

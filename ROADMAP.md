@@ -14,11 +14,14 @@ What's shipping and what we're working on. Open an issue if you want to see some
 - Counterfactual primitives over the agent loop: `branch_at_turn`, `replace_tool_result`, `replace_tool_args` (each preserves the baseline prefix verbatim with content-addressed ids and drives forward from the pivot)
 - Behaviour-policy rules with conditional `when:` gating: `must_call_before`, `must_call_once`, `no_call`, `max_turns`, `required_stop_reason`, `max_total_tokens`, `must_include_text`, `forbidden_text`, `must_match_json_schema`, plus stateful and RAG-aware kinds `must_remain_consistent`, `must_followup`, `must_be_grounded`. Ten condition operators (`==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`, `not_contains`) over dotted paths into request / response / model / stop_reason
 - Runtime policy enforcement via `shadow.policy_runtime.EnforcedSession` and `PolicyEnforcer`. Three modes: `replace` (default — swap the offending response for a refusal payload), `raise` (throw `PolicyViolationError`), `warn` (log only). The enforcer is incremental: a whole-trace rule fires once when crossed, not once per recorded record
-- **Pre-tool-call enforcement** via `shadow.policy_runtime.wrap_tools` and `Session.wrap_tools`. Synthesises a candidate `tool_call` record before each tool fires, probes the enforcer non-mutatingly, and either runs the underlying function (allow), raises (`raise`), returns a placeholder (`replace`), or runs anyway with a warning (`warn`). Catches `no_call`, `must_call_before`, `must_call_once` AT the dispatch site for dangerous tools (`issue_refund`, `send_email`, `execute_sql`, `delete_user`)
+- **Pre-tool-call enforcement** at two layers:
+  - `shadow.policy_runtime.wrap_tools` and `Session.wrap_tools` for explicit tool-registry wrapping. Synthesises a candidate `tool_call` record before each tool fires, probes the enforcer non-mutatingly, and either runs the underlying function (allow), raises (`raise`), returns a placeholder (`replace`), or runs anyway with a warning (`warn`).
+  - **Auto-instrument-layer pre-dispatch** for OpenAI / Anthropic-driven agents that don't wrap their own tools. When the active session is an `EnforcedSession`, the auto-instrument wrapper probes every `tool_use` block in a non-streaming response BEFORE the response is returned to user code; violating responses raise `PolicyViolationError` at the wrapped `.create` call. No code changes to the user's tool functions.
+  - Both layers catch `no_call`, `must_call_before`, `must_call_once` AT the dispatch site for dangerous tools (`issue_refund`, `send_email`, `execute_sql`, `delete_user`).
 - Agent Behavior Certificate (ABOM) via `shadow certify` / `shadow verify-cert`: a content-addressed JSON release artefact capturing the trace id, models, prompt hashes, tool schema hashes, policy hash, and an optional baseline-vs-candidate regression-suite rollup. Self-verifying — `verify-cert` exits non-zero on tamper, so it can gate a release pipeline.
 - Cosign / sigstore keyless signing for certificates via `shadow certify --sign` and `shadow verify-cert --verify-signature` (optional `[sign]` extra). Writes a sidecar sigstore Bundle containing the signature, Fulcio-issued signing certificate, and Rekor transparency-log entry. Verification binds to a specific signer identity (workflow URL or email) so leaked Bundles signed by another identity fail.
 - `shadow diff --fail-on {minor,moderate,severe}` exits non-zero on regressions, so the GitHub Action can gate merges instead of just commenting
-- Auto-instrumentation for the Anthropic and OpenAI SDKs. Python: covers Anthropic Messages, OpenAI Chat Completions, OpenAI Responses API, plus streaming aggregation (each streamed call lands as a single record with the assembled response). TypeScript: covers non-streaming Anthropic and OpenAI calls; streaming requests are passed through unrecorded in the current TS SDK (parity with Python streaming is on the roadmap)
+- Auto-instrumentation for the Anthropic and OpenAI SDKs. Python: covers Anthropic Messages, OpenAI Chat Completions, OpenAI Responses API, plus streaming aggregation. TypeScript: covers non-streaming Anthropic and OpenAI calls plus streaming aggregation (each streamed call lands as a single record with the assembled response — interleaved tool-call argument deltas reassemble per index, Anthropic content blocks reassemble per `content_block_start`/`content_block_delta`/`content_block_stop` sequence)
 - Framework adapters: LangGraph / LangChain (`shadow-diff[langgraph]`), CrewAI (`shadow-diff[crewai]`), AG2 (`shadow-diff[ag2]`)
 - Ten built-in judges, including a rubric-driven `LlmJudge`
 - Nine importers: Langfuse, Braintrust, LangSmith, OpenAI Evals, OTLP (GenAI semconv v1.40), MCP, A2A, Vercel AI SDK, PydanticAI
@@ -51,13 +54,6 @@ Capture retries, tool-ordering, and context-trim events as first-class diff dime
 
 We import MCP session logs today and serve diff/policy/token-diff/schema-watch/summary over MCP. Next: protocol-level interception so MCP tool invocations replay deterministically without re-running the MCP server.
 
-### TypeScript SDK parity for streaming
-
-The Python SDK's streaming auto-instrumentation aggregates streamed responses into a single trace record. The TypeScript SDK currently passes streaming calls (`stream: true`) through unrecorded — the comment is in `typescript/src/instrumentation.ts`. Bringing TS to parity requires intercepting the `AsyncIterable` and aggregating chunks the way the Python layer does.
-
-### Auto-instrument layer pre-dispatch
-
-`wrap_tools` requires the user to wrap their own tool registry. The complementary direction — automatic interception via the SDK's auto-instrument layer (so an OpenAI/Anthropic-driven agent gets pre-dispatch enforcement without touching the tool functions) — is the next step. Today users on auto-instrument paths still get post-response enforcement and can layer `wrap_tools` for the dangerous subset.
 
 ## Not on the roadmap
 
