@@ -696,6 +696,17 @@ def diff_cmd(
             "~1-2k output tokens per diff depending on severity.",
         ),
     ] = False,
+    fail_on: Annotated[
+        str,
+        typer.Option(
+            "--fail-on",
+            help="Exit non-zero when the worst axis severity or policy "
+            "violation reaches this level. One of: never, minor, "
+            "moderate, severe. Default: never (post the report and "
+            "exit 0). Use `severe` to gate a PR merge on agent "
+            "regressions.",
+        ),
+    ] = "never",
 ) -> None:
     """Compute a nine-axis diff between two traces and print the report."""
     from shadow.report import render_terminal
@@ -827,6 +838,53 @@ def diff_cmd(
         if output_json is not None:
             output_json.parent.mkdir(parents=True, exist_ok=True)
             output_json.write_text(json.dumps(report, indent=2))
+
+        # Merge-gate: exit non-zero when the worst signal exceeds the
+        # caller's --fail-on threshold. The PR comment / output JSON
+        # are still produced first; the failure is a separate concern.
+        diff_rank = {"none": 0, "minor": 1, "moderate": 2, "severe": 3}
+        policy_rank = {"info": 1, "warning": 2, "error": 3}
+        fail_on_rank = {"never": 99, "minor": 1, "moderate": 2, "severe": 3}
+        threshold = fail_on_rank.get(fail_on)
+        if threshold is None:
+            valid = ", ".join(k for k in fail_on_rank if k != "never")
+            err_console.print(f"[red]error[/]: --fail-on must be one of {valid}, never")
+            raise typer.Exit(code=2)
+        if threshold < 99:
+            rows = report.get("rows") or []
+            worst_axis = max(
+                (diff_rank.get(r.get("severity", "none"), 0) for r in rows),
+                default=0,
+            )
+            worst_policy = 0
+            if policy_file is not None:
+                # p_diff was computed in the policy block above when
+                # policy_file is set; recompute defensively here so the
+                # gate works even if that block changed shape.
+                from shadow.hierarchical import load_policy as _load_policy
+                from shadow.hierarchical import policy_diff as _policy_diff
+
+                _raw: Any
+                if policy_file.suffix.lower() in (".yaml", ".yml"):
+                    _raw = yaml.safe_load(policy_file.read_text())
+                else:
+                    _raw = json.loads(policy_file.read_text())
+                _rules = _load_policy(_raw)
+                _gate_diff = _policy_diff(b, c, _rules)
+                # Regressions count toward the gate; fixes do not.
+                for v in getattr(_gate_diff, "regressions", []) or []:
+                    sev = getattr(v, "severity", "info")
+                    worst_policy = max(worst_policy, policy_rank.get(sev, 1))
+            worst = max(worst_axis, worst_policy)
+            if worst >= threshold:
+                err_console.print(
+                    f"[red]fail[/]: worst signal severity {worst} >= "
+                    f"--fail-on threshold {fail_on} ({threshold}); "
+                    f"exiting 1 to gate the merge."
+                )
+                raise typer.Exit(code=1)
+    except typer.Exit:
+        raise
     except ShadowError as e:
         _fail(e)
     except Exception as e:

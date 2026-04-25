@@ -6,6 +6,18 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.6.5] - 2026-04-25
+
+### Added
+
+- **`shadow diff --fail-on {minor,moderate,severe}`** — exits non-zero when the worst axis severity *or* a policy regression reaches the threshold. The diff report and policy summary are still printed (and the JSON output is still written) before the gate fires, so blocked PRs always see the explanation. Default remains `never` (post the report, exit 0). Use `--fail-on severe` in CI to convert Shadow from "shows you a diff" to "blocks the merge."
+- **GitHub Action gains a `fail-on` input** plumbed through to `shadow diff`. The PR comment is posted first, *then* the gate runs as a separate step, so blocked PRs always have the comment that explains why. New optional `policy` and `shadow-version` inputs too. Action defaults remain non-blocking, so existing consumers don't suddenly fail.
+
+### Fixed
+
+- **GitHub Action install was broken.** The composite action attempted `pip install shadow==0.1.0` — wrong package name (Shadow ships as `shadow-diff` on PyPI) and a version that was never published. External consumers always silently fell through to the in-tree fallback, which only works when running the action *from this repo*. Install line now uses `shadow-diff` (current latest) with optional pinning via the new `shadow-version` input.
+- **`ROADMAP.md` was anchored to v1.2.x** and listed sandboxed deterministic agent-loop replay under "What's next" even though it shipped in v1.6.0. Section header is now "Shipping today (v1.6.x)"; sandboxed replay, tool backends, novel-call policies, counterfactual primitives, conditional `when:` policies, framework adapters, importers, MCP server, trace mining, and PyPI Trusted Publisher are all in the shipping list. The "What's next" section now reflects the real outstanding work (streaming replay, multimodal traces, harness-diff instrumentation, MCP-native replay, runtime policy enforcement, richer behaviour contracts, ABOM). Added a "Not on the roadmap" entry making the sandbox's "best-effort isolation, not a security boundary" framing explicit.
+
 ## [1.6.4] - 2026-04-25
 
 ### Fixed
