@@ -9,7 +9,7 @@ build-backend = "maturin"
 # the CLI stays `shadow`, and the repo stays Shadow — only the
 # `pip install` name is different.
 name = "shadow-diff"
-version = "1.7.6"
+version = "1.8.0"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
 # Dual-licensed to match the Rust community convention (tokio, serde,
 # ruff, uv). MIT keeps embedding frictionless; Apache-2.0 adds an
@@ -98,6 +98,12 @@ serve = [
     "websockets>=13.1,<16",
 ]
 mcp = ["mcp>=0.9,<2"]
+# Cosign / sigstore signing for Agent Behavior Certificates. Enables
+# `shadow certify --sign` and `shadow verify-cert --verify-signature`.
+# Optional because sigstore pulls a non-trivial transitive tree
+# (cryptography, securesystemslib, tuf, rfc3161-client) that most
+# users running Shadow in tests don't need.
+sign = ["sigstore>=3.0,<4"]
 # Framework adapters. Each pulls in the minimum surface needed for the
 # matching shadow.adapters.<framework> module. LangGraph's extra
 # additionally brings `langchain-openai` since that's what ~80% of
