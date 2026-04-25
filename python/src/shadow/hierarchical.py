@@ -782,6 +782,10 @@ _POLICY_KINDS = {
     "must_include_text",
     "forbidden_text",
     "must_match_json_schema",
+    # v2.0 — stateful + RAG grounding rules
+    "must_remain_consistent",
+    "must_followup",
+    "must_be_grounded",
 }
 
 
@@ -1389,6 +1393,15 @@ def _check_single_rule(
     if rule.kind == "must_match_json_schema":
         return _check_must_match_json_schema(rule, responses)
 
+    if rule.kind == "must_remain_consistent":
+        return _check_must_remain_consistent(rule, records)
+
+    if rule.kind == "must_followup":
+        return _check_must_followup(rule, records)
+
+    if rule.kind == "must_be_grounded":
+        return _check_must_be_grounded(rule, records)
+
     # pragma: no cover — unreachable given load_policy validation
     return [_whole_trace_violation(rule, f"unhandled rule kind {rule.kind!r}")]
 
@@ -1507,6 +1520,259 @@ def _check_must_match_json_schema(
         except jsonschema.SchemaError as e:
             return [_whole_trace_violation(rule, f"schema itself is invalid: {e.message}")]
     return out
+
+
+def _check_must_remain_consistent(
+    rule: PolicyRule, records: list[dict[str, Any]]
+) -> list[PolicyViolation]:
+    """Stateful: once a value is observed at ``path`` in some pair, every
+    later pair where the same path resolves must equal that value.
+
+    Params:
+      - ``path`` (required): dotted path into the per-pair context
+        (e.g. ``request.params.amount``, ``response.stop_reason``).
+        Same path syntax as ``when:`` clauses.
+
+    Pairs where the path is absent are skipped (absence is not a
+    violation; the rule pins consistency *when observed*). The first
+    observed value becomes the anchor; later disagreements violate.
+    """
+    path = rule.params.get("path")
+    if not isinstance(path, str) or not path:
+        return [_whole_trace_violation(rule, "missing or empty `path` param")]
+
+    contexts = _build_pair_contexts(records)
+    missing = object()
+    anchor: Any = missing
+    out: list[PolicyViolation] = []
+    for i, ctx in enumerate(contexts):
+        value = _lookup_path(ctx, path)
+        if value is None:
+            continue
+        if anchor is missing:
+            anchor = value
+            continue
+        if value != anchor:
+            out.append(
+                PolicyViolation(
+                    rule_id=rule.id,
+                    kind=rule.kind,
+                    severity=rule.severity,
+                    pair_index=i,
+                    detail=(
+                        f"`{path}` changed from {anchor!r} to {value!r} "
+                        f"at pair {i}; must remain consistent once observed"
+                    ),
+                )
+            )
+    return out
+
+
+def _check_must_followup(rule: PolicyRule, records: list[dict[str, Any]]) -> list[PolicyViolation]:
+    """Stateful: when ``trigger`` conditions hold in pair N, pair N+1
+    must satisfy ``must``.
+
+    Params:
+      - ``trigger``: a list of conditions (same shape as ``when:``).
+        When all hold for pair N, the rule fires an obligation.
+      - ``must`` (required): the obligation. One of:
+        - ``{kind: "tool_call", tool_name: <name>}`` — pair N+1's
+          response must include a ``tool_use`` block for ``<name>``.
+        - ``{kind: "text_includes", text: <substr>}`` — pair N+1's
+          response text must contain ``<substr>``.
+
+    A trigger on the last pair (no N+1) is itself a violation —
+    the obligation could not be satisfied.
+    """
+    must = rule.params.get("must")
+    if not isinstance(must, dict):
+        return [_whole_trace_violation(rule, "missing or invalid `must` param")]
+    must_kind = must.get("kind")
+    if must_kind not in ("tool_call", "text_includes"):
+        return [
+            _whole_trace_violation(
+                rule, f"unknown `must.kind` {must_kind!r}; expected tool_call or text_includes"
+            )
+        ]
+
+    from shadow.errors import ShadowConfigError as _ShadowConfigError
+
+    trigger_raw = rule.params.get("trigger")
+    if trigger_raw is None or trigger_raw == []:
+        # No trigger means "always" — semantically dubious but accepted.
+        # Treat every pair as a trigger.
+        triggers: tuple[ConditionExpr, ...] = ()
+    else:
+        try:
+            triggers = _parse_when(trigger_raw, rule_index=-1)
+        except _ShadowConfigError as e:
+            return [_whole_trace_violation(rule, f"invalid `trigger`: {e}")]
+
+    contexts = _build_pair_contexts(records)
+    out: list[PolicyViolation] = []
+    for i, ctx in enumerate(contexts):
+        if triggers and not all(_eval_condition(c, ctx) for c in triggers):
+            continue
+        next_idx = i + 1
+        if next_idx >= len(contexts):
+            out.append(
+                PolicyViolation(
+                    rule_id=rule.id,
+                    kind=rule.kind,
+                    severity=rule.severity,
+                    pair_index=i,
+                    detail=(
+                        "trigger fired on the final pair — no follow-up "
+                        "pair exists to satisfy the obligation"
+                    ),
+                )
+            )
+            continue
+        next_ctx = contexts[next_idx]
+        next_response = next_ctx.get("response") or {}
+        if not _satisfies_must(must, next_response):
+            out.append(
+                PolicyViolation(
+                    rule_id=rule.id,
+                    kind=rule.kind,
+                    severity=rule.severity,
+                    pair_index=next_idx,
+                    detail=(
+                        f"trigger fired at pair {i}; pair {next_idx} did not "
+                        f"satisfy must={must_kind} {must!r}"
+                    ),
+                )
+            )
+    return out
+
+
+def _satisfies_must(must: dict[str, Any], response_payload: dict[str, Any]) -> bool:
+    """Return True iff ``response_payload`` satisfies a ``must`` spec
+    from a ``must_followup`` rule. Mirror of the small enum at the
+    top of :func:`_check_must_followup`."""
+    kind = must.get("kind")
+    if kind == "tool_call":
+        target = must.get("tool_name")
+        if not isinstance(target, str):
+            return False
+        for block in response_payload.get("content") or []:
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "tool_use"
+                and block.get("name") == target
+            ):
+                return True
+        return False
+    if kind == "text_includes":
+        needle = must.get("text")
+        if not isinstance(needle, str):
+            return False
+        text_parts: list[str] = []
+        for block in response_payload.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "text":
+                t = block.get("text")
+                if isinstance(t, str):
+                    text_parts.append(t)
+        return needle in "\n".join(text_parts)
+    return False
+
+
+def _check_must_be_grounded(
+    rule: PolicyRule, records: list[dict[str, Any]]
+) -> list[PolicyViolation]:
+    """RAG grounding: every response must overlap meaningfully with
+    its paired request's retrieved context.
+
+    Params:
+      - ``retrieval_path`` (required): dotted path into the request
+        payload pointing at retrieved chunks. Common values:
+        ``request.metadata.retrieved_chunks``, ``request.context``.
+        Must resolve to a string OR a list of strings. Pairs where
+        the path is absent / empty are skipped (no retrieval = no
+        obligation; the rule fires only when RAG is supposed to be
+        in play).
+      - ``min_unigram_precision`` (optional, default 0.5): fraction
+        of the response's unigrams that must be present in at least
+        one retrieved chunk. Below this threshold the response is
+        flagged as likely-hallucinated. Standard fallback when no
+        LLM judge is available; matches the convention used by
+        RAGAS, TruLens, DeepEval as their no-LLM baseline.
+
+    Implementation is pure-Python word-tokenisation (lowercased,
+    punctuation stripped). Cheap enough to run on every PR; no
+    network, no model.
+    """
+    path = rule.params.get("retrieval_path")
+    if not isinstance(path, str) or not path:
+        return [_whole_trace_violation(rule, "missing or empty `retrieval_path` param")]
+    threshold = rule.params.get("min_unigram_precision", 0.5)
+    if not isinstance(threshold, int | float) or not (0.0 <= float(threshold) <= 1.0):
+        return [
+            _whole_trace_violation(
+                rule, f"`min_unigram_precision` must be in [0.0, 1.0], got {threshold!r}"
+            )
+        ]
+    threshold = float(threshold)
+
+    contexts = _build_pair_contexts(records)
+    out: list[PolicyViolation] = []
+    for i, ctx in enumerate(contexts):
+        chunks_raw = _lookup_path(ctx, path)
+        chunks: list[str] = []
+        if isinstance(chunks_raw, str):
+            chunks = [chunks_raw]
+        elif isinstance(chunks_raw, list):
+            chunks = [c for c in chunks_raw if isinstance(c, str)]
+        if not chunks:
+            continue  # no retrieval, no obligation
+        response_payload = ctx.get("response") or {}
+        response_text = _gather_response_text([{"payload": response_payload}]).strip()
+        if not response_text:
+            continue  # no text response (e.g. tool_use only) — skip
+        precision = _unigram_precision(response_text, chunks)
+        if precision < threshold:
+            out.append(
+                PolicyViolation(
+                    rule_id=rule.id,
+                    kind=rule.kind,
+                    severity=rule.severity,
+                    pair_index=i,
+                    detail=(
+                        f"response unigram precision {precision:.2f} < "
+                        f"{threshold:.2f} threshold; likely hallucinated past "
+                        f"retrieved context"
+                    ),
+                )
+            )
+    return out
+
+
+def _unigram_precision(response: str, chunks: list[str]) -> float:
+    """Fraction of distinct response unigrams that appear in at least
+    one chunk. Returns 1.0 for empty response (vacuously grounded);
+    0.0 for empty chunks (no retrieval to ground against — caller
+    is expected to short-circuit before this).
+
+    Tokenisation: lowercased, alphanumeric runs only (drops
+    punctuation). Avoids the punctuation-noise that would let a
+    response satisfy the rule by emitting "the , . the , ." matching
+    every chunk.
+    """
+    import re
+
+    def _tokens(s: str) -> set[str]:
+        return {t for t in re.findall(r"[a-z0-9]+", s.lower()) if len(t) > 1}
+
+    response_tokens = _tokens(response)
+    if not response_tokens:
+        return 1.0
+    chunk_tokens: set[str] = set()
+    for c in chunks:
+        chunk_tokens |= _tokens(c)
+    if not chunk_tokens:
+        return 0.0
+    overlap = response_tokens & chunk_tokens
+    return len(overlap) / len(response_tokens)
 
 
 def _whole_trace_violation(rule: PolicyRule, detail: str) -> PolicyViolation:
