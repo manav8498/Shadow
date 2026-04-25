@@ -59,11 +59,17 @@ Nine-axis behavioural diff. Key flags:
   [Hierarchical diff, token-level](../features/hierarchical.md#token-level-v12).
 - `--policy path/to/rules.yaml`, check a declarative YAML policy
   overlay against both traces and classify rule violations as
-  regressions vs fixes. Supports 8 rule kinds:
+  regressions vs fixes. Supports 9 rule kinds:
   `must_call_before`, `must_call_once`, `no_call`, `max_turns`,
   `required_stop_reason`, `max_total_tokens`, `must_include_text`,
-  `forbidden_text`. See
-  [Hierarchical diff, policy-level](../features/hierarchical.md#policy-level-v12).
+  `forbidden_text`, `must_match_json_schema`. Each rule can carry a
+  `when:` clause that gates it on field-path conditions (operators:
+  `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`,
+  `not_contains`). See [Behavior policy](../features/policy.md).
+- `--fail-on {minor,moderate,severe}`, exit non-zero when the worst
+  axis severity or policy regression hits the threshold. Default is
+  `never` (post the report, exit 0). Use `--fail-on severe` to gate
+  a PR merge on agent regressions.
 - `--suggest-fixes`, layer an LLM pass on top of the deterministic
   recommendation engine to produce concrete code-level fix proposals.
   Each suggestion is grounded on a deterministic anchor (ungrounded
@@ -111,6 +117,55 @@ Export to `otel` (OTLP/JSON) for OpenTelemetry collectors.
 
 Merge multiple `.agentlog` files into one logical trace via
 `meta.trace_id`.
+
+## `shadow mine <traces...>`
+
+Cluster a corpus of production traces by tool sequence, stop reason,
+response length, and latency, then surface representative cases as a
+regression suite. Output is a list of `(trace_id, cluster_id, why)`
+triples that you can commit alongside the agent as your golden test
+set.
+
+## `shadow mcp-serve`
+
+Run Shadow as a Model Context Protocol server over stdio. Any
+MCP-aware agentic CLI (Claude Code, Cursor, Zed, Claude Desktop,
+Windsurf) can invoke Shadow as a tool. Tools exposed:
+
+- `shadow_diff`
+- `shadow_check_policy`
+- `shadow_token_diff`
+- `shadow_schema_watch`
+- `shadow_summarise`
+- `shadow_certify` (v1.7.2+)
+- `shadow_verify_cert` (v1.7.2+)
+
+Install the extra first: `pip install 'shadow-diff[mcp]'`. See
+[MCP importer](../features/mcp.md) for the reverse direction
+(importing MCP traces into Shadow).
+
+## `shadow certify <trace>`
+
+Generate an Agent Behavior Certificate (ABOM) for a release. The
+certificate is a content-addressed JSON release artefact capturing
+the trace's content-id, all distinct models, content-ids of system
+prompts, content-ids of tool schemas, optional policy hash, and an
+optional baseline-vs-candidate nine-axis regression-suite rollup.
+
+Required: `--agent-id <id>` and `--output <path>`. Optional:
+`--policy <file>` (records its hash), `--baseline <trace>` (folds
+in a regression-suite rollup), `--pricing <file>` (for the
+regression-suite cost axis), `--seed <int>`.
+
+The certificate is self-verifying via `shadow verify-cert`. See
+[Release certificate](../features/certificate.md).
+
+## `shadow verify-cert <cert>`
+
+Verify a certificate's content-addressed `cert_id` matches the
+body. Exits 0 when consistent, 1 on tamper, malformed payload, or
+unsupported `cert_version`. Designed to run as a release-pipeline
+gate.
 
 ## `shadow serve`
 
