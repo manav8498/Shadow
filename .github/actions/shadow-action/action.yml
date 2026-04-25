@@ -138,7 +138,9 @@ runs:
         fi
         # Re-run shadow diff with --fail-on to surface the gate decision
         # as a non-zero exit. The comment was already posted above, so
-        # blocked PRs still see the explanation.
+        # blocked PRs still see the explanation. Passes through every
+        # opt-in surface from the report run so the gate sees the same
+        # axes the comment shows.
         PRICING_ARG=""
         if [[ -n "${{ inputs.pricing }}" ]]; then
           PRICING_ARG="--pricing ${{ inputs.pricing }}"
@@ -147,7 +149,14 @@ runs:
         if [[ -n "${{ inputs.policy }}" ]]; then
           POLICY_ARG="--policy ${{ inputs.policy }}"
         fi
+        EXTRA_ARGS=""
+        if [[ "${{ inputs.harness-diff }}" == "true" ]]; then
+          EXTRA_ARGS="$EXTRA_ARGS --harness-diff"
+        fi
+        if [[ "${{ inputs.multimodal-diff }}" == "true" ]]; then
+          EXTRA_ARGS="$EXTRA_ARGS --multimodal-diff"
+        fi
         shadow diff "${{ inputs.baseline }}" "${{ inputs.candidate }}" \
-          $PRICING_ARG $POLICY_ARG \
+          $PRICING_ARG $POLICY_ARG $EXTRA_ARGS \
           --fail-on "${{ inputs.fail-on }}" \
           > /dev/null
