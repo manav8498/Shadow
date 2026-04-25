@@ -410,6 +410,9 @@ def record_blob_ref(
 # ---- harness-event diff dimension ------------------------------------
 
 
+_SEVERITY_RANK: dict[str, int] = {"info": 0, "warning": 1, "error": 2, "fatal": 3}
+
+
 @dataclass
 class HarnessEventDelta:
     """One entry in a harness-event diff."""
@@ -422,6 +425,13 @@ class HarnessEventDelta:
     count_delta: int
     first_occurrence_baseline: int | None  # pair_index of first occurrence
     first_occurrence_candidate: int | None
+    # Severity-shift detection: same (category, name) seen on both
+    # sides but the worst severity moved. baseline_severity and
+    # candidate_severity are the worst severity of any matching event
+    # on each side; severity_shift is "regression" / "fix" / None.
+    baseline_severity: str | None = None
+    candidate_severity: str | None = None
+    severity_shift: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -433,6 +443,9 @@ class HarnessEventDelta:
             "count_delta": self.count_delta,
             "first_occurrence_baseline": self.first_occurrence_baseline,
             "first_occurrence_candidate": self.first_occurrence_candidate,
+            "baseline_severity": self.baseline_severity,
+            "candidate_severity": self.candidate_severity,
+            "severity_shift": self.severity_shift,
         }
 
 
@@ -458,15 +471,24 @@ def harness_event_diff(
                 continue
             payload = rec.get("payload") or {}
             key = (str(payload.get("category") or ""), str(payload.get("name") or ""))
+            ev_severity = str(payload.get("severity") or "info")
             slot = target.setdefault(
                 key,
                 {
                     "count": 0,
-                    "severity": str(payload.get("severity") or "info"),
+                    "severity": ev_severity,
+                    "worst_severity": ev_severity,
                     "first_pair": None,
                 },
             )
             slot["count"] = int(slot["count"]) + 1
+            # Track the worst severity seen for this (category, name).
+            # Two info retries on baseline plus one error retry on
+            # candidate is a real regression even if counts match.
+            if _SEVERITY_RANK.get(ev_severity, 0) > _SEVERITY_RANK.get(
+                str(slot["worst_severity"]), 0
+            ):
+                slot["worst_severity"] = ev_severity
             if slot["first_pair"] is None:
                 slot["first_pair"] = pair_idx if pair_idx >= 0 else 0
 
@@ -479,8 +501,20 @@ def harness_event_diff(
         c = cand_index.get(key) or {}
         b_count = int(b.get("count") or 0)
         c_count = int(c.get("count") or 0)
-        # Pick severity from whichever side has it (candidate first).
+        # Pick severity from whichever side has it (candidate first)
+        # for the legacy `severity` field; the per-side worst severity
+        # is recorded separately below for shift detection.
         severity = str(c.get("severity") or b.get("severity") or "info")
+        b_sev = str(b.get("worst_severity")) if b else None
+        c_sev = str(c.get("worst_severity")) if c else None
+        shift: str | None = None
+        if b_sev and c_sev and b_sev != c_sev:
+            br = _SEVERITY_RANK.get(b_sev, 0)
+            cr = _SEVERITY_RANK.get(c_sev, 0)
+            if cr > br:
+                shift = "regression"
+            elif cr < br:
+                shift = "fix"
         out.append(
             HarnessEventDelta(
                 category=key[0],
@@ -491,9 +525,22 @@ def harness_event_diff(
                 count_delta=c_count - b_count,
                 first_occurrence_baseline=b.get("first_pair"),
                 first_occurrence_candidate=c.get("first_pair"),
+                baseline_severity=b_sev,
+                candidate_severity=c_sev,
+                severity_shift=shift,
             )
         )
-    out.sort(key=lambda d: -abs(d.count_delta))
+    # Sort: deltas with a count change first (by absolute count_delta),
+    # then severity shifts at unchanged count last but still ordered
+    # by candidate severity descending.
+    out.sort(
+        key=lambda d: (
+            -abs(d.count_delta),
+            -_SEVERITY_RANK.get(d.candidate_severity or d.severity, 0)
+            if d.severity_shift
+            else 0,
+        )
+    )
     return out
 
 
