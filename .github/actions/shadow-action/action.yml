@@ -20,6 +20,14 @@ inputs:
     description: 'Exit non-zero (failing the action and blocking merge if the check is required) when the worst axis severity or policy violation reaches this level. One of: never, minor, moderate, severe. Default: never (post the comment, do not block).'
     required: false
     default: 'never'
+  harness-diff:
+    description: 'Append a harness-event diff section (retry, rate_limit, model_switch, ...) to the rendered PR comment. Set to "true" to enable. Requires harness_event records in both traces.'
+    required: false
+    default: 'false'
+  multimodal-diff:
+    description: 'Append a multimodal blob diff section (cheap-tier dHash + semantic-tier cosine) to the rendered PR comment. Set to "true" to enable. Requires blob_ref records in both traces.'
+    required: false
+    default: 'false'
   python-version:
     description: 'Python version to install for running shadow.'
     required: false
@@ -72,13 +80,20 @@ runs:
         if [[ -n "${{ inputs.policy }}" ]]; then
           POLICY_ARG="--policy ${{ inputs.policy }}"
         fi
+        EXTRA_ARGS=""
+        if [[ "${{ inputs.harness-diff }}" == "true" ]]; then
+          EXTRA_ARGS="$EXTRA_ARGS --harness-diff"
+        fi
+        if [[ "${{ inputs.multimodal-diff }}" == "true" ]]; then
+          EXTRA_ARGS="$EXTRA_ARGS --multimodal-diff"
+        fi
         mkdir -p .shadow-action
         # Run the diff first WITHOUT --fail-on so the comment-rendering
         # steps always have a report.json. The gate runs as a separate
         # step at the end so the PR still gets a comment explaining why
         # the merge was blocked.
         shadow diff "${{ inputs.baseline }}" "${{ inputs.candidate }}" \
-          $PRICING_ARG $POLICY_ARG \
+          $PRICING_ARG $POLICY_ARG $EXTRA_ARGS \
           --output-json .shadow-action/report.json
 
     - name: Render markdown for PR comment
