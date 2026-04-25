@@ -38,9 +38,7 @@ When the renderer compares two `blob_ref` records at the same pair index:
 1. If `baseline_blob_id == candidate_blob_id`, `severity=none`.
 2. Else if both sides have an embedding, severity is driven by cosine similarity (semantic tier wins).
 3. Else if both sides have a phash, severity is driven by Hamming distance (cheap tier).
-4. Else (no signal but blob ids differ), severity falls back to `minor`.
-
-The fallback is conservative — see [issue #14 of the v2.4 audit](https://github.com/manav8498/Shadow/issues) if you want to argue it should default higher.
+4. Else (no signal but blob ids differ), severity falls back to `moderate`. A swapped blob with no similarity signal is more likely a real regression than a near-duplicate, so the renderer surfaces it for a human to eyeball. Add a phash or embedding to the recording side if you want quieter diffs.
 
 ## Limitations
 
