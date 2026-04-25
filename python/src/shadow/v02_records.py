@@ -536,9 +536,7 @@ def harness_event_diff(
     out.sort(
         key=lambda d: (
             -abs(d.count_delta),
-            -_SEVERITY_RANK.get(d.candidate_severity or d.severity, 0)
-            if d.severity_shift
-            else 0,
+            -_SEVERITY_RANK.get(d.candidate_severity or d.severity, 0) if d.severity_shift else 0,
         )
     )
     return out

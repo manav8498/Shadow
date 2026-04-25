@@ -50,16 +50,10 @@ def render_terminal(deltas: list[HarnessEventDelta]) -> str:
     # Severity shifts at unchanged count: real regressions/fixes that
     # the count-delta view alone misses.
     severity_regressions = [
-        d
-        for d in sorted_deltas
-        if d.count_delta == 0 and d.severity_shift == "regression"
+        d for d in sorted_deltas if d.count_delta == 0 and d.severity_shift == "regression"
     ]
-    severity_fixes = [
-        d for d in sorted_deltas if d.count_delta == 0 and d.severity_shift == "fix"
-    ]
-    unchanged = [
-        d for d in sorted_deltas if d.count_delta == 0 and d.severity_shift is None
-    ]
+    severity_fixes = [d for d in sorted_deltas if d.count_delta == 0 and d.severity_shift == "fix"]
+    unchanged = [d for d in sorted_deltas if d.count_delta == 0 and d.severity_shift is None]
 
     lines: list[str] = []
     lines.append(
