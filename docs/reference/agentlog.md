@@ -2,8 +2,7 @@
 
 Shadow's on-disk trace format. JSON-Lines, content-addressed, streaming-safe.
 
-Full spec: [SPEC.md](https://github.com/manav8498/Shadow/blob/main/SPEC.md)
-(25 pages, 5 worked examples, normative).
+Full spec: [SPEC.md](https://github.com/manav8498/Shadow/blob/main/SPEC.md) — normative; worked examples included.
 
 ## Envelope
 
