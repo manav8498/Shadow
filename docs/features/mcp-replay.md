@@ -24,7 +24,7 @@ result = await session.call_tool("search", arguments={"q": "foo"})
 
 ## Strict vs non-strict
 
-`ReplayClientSession(index, strict=False)` is the default. On a missing key it returns `None` so the caller's error path runs. Set `strict=True` to raise `MCPMissingRecordingError` instead — recommended in CI when you want a candidate that calls something not in the baseline to fail loudly.
+`ReplayClientSession(index)` defaults to `strict=True`. On a missing key it raises `MCPCallNotRecorded` so a candidate that drifts from the baseline fails fast — that's the whole point of deterministic replay. Pass `strict=False` to opt back in to silent-None on miss for the rare case where you want the caller's existing error path to run instead.
 
 ## Surface
 
