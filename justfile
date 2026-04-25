@@ -115,6 +115,10 @@ ci-local-extras:
     # split into its own step so a flake here doesn't mask earlier
     # failures and the output stays legible.
     uv pip install --python .venv/bin/python -e "python[embeddings]"
+    # `multimodal` is Pillow + imagehash for the v0.2 blob_ref cheap-tier
+    # dHash. Tests for this are quiet until the deps are installed, so a
+    # local run that skips this hides regressions until CI hits them.
+    uv pip install --python .venv/bin/python -e "python[multimodal]"
     # `sign` pulls sigstore + Fulcio/Rekor client trees. sigstore-rekor-types
     # carries pre-release wheels at versions like 0.0.18 and similar pulls
     # sigstore-protobuf-specs at >0.3.5,<0.4.dev0 — uv refuses by default,
