@@ -112,6 +112,12 @@ class Instrumentor:
                     result, session, req_translator, resp_translator, kwargs, start
                 )
             latency_ms = int((time.perf_counter() - start) * 1000)
+            # Pre-dispatch enforcement: probe the enforcer with the
+            # response's tool_use blocks BEFORE recording. May raise
+            # PolicyViolationError; the caller's handler sees it.
+            _enforce_pre_dispatch(
+                session, req_translator, resp_translator, kwargs, result, latency_ms
+            )
             _record_safely(session, req_translator, resp_translator, kwargs, result, latency_ms)
             return result
 
@@ -139,6 +145,9 @@ class Instrumentor:
                     result, session, req_translator, resp_translator, kwargs, start
                 )
             latency_ms = int((time.perf_counter() - start) * 1000)
+            _enforce_pre_dispatch(
+                session, req_translator, resp_translator, kwargs, result, latency_ms
+            )
             _record_safely(session, req_translator, resp_translator, kwargs, result, latency_ms)
             return result
 
@@ -162,6 +171,104 @@ def _record_safely(
     except Exception:
         # Best-effort: recording failures must not propagate.
         return
+
+
+def _enforce_pre_dispatch(
+    session: Session,
+    req_translator: Any,
+    resp_translator: Any,
+    kwargs: dict[str, Any],
+    result: Any,
+    latency_ms: int,
+) -> None:
+    """Auto-instrument-layer pre-dispatch enforcement.
+
+    Called AFTER the original ``.create`` returned but BEFORE the
+    response is handed back to user code. Translates the response
+    into Shadow's ``chat_response`` payload, extracts any ``tool_use``
+    blocks, synthesises candidate ``tool_call`` records, and probes
+    the session's enforcer.
+
+    On any violation, behaves per the enforcer's ``on_violation``:
+      - ``raise``: raises ``PolicyViolationError`` immediately. The
+        recording layer never sees the response; the caller's
+        exception handler observes the block.
+      - ``replace``: same as ``raise`` for v2.2 — auto-instrument
+        replace-mode is approximated by raise. Modifying the SDK's
+        own response object across SDK versions is fragile, so
+        :func:`shadow.policy_runtime.wrap_tools` remains the
+        recommended path when callers want a synthetic-refusal
+        replacement of individual tool calls. The error message
+        mentions wrap_tools for callers who want finer control.
+      - ``warn``: logs the violation and lets the response through
+        (the recording layer still records the underlying response).
+
+    No-op when the session isn't an :class:`EnforcedSession` (no
+    ``_enforcer`` attribute) or when the response carries no
+    ``tool_use`` blocks.
+    """
+    enforcer = getattr(session, "_enforcer", None)
+    if enforcer is None:
+        return
+    try:
+        from shadow.policy_runtime import PolicyViolationError
+    except Exception:  # pragma: no cover — policy_runtime ships in-tree
+        return
+    try:
+        shadow_resp = resp_translator(result, latency_ms)
+    except Exception:
+        # If we can't translate the response, we can't probe. Fall
+        # through to normal recording — at worst the user pays
+        # post-response enforcement instead of pre-dispatch.
+        return
+
+    tool_uses = [
+        b
+        for b in shadow_resp.get("content") or []
+        if isinstance(b, dict) and b.get("type") == "tool_use"
+    ]
+    if not tool_uses:
+        return  # no tool calls; nothing to pre-dispatch
+
+    from shadow import _core
+
+    records = list(session._records)
+    parent_id = records[-1]["id"] if records else "sha256:none"
+    probes: list[dict[str, Any]] = []
+    for block in tool_uses:
+        payload = {
+            "tool_name": str(block.get("name") or ""),
+            "tool_call_id": str(block.get("id") or ""),
+            "arguments": dict(block.get("input") or {}),
+        }
+        probes.append(
+            {
+                "version": "0.1",
+                "id": _core.content_id(payload),
+                "kind": "tool_call",
+                "ts": "1970-01-01T00:00:00.000Z",
+                "parent": parent_id,
+                "payload": payload,
+            }
+        )
+    verdict = enforcer.probe([*records, *probes])
+    if verdict.allow:
+        return
+    mode = enforcer.on_violation
+    if mode == "warn":
+        import logging
+
+        logging.getLogger("shadow.policy_runtime").warning(
+            "auto-instrument: %d tool_use block(s) would be blocked but "
+            "warn mode is set; passing through. Violations: %s",
+            len(tool_uses),
+            verdict.reason,
+        )
+        return
+    # raise + replace both surface as PolicyViolationError at the
+    # auto-instrument layer. The error carries every violation so
+    # caller's handler can branch.
+    raise PolicyViolationError(verdict.violations)
 
 
 # ---------------------------------------------------------------------------
