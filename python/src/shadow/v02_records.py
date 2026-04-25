@@ -31,6 +31,13 @@ from __future__ import annotations
 import hashlib
 import re
 import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from shadow.sdk.session import Session
+
 
 # RFC-style "type/subtype" check, with the optional `+suffix` and
 # `; param=value` tail. We don't parse the parameters, just bound
@@ -41,12 +48,6 @@ _MIME_RE = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}"
     r"(\s*;\s*[A-Za-z0-9!#$&^_.+-]+\s*=\s*[\w\d!#$&^_.+-]+)*$"
 )
-from dataclasses import dataclass
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
-
-if TYPE_CHECKING:
-    from shadow.sdk.session import Session
 
 
 HARNESS_CATEGORIES = frozenset(
@@ -162,9 +163,7 @@ def record_chunk(
 
     chunk_index_int = int(chunk_index)
     if chunk_index_int < 0:
-        raise ShadowConfigError(
-            f"chunk_index must be >= 0 (got {chunk_index_int})"
-        )
+        raise ShadowConfigError(f"chunk_index must be >= 0 (got {chunk_index_int})")
     payload: dict[str, Any] = {
         "chunk_index": chunk_index_int,
         "time_unix_nano": int(time_unix_nano if time_unix_nano is not None else time.time_ns()),
@@ -326,7 +325,7 @@ def phash_distance(a: dict[str, Any], b: dict[str, Any]) -> int | None:
     misleading distance).
     """
     algo = a.get("algo")
-    if algo != b.get("algo"):
+    if algo != b.get("algo") or not isinstance(algo, str):
         return None
     expected_hex_len = _PHASH_HEX_LEN.get(algo)
     if expected_hex_len is None:
@@ -373,7 +372,6 @@ def record_blob_ref(
     omits ``phash``.
     """
     from shadow import _core
-
     from shadow.errors import ShadowConfigError
 
     if not isinstance(blob, bytes | bytearray):
