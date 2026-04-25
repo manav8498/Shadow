@@ -3,7 +3,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-2.0.1-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.2-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -146,7 +146,9 @@ with EnforcedSession(enforcer=enforcer, output_path="run.agentlog") as s:
     s.record_chat(request=..., response=...)
 ```
 
-When a recorded turn introduces a new violation, the session swaps the response for a refusal payload by default (`stop_reason: "policy_blocked"`) so downstream code keeps running. Set `on_violation="raise"` for hard failure, `"warn"` for log-only. The enforcer is incremental — whole-trace rules fire once when crossed, not once per recorded record. See [docs/features/runtime-enforcement.md](docs/features/runtime-enforcement.md).
+When a recorded turn introduces a new violation, the session swaps the response for a refusal payload by default (`stop_reason: "policy_blocked"`) so downstream code keeps running. Set `on_violation="raise"` for hard failure, `"warn"` for log-only. The enforcer is incremental — whole-trace rules fire once when crossed, not once per recorded record.
+
+**Scope: this is post-response, not pre-tool-call.** `EnforcedSession.record_chat` evaluates after the model has returned. To block a *tool* before it executes, your code calls `enforcer.evaluate(records_so_far)` between the model response and the tool dispatch and acts on the verdict — Shadow doesn't sit between your agent and the tool. Pre-dispatch interception via the auto-instrument layer is on the roadmap. See [docs/features/runtime-enforcement.md](docs/features/runtime-enforcement.md).
 
 ## Recording real agent traces
 
@@ -367,16 +369,17 @@ Full details in [`SPEC.md`](SPEC.md).
 |---|:---:|:---:|:---:|:---:|
 | Trace logging | ✅ | ✅ | ✅ | ✅ |
 | Dashboard UI | ✅ | ✅ | ✅ | no |
-| Self-hostable | ✅ | no | no | ✅ |
+| Self-hostable | ✅ | partial | no | ✅ |
 | PR comment from CI | partial | partial | partial | ✅ |
-| Behavior policy rules | no | no | no | ✅ |
-| Merge-blocking CI gate | no | no | no | ✅ |
-| Cosign-signed release certificate | no | no | no | ✅ |
-| Causal attribution | no | no | no | ✅ |
-| Nine pre-built behavior axes | no | no | no | ✅ |
+| Declarative YAML behavior policy | partial via evals | partial via evals | partial via evals | ✅ |
+| Merge-blocking PR check | partial via webhooks | partial via webhooks | partial via webhooks | ✅ |
+| Content-addressed release certificate | no | no | no | ✅ |
+| Cosign / sigstore signing on certificate | no | no | no | ✅ |
+| Causal attribution (LASSO + bootstrap CI) | no | no | no | ✅ |
+| Nine pre-built behavior axes | partial | partial | partial | ✅ |
 | Open content-addressed trace format | no | no | no | ✅ |
 
-Shadow is complementary to the dashboard tools. They capture traces; Shadow compares behavior between a baseline and a candidate and decides whether the change is safe to merge. You can pair Shadow with any of them.
+The "partial" cells reflect that all three platforms support evals + webhooks + custom CI integrations that a determined team can build into a PR-comment / gate workflow. Shadow's claim isn't that those tools can't be wired up — it's that Shadow ships the workflow as a single command, and ships an open trace format, declarative policy language, and signed release certificate as primitives. Pair Shadow with any of these tools for the dashboard side.
 
 ## Examples
 

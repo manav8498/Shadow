@@ -6,6 +6,23 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-04-25
+
+### Fixed
+
+- **Stale rule-count strings** in three docs surfaces still said "9 rule kinds" or "Nine kinds ship today" after v2.0 added three new kinds (`must_remain_consistent`, `must_followup`, `must_be_grounded`):
+  - `docs/features/policy.md` header
+  - `docs/quickstart/ci.md` next-section link
+  - `docs/reference/cli.md` `shadow diff --policy` description
+  - `shadow.mcp_server` `shadow_check_policy` tool description
+  All four now say "twelve" / "12" and list every kind.
+
+### Docs
+
+- **`must_be_grounded` honest scope** added to `docs/features/policy.md`. The rule is lexical-overlap, not semantic faithfulness or NLI-backed grounding. Now explicitly documents what it catches (off-topic responses) and what it doesn't (semantic-equivalent paraphrase with different vocabulary, citations with unsupported conclusions, claims a chunk contradicts). For deeper grounding, pair with the `Judge` axis or an external faithfulness evaluator. Treat the rule as a cheap CI gate, not a hallucination guarantee.
+- **Runtime enforcement scope** now explicit in the README: `EnforcedSession.record_chat` evaluates AFTER the model response, not before tool dispatch. The README points users at the `enforcer.evaluate(records_so_far)` pattern between model response and tool dispatch when pre-tool blocking matters. Pre-dispatch interception via the auto-instrument layer is documented as roadmap.
+- **README comparison table softened.** Cells for Langfuse / Braintrust / LangSmith on policy rules and merge-blocking moved from "no" to "partial via evals" / "partial via webhooks" with a one-line clarification under the table: those platforms support evals + webhooks + custom CI a team can wire into a PR-comment / gate workflow. Shadow's claim is that it ships the workflow as a single command and ships the trace format / policy language / release certificate as primitives, not that competitors can't be made to work. Self-hostable cell on Braintrust softened to "partial."
+
 ## [2.0.1] - 2026-04-25
 
 ### Fixed

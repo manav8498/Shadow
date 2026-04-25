@@ -4,7 +4,7 @@ The diff tells you what changed. A policy tells you what is not allowed to chang
 
 ## Rule kinds
 
-Nine kinds ship today:
+Twelve kinds ship today:
 
 | Kind | What it asserts |
 |---|---|
@@ -74,7 +74,7 @@ rules:
 
 ### `must_be_grounded`
 
-Every response must overlap meaningfully with retrieved chunks at `retrieval_path`. The default `min_unigram_precision: 0.5` is the same no-LLM-judge fallback RAGAS / TruLens / DeepEval use as their cheapest baseline. Pairs without retrieval at the given path are skipped.
+Every response must share enough unigrams with retrieved chunks at `retrieval_path` to clear `min_unigram_precision`. Pairs without retrieval at the given path are skipped.
 
 ```yaml
 rules:
@@ -87,6 +87,14 @@ rules:
 ```
 
 Tokenisation is lowercased + alphanumeric, len ≥ 2 — punctuation and stopwords-of-length-1 don't count. An attacker can't satisfy the rule by emitting only `the , .`.
+
+**What this catches and what it doesn't.** This is *lexical overlap*, not semantic grounding or NLI-backed faithfulness. It catches the obvious failure cases — a response that talks about a totally different topic than the retrieved chunks — and it's the same no-LLM-judge baseline RAGAS / TruLens / DeepEval ship as their cheapest fallback. It does NOT catch:
+
+- semantic-equivalent paraphrase that uses entirely different vocabulary (the response is grounded in meaning, but not in words)
+- a response that quotes chunks but draws an unsupported conclusion
+- factual claims a chunk *contradicts* (overlap can be high while the claim is wrong)
+
+For deeper grounding (per-claim NLI, sentence-level entailment, LLM-judge faithfulness), pair this rule with the `Judge` axis or with an external faithfulness evaluator. Treat `must_be_grounded` as a cheap CI gate, not a hallucination guarantee.
 
 ## Structured-output assertions
 
