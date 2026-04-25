@@ -188,6 +188,11 @@ jobs:
             -e "python[crewai]"
           uv pip install --python .venv/bin/python \
             -e "python[ag2]"
+          # `multimodal` is Pillow + imagehash for the v0.2 blob_ref
+          # cheap-tier dHash. Quiet on the test side until installed,
+          # so it belongs in the all-extras job.
+          uv pip install --python .venv/bin/python \
+            -e "python[multimodal]"
           # `sign` pulls sigstore which carries pre-release deps
           # (sigstore-rekor-types, sigstore-protobuf-specs). Needs
           # --prerelease=allow. Same flag the local ci-local-extras
