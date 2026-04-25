@@ -59,10 +59,11 @@ Nine-axis behavioural diff. Key flags:
   [Hierarchical diff, token-level](../features/hierarchical.md#token-level-v12).
 - `--policy path/to/rules.yaml`, check a declarative YAML policy
   overlay against both traces and classify rule violations as
-  regressions vs fixes. Supports 9 rule kinds:
+  regressions vs fixes. Supports 12 rule kinds:
   `must_call_before`, `must_call_once`, `no_call`, `max_turns`,
   `required_stop_reason`, `max_total_tokens`, `must_include_text`,
-  `forbidden_text`, `must_match_json_schema`. Each rule can carry a
+  `forbidden_text`, `must_match_json_schema`, `must_remain_consistent`,
+  `must_followup`, `must_be_grounded`. Each rule can carry a
   `when:` clause that gates it on field-path conditions (operators:
   `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`,
   `not_contains`). See [Behavior policy](../features/policy.md).
