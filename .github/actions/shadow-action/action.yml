@@ -1,5 +1,5 @@
 name: 'Shadow behavioral diff'
-description: 'Post a nine-axis behavioral diff of LLM agent traces on every PR.'
+description: 'Post a nine-axis behavioral diff of LLM agent traces on every PR. Optionally gate the merge on severity.'
 
 inputs:
   baseline:
@@ -12,10 +12,22 @@ inputs:
     description: 'Path to a JSON pricing table (dict of model → [input, output] USD/token). Optional.'
     required: false
     default: ''
+  policy:
+    description: 'Path to a YAML policy overlay to check both traces against. Optional. Policy regressions count toward the merge gate when fail-on is set.'
+    required: false
+    default: ''
+  fail-on:
+    description: 'Exit non-zero (failing the action and blocking merge if the check is required) when the worst axis severity or policy violation reaches this level. One of: never, minor, moderate, severe. Default: never (post the comment, do not block).'
+    required: false
+    default: 'never'
   python-version:
     description: 'Python version to install for running shadow.'
     required: false
     default: '3.11'
+  shadow-version:
+    description: 'Pin a specific shadow-diff version. Empty installs the latest.'
+    required: false
+    default: ''
   github-token:
     description: 'GitHub token for posting the PR comment. Defaults to ${{ github.token }}.'
     required: false
@@ -34,25 +46,39 @@ runs:
       run: |
         set -euxo pipefail
         python -m pip install --upgrade pip
-        # Action consumers install shadow from PyPI once published; for
-        # testing inside this repo, users can replace with `pip install -e .`
-        # against a checkout.
-        python -m pip install shadow==0.1.0 || \
-          (echo "shadow==0.1.0 not on PyPI yet; installing from source" && \
+        # Action consumers install shadow-diff from PyPI. For testing
+        # inside this repo (when the action lives under .github/actions/),
+        # fall back to an editable install of the in-tree source.
+        if [[ -n "${{ inputs.shadow-version }}" ]]; then
+          PKG="shadow-diff==${{ inputs.shadow-version }}"
+        else
+          PKG="shadow-diff"
+        fi
+        python -m pip install "$PKG" || \
+          (echo "$PKG not on PyPI; falling back to in-tree source install" && \
            cd ${{ github.action_path }}/../../.. && \
            python -m pip install -e python/)
 
     - name: Compute diff
       shell: bash
+      id: diff
       run: |
         set -euxo pipefail
         PRICING_ARG=""
         if [[ -n "${{ inputs.pricing }}" ]]; then
           PRICING_ARG="--pricing ${{ inputs.pricing }}"
         fi
+        POLICY_ARG=""
+        if [[ -n "${{ inputs.policy }}" ]]; then
+          POLICY_ARG="--policy ${{ inputs.policy }}"
+        fi
         mkdir -p .shadow-action
+        # Run the diff first WITHOUT --fail-on so the comment-rendering
+        # steps always have a report.json. The gate runs as a separate
+        # step at the end so the PR still gets a comment explaining why
+        # the merge was blocked.
         shadow diff "${{ inputs.baseline }}" "${{ inputs.candidate }}" \
-          $PRICING_ARG \
+          $PRICING_ARG $POLICY_ARG \
           --output-json .shadow-action/report.json
 
     - name: Render markdown for PR comment
@@ -76,3 +102,27 @@ runs:
           --pr "${{ github.event.number }}" \
           --body-file .shadow-action/comment.md \
           --marker "shadow-behavioral-diff"
+
+    - name: Gate merge on severity
+      shell: bash
+      run: |
+        set -euxo pipefail
+        if [[ "${{ inputs.fail-on }}" == "never" ]]; then
+          echo "fail-on=never; not gating merge."
+          exit 0
+        fi
+        # Re-run shadow diff with --fail-on to surface the gate decision
+        # as a non-zero exit. The comment was already posted above, so
+        # blocked PRs still see the explanation.
+        PRICING_ARG=""
+        if [[ -n "${{ inputs.pricing }}" ]]; then
+          PRICING_ARG="--pricing ${{ inputs.pricing }}"
+        fi
+        POLICY_ARG=""
+        if [[ -n "${{ inputs.policy }}" ]]; then
+          POLICY_ARG="--policy ${{ inputs.policy }}"
+        fi
+        shadow diff "${{ inputs.baseline }}" "${{ inputs.candidate }}" \
+          $PRICING_ARG $POLICY_ARG \
+          --fail-on "${{ inputs.fail-on }}" \
+          > /dev/null
