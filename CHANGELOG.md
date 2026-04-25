@@ -6,6 +6,18 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-04-25
+
+### Added
+
+- **MCP server gains `shadow_certify` and `shadow_verify_cert`** so agentic CLIs (Claude Desktop, Claude Code, Cursor, Zed, Windsurf, any MCP-aware client) can generate and verify Agent Behavior Certificates over the protocol — same arguments and contract as the CLI commands. Tool-handler registry, tool descriptors, and module docstring all updated. Five new tests cover the round-trip.
+- **`shadow init --github-action` template includes a commented-out merge-gate step** so freshly scaffolded workflows can opt into `--fail-on severe` without rewriting the YAML. Default behaviour is still non-blocking; uncommenting one step turns Shadow into a required check.
+- **mkdocs site adds two new feature pages** — `docs/features/policy.md` (the nine rule kinds, conditional `when:` operators, structured-output assertions, severity → `--fail-on` mapping, scope) and `docs/features/certificate.md` (ABOM format, generate/verify workflow, what it proves vs. what it doesn't, MCP integration, format stability). Both wired into the `Features` nav.
+
+### Fixed
+
+- MCP server's `shadow_check_policy` description listed eight rule kinds; now lists nine, including `must_match_json_schema` (the rule landed in v1.7.0 but the MCP description didn't).
+
 ## [1.7.1] - 2026-04-25
 
 ### Fixed
