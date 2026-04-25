@@ -20,7 +20,7 @@ A closed taxonomy of nine categories so a diff renderer can compare apples to ap
 | `stream_interrupt` | The streaming response was cut short |
 | `tool_lifecycle` | Tool registered, deregistered, or hot-swapped |
 
-Each event also carries a `severity` (`info` / `warning` / `error` / `fatal`) and a free-form `reason` string.
+Each event also carries a `name` (a sub-event identifier within the category, e.g. `retry.attempted`, `cache.hit`), a `severity` (`info` / `warning` / `error` / `fatal`), and a free-form `attributes` dict.
 
 ## Recording
 
@@ -32,12 +32,13 @@ with Session(output_path="trace.agentlog") as s:
     record_harness_event(
         s,
         category="retry",
+        name="retry.attempted",
         severity="warning",
-        reason="anthropic 503, retry 1/3",
+        attributes={"reason": "anthropic 503, retry 1/3"},
     )
 ```
 
-`name` is optional and defaults to the empty string; use it to subdivide a category (e.g. `category="cache"`, `name="prompt_cache_hit"`).
+`name` is required and must be a non-empty string. Use it to subdivide a category (e.g. `category="cache"`, `name="cache.hit"`). `attributes` is intentionally schemaless — typed-attribute validation isn't enforced at the record layer so adding new event types doesn't require code changes.
 
 ## Diff
 
