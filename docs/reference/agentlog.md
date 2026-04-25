@@ -23,20 +23,48 @@ Every record:
 - `id` is `sha256:` + hex(SHA-256(canonical_json(payload))). Two
   records with identical payloads have identical ids, content
   addressing.
-- `parent` links records into a DAG. Metadata records have `null`;
-  all others point back.
+- `parent` links records into a DAG. The session-root `metadata`
+  record has `null`; all others point back. Subsequent `metadata`
+  records (used as session-boundary markers) have a non-null parent.
 - Canonical JSON: sorted keys, no whitespace, UTF-8, RFC 8259 numbers.
 
 ## Payload kinds
 
-See `SPEC.md §4` for the full schema of each. Common ones:
+The `version` field stays `"0.1"` (envelope is unchanged). Three
+record kinds were added in v2.3 inside that envelope.
 
-- `metadata`: session root. Carries SDK info, runtime, tags, tool
-  schemas.
+**v0.1 kinds** (see `SPEC.md §4.1` – `§4.7`):
+
+- `metadata`: session root or session-boundary marker. Carries SDK
+  info, runtime, tags, tool schemas.
 - `chat_request`: what was sent to the model.
 - `chat_response`: what came back. Carries `content` (list of blocks),
   `stop_reason`, `latency_ms`, `usage`.
+- `tool_call`: a synthesised or recorded tool invocation.
+- `tool_result`: the value the tool returned.
 - `error`: failure record with retriable flag.
+- `replay_summary`: written by `shadow replay` to mark a candidate
+  trace's outcome.
+
+**v0.2 record-kind extensions** (see `SPEC.md §4.8` – `§4.10`):
+
+- `chunk`: one chunk of a streaming model response. Payload carries
+  `chunk_index`, `time_unix_nano` (absolute, so long-stream replay
+  doesn't drift), `delta` (provider-shape passthrough), and an
+  optional `is_final` flag.
+- `harness_event`: a single record kind for harness-side events with
+  a `category` discriminator over a closed taxonomy: `retry`,
+  `rate_limit`, `model_switch`, `context_trim`, `cache`, `guardrail`,
+  `budget`, `stream_interrupt`, `tool_lifecycle`. Carries
+  `severity` (`info`/`warning`/`error`/`fatal`) and a free-form
+  `reason`.
+- `blob_ref`: content-addressed binary reference. Carries `blob_id`
+  (sha256 of bytes), `mime`, `size_bytes`, optional
+  `agentlog-blob://` URI, optional 64-bit dHash `phash` for the cheap
+  similarity tier, optional `embedding` slot for the semantic tier.
+
+A v0.1-only parser is allowed to skip records whose `kind` it doesn't
+recognise.
 
 ## File layout
 
