@@ -130,6 +130,52 @@ class _SessionSeed:
     influence the loop directly."""
 
 
+# ---- forward-driving primitive ------------------------------------------
+
+
+async def drive_loop_forward(
+    *,
+    seed_messages: list[dict[str, Any]],
+    seed_model: str,
+    seed_params: dict[str, Any] | None = None,
+    seed_tools: list[dict[str, Any]] | None = None,
+    parent_id: str,
+    llm_backend: LlmBackend,
+    tool_backend: ToolBackend,
+    config: AgentLoopConfig | None = None,
+) -> tuple[list[dict[str, Any]], _SessionStats, str]:
+    """Drive the agent loop forward starting from a fixed seed.
+
+    Returns ``(records, stats, last_parent_id)``. The caller is
+    responsible for placing those records in a larger trace and
+    chaining ``last_parent_id`` into whatever record follows.
+
+    This is the surgical primitive the counterfactual helpers use:
+    a baseline is replayed verbatim through some pivot turn, then
+    this function takes over from a synthesised seed (the messages
+    the agent would see at that pivot) and runs the loop to
+    termination.
+    """
+    config = config or AgentLoopConfig()
+    seed = _SessionSeed(
+        metadata_record=None,
+        initial_messages=list(seed_messages),
+        initial_model=seed_model,
+        initial_params=dict(seed_params or {}),
+        initial_tools=[dict(t) for t in (seed_tools or [])] or None,
+    )
+    out: list[dict[str, Any]] = []
+    last_parent, stats = await _replay_one_session(
+        seed=seed,
+        parent=parent_id,
+        llm_backend=llm_backend,
+        tool_backend=tool_backend,
+        config=config,
+        out=out,
+    )
+    return out, stats, last_parent
+
+
 # ---- public entry point --------------------------------------------------
 
 
@@ -530,5 +576,6 @@ __all__ = [
     "DEFAULT_MAX_TURNS",
     "AgentLoopConfig",
     "AgentLoopSummary",
+    "drive_loop_forward",
     "run_agent_loop_replay",
 ]
