@@ -78,6 +78,18 @@ Nine-axis behavioural diff. Key flags:
   (`--judge-backend anthropic|openai` or `--judge auto` with the
   corresponding env var set). Retry/backoff on 429/5xx/timeout.
 
+### v2.4 additions
+
+- `--harness-diff`, render a per-(category, name) diff over
+  `harness_event` records (retry, rate_limit, model_switch,
+  context_trim, cache, guardrail, budget, stream_interrupt,
+  tool_lifecycle). Regressions appear before fixes, ordered by
+  severity then absolute count delta.
+- `--multimodal-diff`, render a per-blob diff over `blob_ref`
+  records. Cheap tier uses 64-bit dHash Hamming distance; semantic
+  tier uses cosine similarity over recorded embeddings when both
+  sides have them. Identical `blob_id` short-circuits.
+
 ## `shadow bisect <config_a> <config_b> --traces <trace>`
 
 LASSO-over-corners causal attribution. `--backend anthropic|openai`
