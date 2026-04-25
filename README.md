@@ -3,7 +3,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-1.7.3-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.7.4-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -132,7 +132,7 @@ rules:
 
 Supported operators: `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`, `not_contains`. Multiple conditions AND together. Missing paths quietly don't match (rule is skipped on that pair) instead of crashing the whole check.
 
-This is the part that makes Shadow feel like CI for agents instead of monitoring.
+This is the part that makes Shadow feel like CI for agents instead of monitoring. See [docs/features/policy.md](docs/features/policy.md) for the full rule reference, conditional gating semantics, and severity → `--fail-on` mapping.
 
 ## Recording real agent traces
 
@@ -263,7 +263,7 @@ shadow certify candidate.agentlog \
 shadow verify-cert release.cert.json
 ```
 
-Produces a content-addressed JSON release artifact (Agent Behavior Bill of Materials) that captures the trace's content-id, all distinct models observed, content-ids of system prompts and tool schemas, the policy file hash, and an optional baseline-vs-candidate nine-axis regression-suite rollup. The certificate is self-verifying: `verify-cert` recomputes the body hash and exits 1 on tamper, so it works as a release gate. PKI / cosign signing layers on top in a future release; the format is stable today.
+Produces a content-addressed JSON release artifact (Agent Behavior Bill of Materials) that captures the trace's content-id, all distinct models observed, content-ids of system prompts and tool schemas, the policy file hash, and an optional baseline-vs-candidate nine-axis regression-suite rollup. The certificate is self-verifying: `verify-cert` recomputes the body hash and exits 1 on tamper, so it works as a release gate. PKI / cosign signing layers on top in a future release; the format is stable today. See [docs/features/certificate.md](docs/features/certificate.md) for the certificate format, what it proves vs what it doesn't, and MCP integration.
 
 ## Use Shadow from an agentic CLI (MCP server)
 
@@ -280,7 +280,7 @@ Shadow speaks the Model Context Protocol. Any MCP-aware client (Claude Desktop, 
 }
 ```
 
-Tools exposed: `shadow_diff`, `shadow_check_policy`, `shadow_token_diff`, `shadow_schema_watch`, `shadow_summarise`. Install the extra first: `pip install 'shadow-diff[mcp]'`.
+Tools exposed: `shadow_diff`, `shadow_check_policy`, `shadow_token_diff`, `shadow_schema_watch`, `shadow_summarise`, `shadow_certify`, `shadow_verify_cert`. Install the extra first: `pip install 'shadow-diff[mcp]'`. See [docs/features/mcp-server.md](docs/features/mcp-server.md) for the per-tool reference.
 
 ## Mine production traces into a regression suite
 
