@@ -6,6 +6,18 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-04-25
+
+### Fixed
+
+- **`OpenAILLM` was dropping `tool_calls` and `tool_call_id` from messages on follow-up requests.** The agent-loop engine emits assistant messages of the form `{role:"assistant", content:"", tool_calls:[…]}` (the OpenAI wire shape). The converter's early-return path for string `content` was returning before forwarding `tool_calls`. The very next request — carrying the `role:"tool"` follow-up — was rejected by the API with HTTP 400 *"messages with role 'tool' must be a response to a preceding message with 'tool_calls'"*. This blocked every real-world OpenAI agent-loop replay past the first tool round-trip. The converter now forwards both fields regardless of `content` shape.
+- Found by an end-to-end stress test against real `gpt-4o-mini` (`examples/stress_v16x/run_stress.py`) — 25 adverse-condition assertions covering branch_at_turn mid-trajectory, replace_tool_result re-drive with hostile output, replace_tool_args under sandbox redispatch, hostile-tool sandbox (socket / subprocess / write), max_turns truncation under runaway, four novel-call policies, five concurrent branches, long-trace truncation, empty seed, and past-end branch. The harness went from 20/24 (broken at OpenAI handoff) to 25/25 once the converter was fixed.
+
+### Added
+
+- `python/tests/test_openai_backend.py` — five focused unit tests covering the converter's tool-calls forwarding, including the exact shape the agent-loop engine produces. Locks the regression.
+- `examples/stress_v16x/run_stress.py` — runnable real-LLM adverse stress harness. Gated behind `SHADOW_RUN_NETWORK_TESTS=1` and `OPENAI_API_KEY`; skips otherwise. Costs well under $0.05 per run against gpt-4o-mini.
+
 ## [1.6.2] - 2026-04-25
 
 ### Fixed

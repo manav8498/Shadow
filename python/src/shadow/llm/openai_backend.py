@@ -117,6 +117,17 @@ class OpenAILLM:
         """
         out: dict[str, Any] = {"role": m["role"]}
         content = m.get("content")
+        # Top-level tool_calls / tool_call_id must always forward — the
+        # agent-loop engine emits assistant messages with string content
+        # AND a tool_calls field (the OpenAI wire shape), and tool-role
+        # messages carry tool_call_id. Both are required by the API on
+        # follow-up requests; dropping them produces a 400 "messages
+        # with role 'tool' must be a response to a preceding message
+        # with 'tool_calls'."
+        if "tool_calls" in m:
+            out["tool_calls"] = m["tool_calls"]
+        if "tool_call_id" in m:
+            out["tool_call_id"] = m["tool_call_id"]
         if isinstance(content, str):
             out["content"] = content
             return out
