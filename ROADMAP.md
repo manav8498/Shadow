@@ -13,7 +13,8 @@ What's shipping and what we're working on. Open an issue if you want to see some
 - Novel-call policies for tool calls the baseline never recorded: `StrictPolicy`, `StubPolicy`, `FuzzyMatchPolicy`, `DelegatePolicy`
 - Counterfactual primitives over the agent loop: `branch_at_turn`, `replace_tool_result`, `replace_tool_args` (each preserves the baseline prefix verbatim with content-addressed ids and drives forward from the pivot)
 - Behaviour-policy rules with conditional `when:` gating: `must_call_before`, `must_call_once`, `no_call`, `max_turns`, `required_stop_reason`, `max_total_tokens`, `must_include_text`, `forbidden_text`, `must_match_json_schema` (validates structured outputs against an inline schema or a JSON Schema file, with offending paths in the violation detail). Ten condition operators (`==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`, `not_contains`) over dotted paths into request / response / model / stop_reason
-- Agent Behavior Certificate (ABOM) via `shadow certify` / `shadow verify-cert`: a content-addressed JSON release artefact capturing the trace id, models, prompt hashes, tool schema hashes, policy hash, and an optional baseline-vs-candidate regression-suite rollup. Self-verifying — `verify-cert` exits non-zero on tamper, so it can gate a release pipeline. Format is stable; PKI/cosign signing layer is on the v1.8 roadmap
+- Agent Behavior Certificate (ABOM) via `shadow certify` / `shadow verify-cert`: a content-addressed JSON release artefact capturing the trace id, models, prompt hashes, tool schema hashes, policy hash, and an optional baseline-vs-candidate regression-suite rollup. Self-verifying — `verify-cert` exits non-zero on tamper, so it can gate a release pipeline.
+- Cosign / sigstore keyless signing for certificates via `shadow certify --sign` and `shadow verify-cert --verify-signature` (optional `[sign]` extra). Writes a sidecar sigstore Bundle containing the signature, Fulcio-issued signing certificate, and Rekor transparency-log entry. Verification binds to a specific signer identity (workflow URL or email) so leaked Bundles signed by another identity fail.
 - `shadow diff --fail-on {minor,moderate,severe}` exits non-zero on regressions, so the GitHub Action can gate merges instead of just commenting
 - Auto-instrumentation for the Anthropic and OpenAI SDKs (Python and TypeScript, including the OpenAI Responses API and streaming)
 - Framework adapters: LangGraph / LangChain (`shadow-diff[langgraph]`), CrewAI (`shadow-diff[crewai]`), AG2 (`shadow-diff[ag2]`)
@@ -56,9 +57,13 @@ We import MCP session logs today and serve diff/policy/token-diff/schema-watch/s
 
 The `when:` gate, nine rule kinds (including `must_match_json_schema`), and ten condition operators cover most production agents today. Next: stateful rules that reason across turns (e.g. "if the agent confirmed an amount on turn N, it must not change the amount on turn N+1"), retrieved-context assertions for RAG agents, and tool-result-dependent rules ("after `verify_order` returns `disputed`, the next assistant message must call `escalate_to_human`").
 
-### Signed release certificates (v1.8)
+### Runtime policy enforcement
 
-The Agent Behavior Certificate (ABOM) format ships in v1.7. Next: layer cosign keyless signing on top so a release certificate can be cryptographically attributed to a CI run. Same artefact, optional signing — unsigned certificates remain valid and useful for internal release gates.
+`shadow diff --policy` checks a YAML policy after the fact. The runtime version: enforce the same rules at recording time inside the SDK, blocking a tool call that would violate one before it fires. Bigger surface change than the post-hoc check, so it's tracked as a major-version bump (v2.0.0) — the SDK contract grows.
+
+### Stateful and RAG-aware contracts
+
+The `when:` gate plus nine rule kinds covers most production agents today. Next: stateful rules that reason across turns (`must_remain_consistent` once a value is observed, `must_followup` after a specific tool result), and RAG-context assertions that check the model's output references at least one retrieved chunk. Targeted for v1.9.
 
 ## Not on the roadmap
 

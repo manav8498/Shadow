@@ -3,7 +3,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-1.7.6-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.8.0-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -263,7 +263,24 @@ shadow certify candidate.agentlog \
 shadow verify-cert release.cert.json
 ```
 
-Produces a content-addressed JSON release artifact (Agent Behavior Bill of Materials) that captures the trace's content-id, all distinct models observed, content-ids of system prompts and tool schemas, the policy file hash, and an optional baseline-vs-candidate nine-axis regression-suite rollup. The certificate is self-verifying: `verify-cert` recomputes the body hash and exits 1 on tamper, so it works as a release gate. PKI / cosign signing layers on top in a future release; the format is stable today. See [docs/features/certificate.md](docs/features/certificate.md) for the certificate format, what it proves vs what it doesn't, and MCP integration.
+Produces a content-addressed JSON release artifact (Agent Behavior Bill of Materials) that captures the trace's content-id, all distinct models observed, content-ids of system prompts and tool schemas, the policy file hash, and an optional baseline-vs-candidate nine-axis regression-suite rollup. The certificate is self-verifying: `verify-cert` recomputes the body hash and exits 1 on tamper, so it works as a release gate.
+
+Add `--sign` to layer cosign / sigstore keyless signing on top:
+
+```bash
+pip install 'shadow-diff[sign]'
+
+shadow certify candidate.agentlog \
+  --agent-id refund-agent@2.3.0 \
+  --output release.cert.json \
+  --sign
+
+shadow verify-cert release.cert.json \
+  --verify-signature \
+  --cert-identity 'https://github.com/org/repo/.github/workflows/release.yml@refs/tags/v2.3.0'
+```
+
+The signed payload is the canonical certificate body, so tampering breaks both `cert_id` and the signature. The signature is bound to a specific signer identity (a workflow URL or email) — a leaked Bundle signed by another identity won't verify even if the crypto is otherwise valid. See [docs/features/certificate.md](docs/features/certificate.md) for the full format, signing details, and MCP integration.
 
 ## Use Shadow from an agentic CLI (MCP server)
 
@@ -340,7 +357,7 @@ Full details in [`SPEC.md`](SPEC.md).
 | PR comment from CI | partial | partial | partial | ✅ |
 | Behavior policy rules | no | no | no | ✅ |
 | Merge-blocking CI gate | no | no | no | ✅ |
-| Content-addressed release certificate | no | no | no | ✅ |
+| Cosign-signed release certificate | no | no | no | ✅ |
 | Causal attribution | no | no | no | ✅ |
 | Nine pre-built behavior axes | no | no | no | ✅ |
 | Open content-addressed trace format | no | no | no | ✅ |
