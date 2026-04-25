@@ -716,6 +716,28 @@ def diff_cmd(
             "regressions.",
         ),
     ] = "never",
+    harness_diff_flag: Annotated[
+        bool,
+        typer.Option(
+            "--harness-diff",
+            help="Surface harness-event count deltas (retries, "
+            "rate-limits, model switches, context-trims, cache hits, "
+            "guardrail interventions, etc.) inline in the report. "
+            "Reads `harness_event` records from both traces and "
+            "produces per-(category, name) regression/fix tables.",
+        ),
+    ] = False,
+    multimodal_diff_flag: Annotated[
+        bool,
+        typer.Option(
+            "--multimodal-diff",
+            help="Compare `blob_ref` records across the two traces. "
+            "Two-tier comparison: 64-bit dHash Hamming distance for "
+            "the cheap tier, cosine similarity over `embedding.vec` "
+            "when present for the semantic tier. Severity follows "
+            "RAGAS / TruLens / DeepEval thresholds.",
+        ),
+    ] = False,
 ) -> None:
     """Compute a nine-axis diff between two traces and print the report."""
     from shadow.report import render_terminal
@@ -802,6 +824,26 @@ def diff_cmd(
             p_diff = policy_diff(b, c, rules)
             console.print("")
             console.print(render_policy_diff(p_diff))
+
+        if harness_diff_flag:
+            from shadow.harness_diff_render import render_terminal as render_harness_terminal
+            from shadow.v02_records import harness_event_diff
+
+            h_deltas = harness_event_diff(b, c)
+            console.print("")
+            console.print(render_harness_terminal(h_deltas))
+
+        if multimodal_diff_flag:
+            from shadow.multimodal_diff import (
+                multimodal_diff,
+            )
+            from shadow.multimodal_diff import (
+                render_terminal as render_multimodal_terminal,
+            )
+
+            m_diff = multimodal_diff(b, c)
+            console.print("")
+            console.print(render_multimodal_terminal(m_diff))
 
         if suggest_fixes_flag:
             if effective_backend is JudgeBackend.mock:
