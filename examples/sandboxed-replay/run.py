@@ -189,7 +189,7 @@ async def demo_sandboxed(baseline: list[dict[str, Any]]) -> None:
         # In production this would hit a real KB API. The sandbox
         # blocks network/subprocess/fs writes during execution, so a
         # naive socket.connect inside this function would raise a
-        # SandboxViolation rather than reach the network.
+        # SandboxViolationError rather than reach the network.
         return f"[sandboxed] handled query: {args['q']}"
 
     sandbox = SandboxedToolBackend(tool_registry={"search": search})
