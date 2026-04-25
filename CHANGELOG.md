@@ -6,6 +6,19 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-04-25
+
+### Added
+
+- **Cosign / sigstore keyless signing for Agent Behavior Certificates.** `shadow certify --sign` writes a sidecar `<output>.sigstore` Bundle containing the signature, the Fulcio-issued signing certificate, and a Rekor transparency-log entry. The signed payload is the canonical certificate body bytes — the same bytes `cert_id` hashes — so tampering breaks both content-id and signature. Optional via the `[sign]` extra (`pip install 'shadow-diff[sign]'`); unsigned certificates from prior versions still verify content-addressing as before.
+- **`shadow verify-cert --verify-signature --cert-identity <email-or-workflow-url>`** binds verification to a specific signer identity. A leaked Bundle signed by another identity fails this check even if its cryptography is otherwise valid — the keyless flow's whole value is identity binding. Defaults to GitHub Actions OIDC issuer (`https://token.actions.githubusercontent.com`); override with `--cert-oidc-issuer` for other providers.
+- New `shadow.certify_sign` module wraps the sigstore-python `Signer` / `Verifier` API and handles canonicalisation + identity policy. Eight new tests at `python/tests/test_certify_sign.py` cover canonical-body determinism (dataclass and dict forms produce identical bytes), `cert_id` exclusion (the body fingerprint must equal the body part of `cert_id`), sidecar path convention, sign-writes-bundle (with the sigstore boundary mocked), no-OIDC-token error path, missing/corrupt bundle, and the verify boundary's input-bytes contract. `pytest.importorskip("sigstore")` gates the file so the default install path stays sigstore-free.
+- README + `docs/features/certificate.md` document the signing flow with both CI (GitHub Actions OIDC) and local (interactive browser) examples. Comparison-table row in README is now "Cosign-signed release certificate."
+
+### Changed
+
+- ROADMAP entry for the v1.8 signing layer is now in "Shipping today (v1.8.x)." Next-up sections cover runtime policy enforcement (a major-version surface change tracked for v2.0.0) and stateful / RAG-aware contracts (v1.9).
+
 ## [1.7.6] - 2026-04-25
 
 ### Fixed

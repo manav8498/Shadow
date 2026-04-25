@@ -1833,6 +1833,35 @@ def certify_cmd(
     seed: Annotated[
         int, typer.Option("--seed", help="Bootstrap RNG seed for the regression-suite diff.")
     ] = 42,
+    sign: Annotated[
+        bool,
+        typer.Option(
+            "--sign",
+            help="Sign the certificate body with sigstore (cosign-compatible "
+            "keyless signing). Writes a sidecar `<output>.sigstore` Bundle "
+            "containing the signature, signing certificate, and Rekor log "
+            "entry. Requires the `[sign]` extra (`pip install "
+            "'shadow-diff[sign]'`).",
+        ),
+    ] = False,
+    identity_token: Annotated[
+        str | None,
+        typer.Option(
+            "--identity-token",
+            help="Override the OIDC token sigstore uses for keyless signing. "
+            "Default: ambient credentials (GitHub Actions OIDC in CI; "
+            "interactive browser flow locally).",
+        ),
+    ] = None,
+    staging: Annotated[
+        bool,
+        typer.Option(
+            "--staging",
+            help="Target sigstore's staging instance instead of production. "
+            "Used by tests and integration smoke checks; do not use for "
+            "real releases.",
+        ),
+    ] = False,
 ) -> None:
     """Generate an Agent Behavior Certificate (ABOM) for a release.
 
@@ -1842,8 +1871,11 @@ def certify_cmd(
     `cert_id` makes the certificate self-verifying via
     `shadow verify-cert`.
 
-    No PKI / cosign signing yet — that lands in v1.8. The artefact is
-    stable and reproducible today, which is what gates a release.
+    Pass `--sign` to add a sigstore keyless signature on top of the
+    content-addressing — the signed payload is the canonical
+    certificate body, so tampering invalidates both the `cert_id`
+    AND the signature. The signature is written to a sidecar
+    `<output>.sigstore` Bundle.
     """
     from shadow.certify import build_certificate, render_terminal
 
@@ -1868,6 +1900,17 @@ def certify_cmd(
         output.write_text(json.dumps(cert.to_dict(), indent=2) + "\n")
         console.print(render_terminal(cert))
         console.print(f"\n[dim]certificate written to {output}[/]")
+        if sign:
+            from shadow.certify_sign import sign_certificate, signature_path_for
+
+            bundle_path = signature_path_for(output)
+            sign_certificate(
+                cert,
+                output_bundle=bundle_path,
+                identity_token=identity_token,
+                staging=staging,
+            )
+            console.print(f"[dim]signature bundle written to {bundle_path}[/]")
     except ShadowError as e:
         _fail(e)
     except Exception as e:
@@ -1879,12 +1922,62 @@ def verify_cert_cmd(
     cert_path: Annotated[
         Path, typer.Argument(help="Path to a certificate JSON produced by `shadow certify`.")
     ],
+    verify_signature: Annotated[
+        bool,
+        typer.Option(
+            "--verify-signature",
+            help="Also verify the sigstore signature bundle alongside the "
+            "content-addressing check. Looks for `<cert>.sigstore` next to "
+            "the certificate. Requires the `[sign]` extra and "
+            "`--cert-identity` to bind verification to a specific signer.",
+        ),
+    ] = False,
+    cert_identity: Annotated[
+        str | None,
+        typer.Option(
+            "--cert-identity",
+            help="Expected signer identity for the sigstore signature "
+            "(e.g. an email or a GitHub workflow URL like "
+            "`https://github.com/org/repo/.github/workflows/release.yml@refs/tags/v1.8.0`). "
+            "Required when `--verify-signature` is set.",
+        ),
+    ] = None,
+    cert_oidc_issuer: Annotated[
+        str | None,
+        typer.Option(
+            "--cert-oidc-issuer",
+            help="Expected OIDC issuer for the signing identity. Defaults "
+            "to `https://token.actions.githubusercontent.com` (GitHub "
+            "Actions). Override for other issuers.",
+        ),
+    ] = None,
+    bundle: Annotated[
+        Path | None,
+        typer.Option(
+            "--bundle",
+            help="Path to the sigstore Bundle. Defaults to `<cert>.sigstore`.",
+        ),
+    ] = None,
+    staging: Annotated[
+        bool,
+        typer.Option(
+            "--staging",
+            help="Verify against sigstore's staging instance. Use only when "
+            "the certificate was signed with `--staging`.",
+        ),
+    ] = False,
 ) -> None:
     """Verify an Agent Behavior Certificate is internally consistent.
 
     Recomputes the content-addressed `cert_id` from the body and
     compares against the claimed value. Exits 1 on mismatch so this
     can run as a release gate (`shadow verify-cert release.cert.json`).
+
+    Pass `--verify-signature` to ALSO verify the sigstore signature
+    bundle (typically `<cert>.sigstore`) against the canonical body
+    AND a specific signer identity. The cryptography is delegated to
+    sigstore-python; Shadow handles canonicalisation and the
+    identity-policy plumbing.
     """
     from shadow.certify import verify_certificate
 
@@ -1894,11 +1987,33 @@ def verify_cert_cmd(
         _fail(e)
         return
     ok, detail = verify_certificate(payload)
-    if ok:
-        console.print(f"[green]ok[/]: {detail}")
-        return
-    err_console.print(f"[red]fail[/]: {detail}")
-    raise typer.Exit(code=1)
+    if not ok:
+        err_console.print(f"[red]fail[/]: {detail}")
+        raise typer.Exit(code=1)
+    console.print(f"[green]ok[/]: {detail}")
+
+    if verify_signature:
+        if not cert_identity:
+            err_console.print(
+                "[red]error[/]: --verify-signature requires --cert-identity "
+                "(the expected signer email or workflow URL)."
+            )
+            raise typer.Exit(code=2)
+        from shadow.certify_sign import signature_path_for
+        from shadow.certify_sign import verify_signature as _verify
+
+        bundle_path = bundle if bundle is not None else signature_path_for(cert_path)
+        sig_ok, sig_detail = _verify(
+            payload,
+            bundle_path=bundle_path,
+            expected_identity=cert_identity,
+            expected_issuer=cert_oidc_issuer,
+            staging=staging,
+        )
+        if not sig_ok:
+            err_console.print(f"[red]signature fail[/]: {sig_detail}")
+            raise typer.Exit(code=1)
+        console.print(f"[green]signature ok[/]: {sig_detail}")
 
 
 @app.command()
