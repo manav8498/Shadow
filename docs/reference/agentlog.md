@@ -30,8 +30,8 @@ Every record:
 
 ## Payload kinds
 
-The `version` field stays `"0.1"` (envelope is unchanged). Three
-record kinds were added in v2.3 inside that envelope.
+The `version` field stays `"0.1"` (envelope is unchanged). Shadow v2.3
+added three backwards-compatible record kinds inside that envelope.
 
 **v0.1 kinds** (see `SPEC.md §4.1` – `§4.7`):
 
