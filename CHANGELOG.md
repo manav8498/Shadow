@@ -6,6 +6,23 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-04-24
+
+### Changed
+
+- `shadow-diff[langgraph]` now pulls `langchain-openai>=0.2,<2` alongside `langchain-core` and `langgraph`. Most LangGraph users pick ChatOpenAI as their chat provider and were hitting `ModuleNotFoundError` on first run. The adapter is still provider-neutral; users on Anthropic or Bedrock add `langchain-anthropic` / `langchain-aws` alongside without conflicts.
+
+### Fixed
+
+- CI coverage gate was failing at 83.97% on the default extras-less matrix because `shadow.mcp_server` counted against the denominator while its tests skipped. Added it to the `[tool.coverage.run].omit` list (same pattern as adapters, enterprise, serve, embeddings). Local run now reports 85.74%.
+- `test_mcp_server.py` now skips cleanly via `pytest.importorskip("mcp")` when the `[mcp]` extra is absent, instead of raising `ModuleNotFoundError` at import time and failing the whole job.
+- `ShadowCrewAIListener(quiet_internal_listeners=True)` detaches CrewAI's built-in `TraceCollectionListener.on_crew_started` and sibling handlers that raise `'str' object has no attribute 'id'` when synthetic events drive the bus. Production `Crew.kickoff()` paths are untouched.
+
+### Docs
+
+- New `docs/features/adapters.md` covering LangGraph, CrewAI, and AG2 adapters in depth. Wired into the mkdocs nav.
+- README has a "Record from agent frameworks" section with runnable snippets for each adapter and an "Import traces from any OpenTelemetry backend" section noting GenAI semconv v1.40 support.
+
 ## [1.4.0] - 2026-04-24
 
 ### Added
