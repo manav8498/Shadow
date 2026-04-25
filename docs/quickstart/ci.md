@@ -112,7 +112,7 @@ not just "cost changed" but *why*:
 ## Next
 
 - [Nine-axis diff](../features/nine-axis.md): what each column means
-- [Behavior policy](../features/policy.md): the nine rule kinds and
+- [Behavior policy](../features/policy.md): the twelve rule kinds and
   conditional `when:` gating that drive `shadow diff --policy`
 - [Release certificate](../features/certificate.md): generate an
   Agent Behavior Certificate with `shadow certify` and verify it as
