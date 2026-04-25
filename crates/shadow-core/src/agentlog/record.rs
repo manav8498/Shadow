@@ -63,6 +63,12 @@ pub enum Kind {
     Error,
     /// End-of-replay summary (SPEC §4.7).
     ReplaySummary,
+    /// Single streaming-LLM chunk (SPEC §4.8, v0.2).
+    Chunk,
+    /// Framework-level harness event (SPEC §4.9, v0.2).
+    HarnessEvent,
+    /// Content-addressed blob reference (SPEC §4.10, v0.2).
+    BlobRef,
 }
 
 impl Record {
