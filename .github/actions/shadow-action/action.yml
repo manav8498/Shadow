@@ -54,18 +54,28 @@ runs:
       run: |
         set -euxo pipefail
         python -m pip install --upgrade pip
-        # Action consumers install shadow-diff from PyPI. For testing
-        # inside this repo (when the action lives under .github/actions/),
-        # fall back to an editable install of the in-tree source.
+        # Action consumers install shadow-diff from PyPI. The fallback
+        # below is only for in-tree dogfooding from inside this repo —
+        # it builds the PyO3 extension and therefore needs cargo +
+        # rustc available. GitHub-hosted runners ship Rust by default
+        # so this works in CI; a self-hosted runner without Rust would
+        # need to install it before invoking this action with an
+        # unpublished shadow-version.
         if [[ -n "${{ inputs.shadow-version }}" ]]; then
           PKG="shadow-diff==${{ inputs.shadow-version }}"
         else
           PKG="shadow-diff"
         fi
-        python -m pip install "$PKG" || \
-          (echo "$PKG not on PyPI; falling back to in-tree source install" && \
-           cd ${{ github.action_path }}/../../.. && \
-           python -m pip install -e python/)
+        python -m pip install "$PKG" || {
+          echo "$PKG not on PyPI; falling back to in-tree source install (requires cargo + rustc)" >&2
+          if ! command -v cargo >/dev/null 2>&1; then
+            echo "error: cargo not found on PATH; the in-tree fallback builds the PyO3 extension and needs Rust." >&2
+            echo "hint: add 'uses: dtolnay/rust-toolchain@stable' before this action, or install shadow-diff from PyPI." >&2
+            exit 1
+          fi
+          cd ${{ github.action_path }}/../../..
+          python -m pip install -e python/
+        }
 
     - name: Compute diff
       shell: bash
