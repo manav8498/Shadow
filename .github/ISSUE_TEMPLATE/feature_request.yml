@@ -6,8 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks! Before filing, check [`ROADMAP.md`](../../ROADMAP.md) —
-        your idea might already be on the list and just need a +1.
+        Thanks! Before filing, check existing issues — your idea might
+        already be on the list and just need a +1.
 
         If your idea is "Shadow should detect X-specific-domain-thing by
         default," the answer is usually "write a `Judge`, see the
