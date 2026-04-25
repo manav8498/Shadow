@@ -822,13 +822,25 @@ def load_policy(data: Any) -> list[PolicyRule]:
             raise ShadowConfigError(
                 f"policy rule #{i} has invalid scope {scope!r}; must be 'trace' or 'session'."
             )
+        # Severity must be one of the three values the renderer and the
+        # `shadow diff --fail-on` gate know how to rank. Unknown strings
+        # used to silently store as the literal string; a rule with
+        # `severity: critical` then never tripped --fail-on because the
+        # rank lookup fell through to a default. Validate up front so
+        # the misuse surfaces at policy-load time, not as a quiet miss.
+        severity = str(raw.get("severity") or "error")
+        if severity not in _VALID_SEVERITIES:
+            raise ShadowConfigError(
+                f"policy rule #{i} has invalid severity {severity!r}; "
+                f"must be one of {sorted(_VALID_SEVERITIES)}"
+            )
         when = _parse_when(raw.get("when"), rule_index=i)
         out.append(
             PolicyRule(
                 id=str(raw.get("id") or f"rule-{i}"),
                 kind=kind,
                 params=dict(raw.get("params") or {}),
-                severity=str(raw.get("severity") or "error"),
+                severity=severity,
                 description=str(raw.get("description") or ""),
                 scope=scope,
                 when=when,
@@ -836,6 +848,8 @@ def load_policy(data: Any) -> list[PolicyRule]:
         )
     return out
 
+
+_VALID_SEVERITIES = frozenset({"info", "warning", "error"})
 
 _VALID_OPS = frozenset(
     {"==", "!=", ">", ">=", "<", "<=", "in", "not_in", "contains", "not_contains"}

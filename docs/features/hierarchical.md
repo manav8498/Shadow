@@ -99,11 +99,11 @@ rules:
   - id: backup-before-migrate
     kind: must_call_before
     params: {first: backup_database, then: run_migration}
-    severity: critical
+    severity: error
   - id: no-ssn-leak
     kind: forbidden_text
     params: {text: "SSN:"}
-    severity: critical
+    severity: error
   - id: finish-cleanly
     kind: required_stop_reason
     params: {allowed: [end_turn, tool_use]}
