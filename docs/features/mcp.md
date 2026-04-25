@@ -45,3 +45,10 @@ See `examples/mcp-session/` in the repo for a committed baseline +
 candidate JSONL with a Customer Support agent. The candidate silently
 renames `customer_id` → `cid` and drops the confirmation step.
 Shadow's trajectory axis catches both.
+
+## See also
+
+- [MCP server](mcp-server.md) — the reverse direction: run Shadow
+  *as* an MCP server so agentic CLIs (Claude Desktop, Cursor, Zed)
+  can invoke `shadow_diff`, `shadow_check_policy`, `shadow_certify`,
+  and the rest as tools.
