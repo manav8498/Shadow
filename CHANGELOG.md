@@ -6,6 +6,34 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-04-25
+
+The two final roadmap items shipped — every entry in ROADMAP's "What's next" is now in "Shipping today." ROADMAP.md is deleted; remaining work is tracked as GitHub issues against this repo.
+
+### Added
+
+- **Cross-modal semantic diff axis** in `shadow.multimodal_diff` — compares `blob_ref` records across two traces. Two-tier comparison aligned with RAGAS / TruLens / DeepEval / LangSmith / Langfuse conventions:
+  - **Cheap tier**: 64-bit dHash Hamming distance (always available when `phash` is on the records). Threshold ≤ 10/64 = "near-duplicate" (severity none), 10–16 = "minor visual drift," > 16 = "moderate." Cheap tier alone never escalates to severe — there isn't enough signal.
+  - **Semantic tier**: cosine similarity over `embedding.vec` when both sides have an embedding of the same model. Threshold ≥ 0.85 = "same content" (none), ≥ 0.75 = "same subject" (minor), ≥ 0.5 = "moderate," < 0.5 = "severe." Per LangSmith / Langfuse defaults.
+  - Severity decision: semantic wins when both tiers are present (embeddings are higher signal). Identical `blob_id` short-circuits to none (content-addressing means same id = same bytes). Unmatched blobs (one side has more than the other) flagged severe — the candidate either lost or introduced a blob the baseline didn't have.
+  - Renderers: `render_terminal()` for CLI output, `render_markdown()` for PR comments. Both render unchanged blobs silently — only show what changed.
+
+- **Harness-event diff renderer** in `shadow.harness_diff_render` — surfaces `harness_event_diff` output (regressions, fixes, count deltas, first-occurrence pair indices) as reviewer-friendly text:
+  - `render_terminal()`: separates regressions from fixes, sorts regressions by severity desc then absolute delta desc, emits severity-coloured glyphs (`🔴 error`, `🟠 warning`, `🟡 info`).
+  - `render_markdown()`: two-table PR-comment layout — regressions table with severity column + first-occurrence pair index, fixes table simpler. Empty input returns a one-line notice so callers can pipe unconditionally.
+
+- **`shadow diff` gains two new flags**: `--harness-diff` surfaces the harness-event diff inline in the report, `--multimodal-diff` runs the cross-modal axis. Both default off; cost is zero when the trace has no relevant records.
+
+### Tests
+
+- 24 new tests at `python/tests/test_v24_renderers.py` — cosine identity / orthogonality / opposite / zero-norm / length-mismatch, dHash near-dup / far / no-signal severity classification, semantic-takes-precedence-over-phash, unmatched-blob severity, worst-severity aggregation, terminal + markdown rendering shape, severity ordering in the harness renderer (errors before warnings before info), CLI integration with the `--harness-diff` flag.
+
+### Roadmap
+
+- ROADMAP.md is deleted. Every entry that was in "What's next" has shipped: streaming replay (v2.3 chunk records), multimodal traces (v2.3 blob_ref + v2.4 cross-modal diff axis), harness-diff instrumentation (v2.3 harness_event records + v2.4 renderer), MCP-native replay (v2.3), TypeScript streaming parity (v2.2), auto-instrument-layer pre-dispatch (v2.2). Future work is tracked as GitHub issues against the repo.
+
+810 pytest, 205 cargo, 34 vitest, ci-local green, mkdocs `--strict` green.
+
 ## [2.3.0] - 2026-04-25
 
 `.agentlog` v0.2 + MCP-native replay. Four roadmap items shipped together. Each design choice researched against canonical conventions (OpenTelemetry GenAI semconv stable Jan 2026, OpenInference, Langfuse v3 media API, RAGAS / TruLens / DeepEval multimodal baselines, MCP SEP-1287 draft) before implementation.
