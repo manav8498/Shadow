@@ -6,6 +6,14 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.7.5] - 2026-04-25
+
+### Fixed
+
+- `docs/features/mcp.md` (the MCP importer page) now cross-links to `mcp-server.md`. v1.7.4 added the server→importer link but missed the symmetric one — readers landing on the importer page wouldn't discover the server page.
+- `docs/quickstart/ci.md` was anchored to the v1.6 era CI workflow and never picked up the v1.6.5 `--fail-on` flag. Quickstart readers got the same non-gating workflow that v1.7.2 fixed in `shadow init --github-action`'s template. Now includes a "Gating the merge on regressions" section with the recommended `--fail-on severe` step.
+- `docs/quickstart/ci.md` "Next" section now links to the policy and certificate feature pages added in v1.7.2.
+
 ## [1.7.4] - 2026-04-25
 
 ### Added

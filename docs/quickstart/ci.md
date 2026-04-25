@@ -45,6 +45,23 @@ jobs:
         run: gh pr comment "${{ github.event.pull_request.number }}" --body-file comment.md
 ```
 
+## Gating the merge on regressions
+
+The default workflow posts a comment but never fails the check. To
+turn Shadow into a required CI gate, add a separate step that
+re-runs `shadow diff` with `--fail-on`:
+
+```yaml
+      - name: Block merge on severe regression
+        run: shadow diff "$BASELINE" "$CANDIDATE" --fail-on severe
+```
+
+The PR comment is already posted by the previous step, so a blocked
+PR still has the diff visible. `--fail-on` levels: `minor`,
+`moderate`, `severe`. Policy regressions (added with
+`--policy <file>`) also count toward the gate. See
+[Behavior policy](../features/policy.md) for the policy language.
+
 ## Committing fixtures
 
 Your baseline `.agentlog` is committed to the repo. Produce it once
@@ -95,5 +112,10 @@ not just "cost changed" but *why*:
 ## Next
 
 - [Nine-axis diff](../features/nine-axis.md): what each column means
+- [Behavior policy](../features/policy.md): the nine rule kinds and
+  conditional `when:` gating that drive `shadow diff --policy`
+- [Release certificate](../features/certificate.md): generate an
+  Agent Behavior Certificate with `shadow certify` and verify it as
+  a release gate
 - [Causal bisection](../features/bisect.md): attribute regressions to
   specific config deltas
