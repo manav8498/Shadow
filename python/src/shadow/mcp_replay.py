@@ -84,9 +84,7 @@ class RecordingIndex:
                 continue
             self._index.setdefault(call.match_key, []).append(call)
 
-    def lookup(
-        self, method: str, params: Any, *, fail_on_overflow: bool = False
-    ) -> MCPCall | None:
+    def lookup(self, method: str, params: Any, *, fail_on_overflow: bool = False) -> MCPCall | None:
         """Return the next recorded call for ``(method, params)``.
 
         ``fail_on_overflow=False`` (the historical default) returns the
