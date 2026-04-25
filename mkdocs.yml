@@ -69,6 +69,7 @@ nav:
       - Framework adapters: features/adapters.md
       - Sandboxed replay: features/sandboxed-replay.md
       - MCP importer: features/mcp.md
+      - MCP server: features/mcp-server.md
   - Reference:
       - CLI: reference/cli.md
       - agentlog format: reference/agentlog.md
