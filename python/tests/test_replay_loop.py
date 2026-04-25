@@ -10,6 +10,8 @@ from shadow.llm.mock import MockLLM
 from shadow.replay_loop import (
     DEFAULT_MAX_TURNS,
     AgentLoopConfig,
+    AgentLoopSummary,
+    drive_loop_forward,
     run_agent_loop_replay,
 )
 from shadow.tools.novel import StubPolicy
@@ -348,3 +350,81 @@ def test_engine_records_are_content_addressed() -> None:
     out, _ = asyncio.run(run_agent_loop_replay(baseline, llm_backend=llm, tool_backend=tools))
     for rec in out:
         assert rec["id"] == _core.content_id(rec["payload"])
+
+
+def test_drive_loop_forward_returns_public_summary_type() -> None:
+    """drive_loop_forward is part of the public API surface — it must
+    return AgentLoopSummary (a public type), not a private stats
+    struct, and the summary must reflect what actually happened."""
+    baseline = _build_baseline()
+    llm = MockLLM.from_trace(baseline)
+    tools = ReplayToolBackend.from_trace(baseline, novel_policy=StubPolicy())
+
+    # Seed from the baseline's first chat_request — same shape as a
+    # counterfactual helper would synthesise.
+    seed_request = next(r for r in baseline if r["kind"] == "chat_request")["payload"]
+    parent_id = baseline[0]["id"]
+
+    records, summary, last_parent = asyncio.run(
+        drive_loop_forward(
+            seed_messages=seed_request["messages"],
+            seed_model=seed_request["model"],
+            seed_params=seed_request.get("params"),
+            seed_tools=seed_request.get("tools"),
+            parent_id=parent_id,
+            llm_backend=llm,
+            tool_backend=tools,
+        )
+    )
+
+    # Public-type contract: summary is AgentLoopSummary, not a private struct.
+    assert isinstance(summary, AgentLoopSummary)
+    # Drove exactly one session.
+    assert summary.sessions_replayed == 1
+    assert summary.sessions_truncated == 0
+    # The baseline's two-turn loop fires two LLM calls and one tool call.
+    assert summary.total_llm_calls == 2
+    assert summary.total_tool_calls == 1
+    # Records were emitted under the supplied parent and the chain holds.
+    assert records[0]["parent"] == parent_id
+    assert last_parent == records[-1]["id"]
+    # Every emitted record stays content-addressed.
+    for rec in records:
+        assert rec["id"] == _core.content_id(rec["payload"])
+
+
+def test_drive_loop_forward_truncation_surfaces_in_summary() -> None:
+    """A loop that hits max_turns must report sessions_truncated=1
+    on the public summary."""
+    baseline = _build_baseline()
+    looping_response = {
+        "model": "m",
+        "content": [{"type": "tool_use", "id": "t1", "name": "search", "input": {"q": "x"}}],
+        "stop_reason": "tool_use",
+        "latency_ms": 0,
+        "usage": {"input_tokens": 1, "output_tokens": 1, "thinking_tokens": 0},
+    }
+
+    class LoopingLLM:
+        @property
+        def id(self) -> str:
+            return "loop"
+
+        async def complete(self, request: dict[str, Any]) -> dict[str, Any]:
+            return looping_response
+
+    tools = ReplayToolBackend.from_trace(baseline, novel_policy=StubPolicy())
+    seed_request = next(r for r in baseline if r["kind"] == "chat_request")["payload"]
+
+    _, summary, _ = asyncio.run(
+        drive_loop_forward(
+            seed_messages=seed_request["messages"],
+            seed_model=seed_request["model"],
+            parent_id=baseline[0]["id"],
+            llm_backend=LoopingLLM(),  # type: ignore[arg-type]
+            tool_backend=tools,
+            config=AgentLoopConfig(max_turns=2),
+        )
+    )
+    assert summary.sessions_replayed == 1
+    assert summary.sessions_truncated == 1

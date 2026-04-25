@@ -116,7 +116,7 @@ async def branch_at_turn(
                 summary=summary,
                 override={"kind": "branch_at_turn", "turn": 0},
             )
-        forward, stats, _ = await drive_loop_forward(
+        forward, forward_summary, _ = await drive_loop_forward(
             seed_messages=seed_request.get("messages") or [],
             seed_model=str(seed_request.get("model") or ""),
             seed_params=seed_request.get("params") or {},
@@ -127,7 +127,7 @@ async def branch_at_turn(
             config=config,
         )
         out.extend(forward)
-        _accumulate(summary, stats)
+        _merge(summary, forward_summary)
         return CounterfactualLoopResult(
             trace=out,
             summary=summary,
@@ -154,7 +154,7 @@ async def branch_at_turn(
 
     # 3. Drive forward starting from turn N+1's seed messages.
     seed_messages = post_prefix_request.get("messages") or []
-    forward, stats, _ = await drive_loop_forward(
+    forward, forward_summary, _ = await drive_loop_forward(
         seed_messages=seed_messages,
         seed_model=str(post_prefix_request.get("model") or ""),
         seed_params=post_prefix_request.get("params") or {},
@@ -165,7 +165,7 @@ async def branch_at_turn(
         config=config,
     )
     out.extend(forward)
-    _accumulate(summary, stats)
+    _merge(summary, forward_summary)
 
     return CounterfactualLoopResult(
         trace=out,
@@ -256,7 +256,7 @@ async def replace_tool_result(
         last_parent = _emit_copy(rec, parent=last_parent, out=out)
 
     # Forward-drive from the messages-as-of-after-the-patched-tool.
-    forward, stats, _ = await drive_loop_forward(
+    forward, forward_summary, _ = await drive_loop_forward(
         seed_messages=post_messages,
         seed_model=model,
         seed_params=params,
@@ -267,7 +267,7 @@ async def replace_tool_result(
         config=config,
     )
     out.extend(forward)
-    _accumulate(summary, stats)
+    _merge(summary, forward_summary)
     summary.total_tool_calls += 1  # the patched call we baked into the prefix
 
     return CounterfactualLoopResult(
@@ -434,14 +434,13 @@ def _first_chat_request(baseline: list[dict[str, Any]]) -> dict[str, Any] | None
     return None
 
 
-def _accumulate(summary: AgentLoopSummary, stats: Any) -> None:
-    """Fold per-session stats into the aggregate summary."""
-    summary.sessions_replayed += 1
-    summary.total_llm_calls += stats.llm_calls
-    summary.total_tool_calls += stats.tool_calls
-    summary.total_tool_errors += stats.tool_errors
-    if getattr(stats, "truncated", False):
-        summary.sessions_truncated += 1
+def _merge(summary: AgentLoopSummary, addend: AgentLoopSummary) -> None:
+    """Fold a single drive_loop_forward summary into an aggregate."""
+    summary.sessions_replayed += addend.sessions_replayed
+    summary.sessions_truncated += addend.sessions_truncated
+    summary.total_llm_calls += addend.total_llm_calls
+    summary.total_tool_calls += addend.total_tool_calls
+    summary.total_tool_errors += addend.total_tool_errors
 
 
 def _slice_prefix_at_turn(

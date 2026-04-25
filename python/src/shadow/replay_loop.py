@@ -143,10 +143,10 @@ async def drive_loop_forward(
     llm_backend: LlmBackend,
     tool_backend: ToolBackend,
     config: AgentLoopConfig | None = None,
-) -> tuple[list[dict[str, Any]], _SessionStats, str]:
+) -> tuple[list[dict[str, Any]], AgentLoopSummary, str]:
     """Drive the agent loop forward starting from a fixed seed.
 
-    Returns ``(records, stats, last_parent_id)``. The caller is
+    Returns ``(records, summary, last_parent_id)``. The caller is
     responsible for placing those records in a larger trace and
     chaining ``last_parent_id`` into whatever record follows.
 
@@ -154,7 +154,12 @@ async def drive_loop_forward(
     a baseline is replayed verbatim through some pivot turn, then
     this function takes over from a synthesised seed (the messages
     the agent would see at that pivot) and runs the loop to
-    termination.
+    termination. It is also useful directly when you have a fresh
+    seed (not a baseline slice) and want a one-shot replay.
+
+    The returned summary always carries ``sessions_replayed=1`` (the
+    function drives exactly one session). Callers that aggregate
+    across multiple sessions can sum the fields manually.
     """
     config = config or AgentLoopConfig()
     seed = _SessionSeed(
@@ -173,7 +178,14 @@ async def drive_loop_forward(
         config=config,
         out=out,
     )
-    return out, stats, last_parent
+    summary = AgentLoopSummary(
+        sessions_replayed=1,
+        sessions_truncated=1 if stats.truncated else 0,
+        total_llm_calls=stats.llm_calls,
+        total_tool_calls=stats.tool_calls,
+        total_tool_errors=stats.tool_errors,
+    )
+    return out, summary, last_parent
 
 
 # ---- public entry point --------------------------------------------------
