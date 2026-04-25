@@ -1,7 +1,12 @@
-# `.agentlog` Specification, Version 0.1
+# `.agentlog` Specification, Version 0.1 (with v0.2 record-kind extensions)
 
-> **Status:** Draft. Published with Shadow v0.1.0. Stable on `0.x.y` means
-> no breaking changes within a minor version.
+> **Status:** Draft. Originally published with Shadow v0.1.0. The
+> envelope shape (`version`, `id`, `kind`, `ts`, `parent`, `payload`)
+> has not changed; the `version` field on every record is still
+> `"0.1"`. Shadow v2.3 added three new payload kinds — `chunk`,
+> `harness_event`, `blob_ref` (see §4.8 / §4.9 / §4.10). They are
+> backwards-compatible: a 0.1-only parser sees them as records of
+> unknown kind and is allowed to skip them.
 >
 > **License:** Apache-2.0 (see `LICENSE-SPEC`).
 >
