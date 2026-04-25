@@ -47,12 +47,25 @@ def render_terminal(deltas: list[HarnessEventDelta]) -> str:
     sorted_deltas = sorted(deltas, key=_rank_for_sort)
     regressions = [d for d in sorted_deltas if d.count_delta > 0]
     fixes = [d for d in sorted_deltas if d.count_delta < 0]
-    unchanged = [d for d in sorted_deltas if d.count_delta == 0]
+    # Severity shifts at unchanged count: real regressions/fixes that
+    # the count-delta view alone misses.
+    severity_regressions = [
+        d
+        for d in sorted_deltas
+        if d.count_delta == 0 and d.severity_shift == "regression"
+    ]
+    severity_fixes = [
+        d for d in sorted_deltas if d.count_delta == 0 and d.severity_shift == "fix"
+    ]
+    unchanged = [
+        d for d in sorted_deltas if d.count_delta == 0 and d.severity_shift is None
+    ]
 
     lines: list[str] = []
     lines.append(
         f"harness events: {len(regressions)} regression(s), "
-        f"{len(fixes)} fix(es), {len(unchanged)} unchanged"
+        f"{len(fixes)} fix(es), {len(severity_regressions)} severity regression(s), "
+        f"{len(severity_fixes)} severity fix(es), {len(unchanged)} unchanged"
     )
     if regressions:
         lines.append("")
@@ -69,6 +82,16 @@ def render_terminal(deltas: list[HarnessEventDelta]) -> str:
                 f"{d.baseline_count} → {d.candidate_count} "
                 f"({_signed(d.count_delta)}){first}"
             )
+    if severity_regressions:
+        lines.append("")
+        lines.append("severity regressions (count unchanged, severity worse):")
+        for d in severity_regressions:
+            sev_marker = _terminal_severity_marker(d.candidate_severity or d.severity)
+            lines.append(
+                f"  {sev_marker} {d.category}.{d.name}: "
+                f"{d.baseline_severity} → {d.candidate_severity} "
+                f"(count {d.candidate_count})"
+            )
     if fixes:
         lines.append("")
         lines.append("fixes (candidate has fewer):")
@@ -77,6 +100,15 @@ def render_terminal(deltas: list[HarnessEventDelta]) -> str:
                 f"  ✓ {d.category}.{d.name}: "
                 f"{d.baseline_count} → {d.candidate_count} "
                 f"({_signed(d.count_delta)})"
+            )
+    if severity_fixes:
+        lines.append("")
+        lines.append("severity fixes (count unchanged, severity better):")
+        for d in severity_fixes:
+            lines.append(
+                f"  ✓ {d.category}.{d.name}: "
+                f"{d.baseline_severity} → {d.candidate_severity} "
+                f"(count {d.candidate_count})"
             )
     return "\n".join(lines)
 
