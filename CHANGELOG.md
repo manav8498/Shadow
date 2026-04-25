@@ -6,6 +6,17 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.7.4] - 2026-04-25
+
+### Added
+
+- **`docs/features/mcp-server.md`** — dedicated docs page for running Shadow as an MCP server (`shadow mcp-serve`). The existing `features/mcp.md` covers the MCP *importer* (ingesting MCP traces into `.agentlog`); the new page covers the reverse direction (Shadow exposing its analyses *as* MCP tools to clients like Claude Desktop, Cursor, Zed). Documents all seven tools with per-tool purposes and a typical agentic-CLI session. Wired into the `Features` mkdocs nav.
+
+### Fixed
+
+- README's `## Use Shadow from an agentic CLI (MCP server)` section listed only the original five tools — missing `shadow_certify` and `shadow_verify_cert` from v1.7.2. Same drift class as the docs/reference/cli.md fix in v1.7.3.
+- README's policy and certificate sections now deep-link to `docs/features/policy.md` and `docs/features/certificate.md`. Without those links the new feature pages were unreachable from the README.
+
 ## [1.7.3] - 2026-04-25
 
 ### Fixed
