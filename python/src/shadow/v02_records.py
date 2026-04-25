@@ -147,9 +147,15 @@ def record_chunk(
     from the recorded absolute timestamps.
     """
     from shadow import _core
+    from shadow.errors import ShadowConfigError
 
+    chunk_index_int = int(chunk_index)
+    if chunk_index_int < 0:
+        raise ShadowConfigError(
+            f"chunk_index must be >= 0 (got {chunk_index_int})"
+        )
     payload: dict[str, Any] = {
-        "chunk_index": int(chunk_index),
+        "chunk_index": chunk_index_int,
         "time_unix_nano": int(time_unix_nano if time_unix_nano is not None else time.time_ns()),
         "delta": dict(delta),
     }
