@@ -81,7 +81,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install shadow-diff
-        run: pip install --upgrade "shadow-diff>=1.2,<2"
+        run: pip install --upgrade "shadow-diff>=2.4,<3"
 
       - name: Compute diff
         run: |
