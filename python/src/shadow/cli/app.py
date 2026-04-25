@@ -362,6 +362,22 @@ class BackendKind(StrEnum):
     positional = "positional"
 
 
+class ToolBackendKind(StrEnum):
+    """Tool backends for ``shadow replay --agent-loop``."""
+
+    replay = "replay"
+    stub = "stub"
+    sandbox = "sandbox"
+
+
+class NovelToolPolicyKind(StrEnum):
+    """Behaviors for tool calls the baseline didn't record."""
+
+    strict = "strict"
+    stub = "stub"
+    fuzzy = "fuzzy"
+
+
 @app.command()
 def replay(
     config_path: Annotated[Path, typer.Argument(help="Candidate config YAML")],
@@ -398,6 +414,46 @@ def replay(
             "begins. 0 = fully live (equivalent to the default replay).",
         ),
     ] = 0,
+    agent_loop: Annotated[
+        bool,
+        typer.Option(
+            "--agent-loop",
+            help="Drive the candidate's agent loop forward instead of "
+            "walking the baseline lock-step. Combine with --tool-backend "
+            "to control how tool calls resolve. This is the 'shadow "
+            "deployment' mode: candidate decides which tools to call, "
+            "ToolBackend resolves them deterministically (or under "
+            "sandbox), no real side effects.",
+        ),
+    ] = False,
+    tool_backend: Annotated[
+        ToolBackendKind,
+        typer.Option(
+            "--tool-backend",
+            help="(with --agent-loop) how to resolve tool calls. "
+            "'replay' uses the baseline's recorded results. 'stub' "
+            "returns deterministic placeholders. 'sandbox' runs the "
+            "user's real tool functions with side-effect isolation "
+            "(requires programmatic API; CLI reserves the name).",
+        ),
+    ] = "replay",  # type: ignore[assignment]
+    novel_tool_policy: Annotated[
+        NovelToolPolicyKind,
+        typer.Option(
+            "--novel-tool-policy",
+            help="(with --tool-backend replay) how to handle a "
+            "candidate tool call the baseline never recorded. "
+            "'strict' aborts the replay. 'stub' returns a placeholder. "
+            "'fuzzy' matches the nearest same-tool call by arg shape.",
+        ),
+    ] = "stub",  # type: ignore[assignment]
+    max_turns: Annotated[
+        int,
+        typer.Option(
+            "--max-turns",
+            help="(with --agent-loop) safety cap on agent-loop " "iterations per session.",
+        ),
+    ] = 32,
 ) -> None:
     """Replay BASELINE's requests through BACKEND, writing a candidate trace."""
     from shadow.llm import MockLLM, PositionalMockLLM
@@ -416,6 +472,67 @@ def replay(
                 err_console.print("[red]error[/]: --backend positional requires --reference <path>")
                 raise typer.Exit(code=2)
             bk = PositionalMockLLM.from_path(reference)
+
+        if agent_loop:
+            from shadow.replay_loop import AgentLoopConfig, run_agent_loop_replay
+            from shadow.tools.novel import (
+                FuzzyMatchPolicy,
+                StrictPolicy,
+                StubPolicy,
+            )
+            from shadow.tools.replay import ReplayToolBackend
+            from shadow.tools.stub import StubToolBackend
+
+            policy_map: dict[str, Any] = {
+                "strict": StrictPolicy(),
+                "stub": StubPolicy(),
+                "fuzzy": FuzzyMatchPolicy(),
+            }
+            policy = policy_map[str(novel_tool_policy)]
+
+            if str(tool_backend) == "replay":
+                tb: Any = ReplayToolBackend.from_trace(baseline_records, novel_policy=policy)
+            elif str(tool_backend) == "stub":
+                tb = StubToolBackend()
+            elif str(tool_backend) == "sandbox":
+                err_console.print(
+                    "[red]error[/]: --tool-backend sandbox requires the "
+                    "programmatic API (you must supply tool function "
+                    "implementations). See "
+                    "docs/features/sandboxed-replay.md."
+                )
+                raise typer.Exit(code=2)
+            else:
+                err_console.print(f"[red]error[/]: unknown --tool-backend {tool_backend!r}")
+                raise typer.Exit(code=2)
+
+            cfg = AgentLoopConfig(max_turns=max_turns)
+            candidate, summary = asyncio.run(
+                run_agent_loop_replay(
+                    baseline_records,
+                    llm_backend=bk,
+                    tool_backend=tb,
+                    config=cfg,
+                )
+            )
+            out_path = output or _default_replay_output()
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(_core.write_agentlog(candidate))
+            err_console.print(
+                f"[green]✓[/] agent-loop replay written to {out_path} "
+                f"({len(candidate)} records, "
+                f"{summary.sessions_replayed} sessions, "
+                f"{summary.total_llm_calls} LLM calls, "
+                f"{summary.total_tool_calls} tool calls"
+                + (
+                    f", {summary.total_tool_errors} tool errors"
+                    if summary.total_tool_errors
+                    else ""
+                )
+                + ")"
+            )
+            return
+
         if partial:
             candidate = asyncio.run(run_partial_replay(baseline_records, branch_at, bk))
         else:
