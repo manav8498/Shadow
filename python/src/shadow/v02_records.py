@@ -29,7 +29,18 @@ documented in SPEC §10.
 from __future__ import annotations
 
 import hashlib
+import re
 import time
+
+# RFC-style "type/subtype" check, with the optional `+suffix` and
+# `; param=value` tail. We don't parse the parameters, just bound
+# the shape so a caller can't pass "image/png; <html>" or "" and
+# have it round-trip into a downstream renderer that interpolates
+# it raw.
+_MIME_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}"
+    r"(\s*;\s*[A-Za-z0-9!#$&^_.+-]+\s*=\s*[\w\d!#$&^_.+-]+)*$"
+)
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -341,12 +352,19 @@ def record_blob_ref(
     """
     from shadow import _core
 
+    from shadow.errors import ShadowConfigError
+
     if not isinstance(blob, bytes | bytearray):
         raise TypeError("blob must be bytes")
+    mime_str = str(mime)
+    if not _MIME_RE.match(mime_str):
+        raise ShadowConfigError(
+            f"blob_ref mime must match RFC 6838 type/subtype shape; got {mime_str!r}"
+        )
     blob = bytes(blob)
     blob_id = store.put(blob)
     payload: dict[str, Any] = {
-        "mime": str(mime),
+        "mime": mime_str,
         "size_bytes": len(blob),
         "blob_id": blob_id,
         "uri": store.uri_for(blob_id, store=store_name),
