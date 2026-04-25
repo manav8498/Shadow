@@ -166,8 +166,10 @@ async def demo_plain_replay(baseline: list[dict[str, Any]]) -> None:
         baseline, llm_backend=llm, tool_backend=tools
     )
     print(f"  produced {len(out)} records, {summary.total_llm_calls} LLM calls,")
-    print(f"  {summary.total_tool_calls} tool calls, "
-          f"{summary.total_tool_errors} tool errors")
+    print(
+        f"  {summary.total_tool_calls} tool calls, "
+        f"{summary.total_tool_errors} tool errors"
+    )
 
 
 async def demo_counterfactual(baseline: list[dict[str, Any]]) -> None:
@@ -199,8 +201,10 @@ async def demo_sandboxed(baseline: list[dict[str, Any]]) -> None:
     )
     sandboxed_result = next(r for r in out if r["kind"] == "tool_result")
     print(f"  sandboxed tool_result = {sandboxed_result['payload']['output']!r}")
-    print(f"  total LLM calls = {summary.total_llm_calls}, "
-          f"tool calls = {summary.total_tool_calls}")
+    print(
+        f"  total LLM calls = {summary.total_llm_calls}, "
+        f"tool calls = {summary.total_tool_calls}"
+    )
 
 
 async def main() -> None:
