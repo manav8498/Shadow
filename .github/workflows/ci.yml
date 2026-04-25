@@ -240,3 +240,31 @@ jobs:
 
       - name: Run demo (timeout 30s — demo.sh targets <10s)
         run: timeout 30 bash examples/demo/demo.sh
+
+  typescript:
+    name: typescript build + typecheck + vitest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: typescript/package-lock.json
+
+      - name: install
+        working-directory: typescript
+        run: npm ci
+
+      - name: typecheck
+        working-directory: typescript
+        run: npm run typecheck
+
+      - name: build
+        working-directory: typescript
+        run: npm run build
+
+      - name: test
+        working-directory: typescript
+        run: npm test
