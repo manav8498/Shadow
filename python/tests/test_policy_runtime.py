@@ -115,7 +115,7 @@ def test_enforcer_only_reports_new_violations_across_calls() -> None:
     subsequent evaluate() calls on the same trace must NOT re-report
     it. Otherwise every turn would re-fire whole-trace rules."""
     rules = load_policy(
-        [{"id": "max-2", "kind": "max_turns", "params": {"n": 2}, "severity": "error"}]
+        [{"id": "max-2", "kind": "max_turns", "params": {"limit": 2}, "severity": "error"}]
     )
     enforcer = PolicyEnforcer(rules, on_violation="warn")
     records: list[dict[str, Any]] = [
@@ -145,6 +145,53 @@ def test_enforcer_only_reports_new_violations_across_calls() -> None:
     v2 = enforcer.evaluate(records)
     assert len(v1.violations) >= 1
     assert v2.violations == [], "second evaluate() on unchanged trace must report nothing new"
+
+
+def test_enforcer_whole_trace_rule_with_growing_count_does_not_respam() -> None:
+    """REGRESSION: max_turns and other whole-trace rules embed a
+    running count in their detail string. Before the v2.0 stress
+    harness caught this, the enforcer's dedup key included `detail`,
+    so each new turn after the threshold appeared as a "new"
+    violation (different count → different detail). The fix keys on
+    (rule_id, pair_index) only — detail is human-output, not
+    identity. A whole-trace rule must fire EXACTLY ONCE across the
+    lifetime of the enforcer."""
+    rules = load_policy(
+        [{"id": "max-2", "kind": "max_turns", "params": {"limit": 2}, "severity": "error"}]
+    )
+    enforcer = PolicyEnforcer(rules, on_violation="warn")
+
+    def _grow(records: list[dict[str, Any]], turn: int) -> None:
+        records.append(
+            {
+                "kind": "chat_request",
+                "id": f"sha256:q{turn}",
+                "ts": "t",
+                "parent": "sha256:m",
+                "payload": _request(),
+            }
+        )
+        records.append(
+            {
+                "kind": "chat_response",
+                "id": f"sha256:r{turn}",
+                "ts": "t",
+                "parent": f"sha256:q{turn}",
+                "payload": _response(),
+            }
+        )
+
+    records: list[dict[str, Any]] = [
+        {"kind": "metadata", "id": "sha256:m", "ts": "t", "parent": None, "payload": {}},
+    ]
+    fired_on_turn: list[int] = []
+    for turn in range(6):
+        _grow(records, turn)
+        v = enforcer.evaluate(records)
+        if v.violations:
+            fired_on_turn.append(turn)
+    # max_turns=2 means fire on turn 2 (3rd pair) and never again.
+    assert fired_on_turn == [2], f"expected exactly one firing on turn 2, got {fired_on_turn}"
 
 
 def test_enforcer_replace_mode_builds_a_replacement_response() -> None:
