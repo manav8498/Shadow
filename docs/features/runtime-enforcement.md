@@ -119,7 +119,7 @@ This is the canonical pattern for embedding Shadow into a host pipeline that alr
 
 ## What it doesn't do
 
-- **Tool-call interception.** Runtime enforcement evaluates `record_chat` after the model returned. To block a *tool* before it executes, do the policy check before dispatching the tool — `evaluate(records_so_far)` is safe to call mid-loop.
+- **Auto-intercept of framework-managed tool dispatch.** Pre-tool-call enforcement is shipped (see `wrap_tools` and `Session.wrap_tools` above), but it's opt-in: you wrap a `{name: callable}` registry. If a framework manages dispatch internally and doesn't expose that registry, you need either the matching framework adapter or a manual `evaluate(records_so_far)` call between model response and tool dispatch.
 - **Network-level guardrails.** Shadow doesn't sit between your app and the LLM provider; it runs inside the session. Pair Shadow with a network-level guard (Bedrock Guardrails, Lakera, Llama Guard) if you need that.
 - **Cross-process state.** Each `PolicyEnforcer` is a per-process object. Distributed enforcement needs an external coordinator.
 
