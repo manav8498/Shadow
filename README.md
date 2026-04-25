@@ -194,7 +194,7 @@ The TypeScript SDK covers the recording side of this same workflow. The Python a
 | Redaction | ✅ | ✅ |
 | Distributed-trace (W3C) propagation | ✅ | ✅ |
 | OpenAI Chat Completions + Anthropic Messages auto-instrument | ✅ | ✅ |
-| OpenAI Responses API auto-instrument | ✅ | ❌ |
+| OpenAI Responses API auto-instrument | ✅ | ✅ |
 | Streaming aggregation in auto-instrument | ✅ | ✅ |
 | Runtime policy enforcement (`EnforcedSession`) | ✅ | ❌ |
 | `shadow certify` / `--sign` / `verify-cert` | ✅ (CLI) | ❌ |
