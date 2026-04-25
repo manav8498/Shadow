@@ -1784,6 +1784,114 @@ def mcp_serve() -> None:
 # ---- version (hidden convenience) -----------------------------------------
 
 
+@app.command("certify")
+def certify_cmd(
+    trace: Annotated[
+        Path, typer.Argument(help="Trace .agentlog file to certify (the candidate release).")
+    ],
+    agent_id: Annotated[
+        str,
+        typer.Option(
+            "--agent-id",
+            help="Stable identifier for the agent under release (e.g. 'refund-agent@2.3.0').",
+        ),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Write the certificate JSON to this path."),
+    ],
+    policy_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--policy",
+            help="Optional policy file to record in the certificate (its content-id is "
+            "captured under `policy_hash`).",
+        ),
+    ] = None,
+    baseline: Annotated[
+        Path | None,
+        typer.Option(
+            "--baseline",
+            help="Optional baseline .agentlog. When supplied, the nine-axis diff "
+            "between baseline and the candidate trace is folded into "
+            "`regression_suite`.",
+        ),
+    ] = None,
+    pricing: Annotated[
+        Path | None,
+        typer.Option("--pricing", help="JSON pricing file for the regression suite diff."),
+    ] = None,
+    seed: Annotated[
+        int, typer.Option("--seed", help="Bootstrap RNG seed for the regression-suite diff.")
+    ] = 42,
+) -> None:
+    """Generate an Agent Behavior Certificate (ABOM) for a release.
+
+    The certificate is a small JSON document that captures the model,
+    system prompts, tool schemas, optional policy, and an optional
+    regression-suite result against a baseline. A content-addressed
+    `cert_id` makes the certificate self-verifying via
+    `shadow verify-cert`.
+
+    No PKI / cosign signing yet — that lands in v1.8. The artefact is
+    stable and reproducible today, which is what gates a release.
+    """
+    from shadow.certify import build_certificate, render_terminal
+
+    try:
+        trace_records = _core.parse_agentlog(trace.read_bytes())
+        baseline_records: list[dict[str, Any]] | None = None
+        if baseline is not None:
+            baseline_records = _core.parse_agentlog(baseline.read_bytes())
+        price_map: dict[str, tuple[float, float]] | None = None
+        if pricing is not None:
+            raw = json.loads(pricing.read_text())
+            price_map = _parse_pricing_table(raw)
+        cert = build_certificate(
+            trace=trace_records,
+            agent_id=agent_id,
+            policy_path=policy_file,
+            baseline_trace=baseline_records,
+            pricing=price_map,
+            seed=seed,
+        )
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(cert.to_dict(), indent=2) + "\n")
+        console.print(render_terminal(cert))
+        console.print(f"\n[dim]certificate written to {output}[/]")
+    except ShadowError as e:
+        _fail(e)
+    except Exception as e:
+        _fail(e)
+
+
+@app.command("verify-cert")
+def verify_cert_cmd(
+    cert_path: Annotated[
+        Path, typer.Argument(help="Path to a certificate JSON produced by `shadow certify`.")
+    ],
+) -> None:
+    """Verify an Agent Behavior Certificate is internally consistent.
+
+    Recomputes the content-addressed `cert_id` from the body and
+    compares against the claimed value. Exits 1 on mismatch so this
+    can run as a release gate (`shadow verify-cert release.cert.json`).
+    """
+    from shadow.certify import verify_certificate
+
+    try:
+        payload = json.loads(cert_path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        _fail(e)
+        return
+    ok, detail = verify_certificate(payload)
+    if ok:
+        console.print(f"[green]ok[/]: {detail}")
+        return
+    err_console.print(f"[red]fail[/]: {detail}")
+    raise typer.Exit(code=1)
+
+
 @app.command()
 def version() -> None:
     """Print the installed shadow version."""

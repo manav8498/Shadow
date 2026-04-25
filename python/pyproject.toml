@@ -9,7 +9,7 @@ build-backend = "maturin"
 # the CLI stays `shadow`, and the repo stays Shadow — only the
 # `pip install` name is different.
 name = "shadow-diff"
-version = "1.6.5"
+version = "1.7.0"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
 # Dual-licensed to match the Rust community convention (tokio, serde,
 # ruff, uv). MIT keeps embedding frictionless; Apache-2.0 adds an
@@ -61,6 +61,12 @@ dependencies = [
     "scikit-learn>=1.6,<2",
     "numpy>=2.2,<3",
     "pyyaml>=6.0,<7",
+    # Used by the must_match_json_schema policy rule to validate
+    # structured outputs and by `shadow certify` for the certificate
+    # schema. Pulled by several optional extras transitively already
+    # (anthropic, openai, otel) — pinning it as a direct dep makes the
+    # core install path deterministic.
+    "jsonschema>=4.0,<5",
 ]
 
 [project.urls]
@@ -155,6 +161,15 @@ module = [
     "shadow.tools.sandbox",
 ]
 ignore_errors = true
+
+# `jsonschema` ships its own type info but mypy --strict still flags
+# library stubs as missing on first import (the package's stub layout
+# doesn't survive PEP 561 detection in some setups). Suppress the
+# unhelpful "install types-jsonschema" hint — we use jsonschema's
+# runtime API only and do not depend on its types in our public surface.
+[[tool.mypy.overrides]]
+module = ["jsonschema", "jsonschema.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

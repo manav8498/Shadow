@@ -6,6 +6,23 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-04-25
+
+### Added
+
+- **`must_match_json_schema` policy rule kind.** Asserts that every response's text content parses as JSON and validates against a supplied JSON Schema. Accepts either an inline `schema:` dict or a `schema_path:` to a JSON Schema file. Mismatches surface with the offending dotted path (e.g. `json schema mismatch at properties.amount: ...`). This closes the most common gap in v1.6.x policies for agents that produce structured output. Uses `jsonschema>=4.0` (now a runtime dependency).
+- **Agent Behavior Certificate (ABOM)** via `shadow certify` and `shadow verify-cert`. Generates a content-addressed JSON release artefact that captures `agent_id`, `released_at`, the trace's content-id, all distinct models observed, content-ids of all distinct system prompts, content-ids of every tool schema, optional `policy_hash` (sha256 of the policy file), and optional `regression_suite` (the nine-axis severity rollup vs a baseline trace). The certificate is self-verifying: `shadow verify-cert release.cert.json` recomputes the body's hash and exits 1 on mismatch, so it can run as a release gate. PKI / cosign signing lands in v1.8 — the format is stable today, signing layers on top.
+
+### Fixed
+
+- `must_match_json_schema` was accepting `NaN`, `Infinity`, and `-Infinity` because Python's `json.loads` accepts them as a CPython extension. Those literals are NOT valid JSON per RFC 8259 and downstream consumers (browsers, other-language parsers, strict JSON consumers) will choke on them. The rule now rejects them with a clear "non-standard JSON literal" violation. Caught by the new adverse-stress harness in `examples/stress_v17x/run_stress.py`.
+
+### Tests
+
+- 12 new tests for `must_match_json_schema` (valid JSON passes, malformed JSON / schema mismatch / empty text / both-or-neither schema params / external schema_path / policy_diff regressions / NaN-Infinity rejection).
+- 13 new tests for the certificate module: build extracts models/prompts/tools, self-verifies, tampering breaks verification, unsupported `cert_version` rejected, optional policy hash + baseline regression suite, CLI `certify` writes JSON, CLI `verify-cert` exits 0 on valid / 1 on tampered.
+- New `examples/stress_v17x/run_stress.py` adverse harness — 26 assertions covering 12 malformed-JSON variants, unicode/RTL/emoji payloads, 62 KB / 2000-item payload scaling, `oneOf`/`$ref` schemas, invalid-schema short-circuiting, pathological `schema_path` cases, 50-thread concurrent validation, deterministic certificate builds with fixed timestamp, 20-thread concurrent builds producing identical `cert_id`, all 9 per-field tamper detections, `cert_id`-only swap detection, round-trip via disk, forward-compat with unknown fields, version + format rejection, 100-turn trace certification scaling.
+
 ## [1.6.5] - 2026-04-25
 
 ### Added
