@@ -201,7 +201,7 @@ The TypeScript SDK covers the recording side of this same workflow. The Python a
 | `shadow diff` / `bisect` / `replay` / `mine` | ✅ (CLI) | ❌ |
 | MCP server (`shadow mcp-serve`) | ✅ (CLI) | ❌ |
 
-The TypeScript SDK is at v1.3.0; the Python SDK is at v2.0.x. The `.agentlog` format itself is the contract — TS-recorded traces feed into Python's `shadow diff`, `shadow certify`, and the MCP server without translation. If you need replay or runtime enforcement, run those steps from the Python CLI against the TS-recorded trace.
+The TypeScript SDK is at v2.2.x; the Python SDK is at v2.4.x. The `.agentlog` format itself is the contract — TS-recorded traces feed into Python's `shadow diff`, `shadow certify`, and the MCP server without translation. If you need replay or runtime enforcement, run those steps from the Python CLI against the TS-recorded trace.
 
 If your agent is built on LangGraph, CrewAI, or AG2, prefer the matching adapter (next section) over auto-instrumentation. Auto-instrument patches `.create` on the underlying provider SDK, which is a moving target across SDK majors. The framework adapters hook each framework's documented extension surface, which is the more stable contract.
 
