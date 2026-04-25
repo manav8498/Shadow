@@ -23,8 +23,11 @@ Run `<cmd>` with zero-config auto-instrumentation. Writes to
 
 ## `shadow replay <config> --baseline <trace>`
 
-Replay `<trace>` through `<config>` via
-`--backend {mock,positional,anthropic,openai}`.
+Replay `<trace>` through `<config>` via `--backend {mock,positional}`.
+`mock` returns the baseline response verbatim; `positional` uses a
+recorded reference trace (`--reference <path>`) and replays the
+candidate against it. Live LLM backends (anthropic / openai) live
+on the diff path through `--judge-backend`, not on replay.
 
 ### Partial replay (v1.2)
 
@@ -43,7 +46,7 @@ stayed on the baseline path through turn 2?" experiments.
 
 Nine-axis behavioural diff. Key flags:
 
-- `--judge {none,auto,sanity,pairwise,llm,procedure,schema,factuality,refusal,tone,correctness,format}`
+- `--judge {none,auto,sanity,pairwise,llm,procedure,schema,factuality,refusal,tone}`
 - `--judge-config <file.yaml>` for rubric-based judges
 - `--judge-backend {mock,anthropic,openai}` for live judges
 - `--explain` for LLM-sourced paragraph summary
