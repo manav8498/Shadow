@@ -2,9 +2,10 @@
 
 What's shipping and what we're working on. Open an issue if you want to see something added or moved up.
 
-## Shipping today (v2.0.x)
+## Shipping today (v2.3.x)
 
-- Content-addressed `.agentlog` trace format with sharded blob store and SQLite index
+- Content-addressed `.agentlog` trace format with sharded blob store and SQLite index. v0.2 adds three record kinds: `chunk` (per-stream-chunk records with absolute `time_unix_nano` for replay timing fidelity), `harness_event` (single record kind with category discriminator covering retry, rate_limit, model_switch, context_trim, cache, guardrail, budget, stream_interrupt, tool_lifecycle), and `blob_ref` (sha256 content-addressed binary references with optional 64-bit dHash perceptual hash, OTel-aligned `agentlog-blob://` URI scheme)
+- MCP-native replay via `shadow.mcp_replay` — protocol-level transport-stream shim. `RecordingIndex` keys on `(method, canonicalize(params))`, preserves recorded ordering for repeated calls, surfaces unconsumed recordings for drift detection. `ReplayClientSession` is a drop-in replacement for `mcp.ClientSession` for tools/call, resources/read, prompts/get, list_*, initialize. Aligns with SEP-1287 (MCP "deterministic transport" proposal in flight)
 - Nine-axis behavioural diff with bootstrap 95% confidence intervals
 - First-divergence detection and causal bisection (LASSO over corners with Meinshausen-Bühlmann stability selection, hedged renderer)
 - Live replay backends for Anthropic and OpenAI, plus a deterministic mock and a positional mock
@@ -38,21 +39,13 @@ What's shipping and what we're working on. Open an issue if you want to see some
 
 ## What's next
 
-### Streaming replay
+### Multimodal cross-modal semantic axis
 
-Record and replay inter-chunk timings so a candidate that stalls between chunks looks different from one that bursts them. Needs an `.agentlog` v0.2 chunk-record addition and parser updates.
+`.agentlog` v0.2 ships `blob_ref` records with sha256 content-addressing + 64-bit dHash perceptual hash for images. The cross-modal semantic axis (CLIP cosine for images, Whisper-embed for audio) layers on top — embeddings are stored optionally in `blob_ref.embedding`, and a new diff axis compares either dHash Hamming distance (cheap tier) or CLIP cosine (semantic tier). The format is shipped; the diff axis is the remaining work.
 
-### Multimodal traces
+### Harness-diff renderer
 
-Images and audio in and out, with a cross-modal semantic axis. Needs blob addressing in the spec and perceptual-similarity work.
-
-### Harness-diff instrumentation
-
-Capture retries, tool-ordering, and context-trim events as first-class diff dimensions instead of burying them in the payload.
-
-### MCP-native replay
-
-We import MCP session logs today and serve diff/policy/token-diff/schema-watch/summary over MCP. Next: protocol-level interception so MCP tool invocations replay deterministically without re-running the MCP server.
+`harness_event` records ship in v0.2 and `harness_event_diff` returns count-delta + first-occurrence per `(category, name)`. The diff renderer that surfaces these in PR comments + the `shadow diff` terminal output is the next-up piece.
 
 
 ## Not on the roadmap

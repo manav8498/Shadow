@@ -362,6 +362,100 @@ branched variant:
 }
 ```
 
+### §4.8 `chunk`  *(v0.2)*
+
+A single streaming-LLM chunk. Records the per-chunk content delta plus an absolute timestamp so a replay engine can reproduce inter-chunk timing without drift.
+
+`parent` MUST point at the `chat_request` whose response this chunk belongs to. The terminal chunk for a given response is followed (in file order) by a `chat_response` record carrying the assembled content; the `chat_response`'s `id` is the logical-response identity. Per-chunk `id` is content-hash of the chunk payload (§6). Renderers that don't care about streaming MAY ignore `chunk` records entirely — the `chat_response` is sufficient.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `chunk_index` | integer | yes | Zero-based ordinal within the parent response. |
+| `time_unix_nano` | integer | yes | Absolute timestamp at the moment this chunk arrived. Use UTC nanos since 1970. Stored absolute (not relative) so clock-skew correction and partial replay survive. |
+| `delta` | object | yes | Provider-shape delta. For Anthropic: `{type, text|partial_json|...}`. For OpenAI: `{content?, tool_calls?[]}`. Schema is intentionally a passthrough — the assembler in `chat_response` reconstructs canonical content. |
+| `is_final` | boolean | no | True on the chunk that closes the stream (carries `finish_reason` / `stop_reason`). Default false. |
+
+```json
+{
+  "kind": "chunk",
+  "id": "sha256:...",
+  "ts": "2026-04-25T05:30:00.123Z",
+  "parent": "sha256:request",
+  "payload": {
+    "chunk_index": 7,
+    "time_unix_nano": 1745552520123450000,
+    "delta": {"type": "text_delta", "text": "Looking up "}
+  }
+}
+```
+
+Replay engines reconstruct timing by computing `target_time = base + (chunk[i].time_unix_nano - chunk[0].time_unix_nano)` and sleeping against a monotonic deadline (never cumulative `sleep(delta)` — accumulated rounding drifts on long streams).
+
+### §4.9 `harness_event`  *(v0.2)*
+
+A first-class record for framework-level events that aren't LLM calls or tool invocations. Captures retries, rate-limit waits, fallback model switches, context-trim events, prompt-cache hits, guardrail interventions, budget warnings, stream interruptions — the things production agents actually do that traditional traces bury in payloads.
+
+Single record kind with a `category` discriminator. The taxonomy is OTel-aligned (matches `gen_ai.cache.*`, `gen_ai.guardrail.*`, etc.) and stable.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `category` | string | yes | One of: `retry`, `rate_limit`, `model_switch`, `context_trim`, `cache`, `guardrail`, `budget`, `stream_interrupt`, `tool_lifecycle`. |
+| `name` | string | yes | Specific event name within the category, e.g. `retry.attempted`, `cache.hit`, `guardrail.blocked`. |
+| `severity` | string | yes | One of: `info`, `warning`, `error`, `fatal`. |
+| `attributes` | object | no | Free-form structured attributes — `attempt_index`, `error_class`, `tokens_dropped`, `from_model`, `to_model`, `wait_ms`, `rule_id`, etc. |
+
+```json
+{
+  "kind": "harness_event",
+  "id": "sha256:...",
+  "ts": "2026-04-25T05:30:01.456Z",
+  "parent": "sha256:request",
+  "payload": {
+    "category": "retry",
+    "name": "retry.attempted",
+    "severity": "warning",
+    "attributes": {
+      "attempt_index": 2,
+      "error_class": "openai.RateLimitError",
+      "wait_ms": 1500
+    }
+  }
+}
+```
+
+Diff dimensions: count delta per `(category, name)`, timing delta on the first occurrence, categorical shift (which fallback target, which guardrail rule).
+
+### §4.10 `blob_ref`  *(v0.2)*
+
+A content-addressed reference to an out-of-line binary blob (image, audio, file). Lets a chat content block carry a stable identity for the binary without inlining base64 — inline base64 blew up span sizes on every spec community that tried it.
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `mime` | string | yes | RFC 6838 type, e.g. `image/png`, `audio/wav`, `application/pdf`. |
+| `size_bytes` | integer | yes | Byte size of the source blob. |
+| `blob_id` | string | yes | `sha256:` + hex of the source bytes. The same prefix Shadow uses for record content-ids. |
+| `uri` | string | no | Optional resolution URI. Conventional scheme: `agentlog-blob://<store>/<sha256>`. Mirrors OTel's `otel-blob://`. Implementations MAY substitute file paths or external storage URLs. |
+| `phash` | object | no | Perceptual hash for cheap similarity (image) or fingerprint (audio). For images: `{"algo": "dhash64", "hex": "abc..."}` — 64-bit dHash, Hamming distance ≤10/64 = "near-duplicate," ≥16 = "different." |
+| `embedding` | object | no | Optional semantic embedding (e.g. CLIP for images, Whisper-embed for audio). Schema: `{"model": "...", "dim": int, "vec": [...]}`. Stored only if the recorder paid for it; replay/diff fall back to `phash` otherwise. |
+
+```json
+{
+  "kind": "blob_ref",
+  "id": "sha256:envelope-hash",
+  "ts": "2026-04-25T05:30:00.000Z",
+  "parent": "sha256:chat_request",
+  "payload": {
+    "mime": "image/png",
+    "size_bytes": 12345,
+    "blob_id": "sha256:abc...",
+    "uri": "agentlog-blob://default/abc...",
+    "phash": {"algo": "dhash64", "hex": "f0e1d2c3b4a59687"}
+  }
+}
+```
+
+Inline base64 in chat content blocks remains permitted under a 4096-byte size cap (matching the OTel default) — anything larger MUST be a `blob_ref` to keep records parseable in line-buffered tools and streaming-safe under per-line size limits.
+
 ## §5 Canonical JSON serialization
 
 The content hash in §6 is computed over the **canonical form** of the

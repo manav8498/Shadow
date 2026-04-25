@@ -185,6 +185,22 @@ pub async fn run_replay<B: LlmBackend + ?Sized>(
                 last_parent = copy.id.clone();
                 out.push(copy);
             }
+            // v0.2 record kinds: chunk / harness_event / blob_ref are
+            // first-class but the chat-replay engine doesn't synthesize
+            // them itself. The Python-side replay loop handles streams
+            // and harness events; here we copy-through so a baseline
+            // trace that contains them survives a `shadow replay` pass
+            // without losing data.
+            Kind::Chunk | Kind::HarnessEvent | Kind::BlobRef => {
+                let copy = Record::new(
+                    record.kind,
+                    record.payload.clone(),
+                    clock.now_iso(),
+                    Some(last_parent.clone()),
+                );
+                last_parent = copy.id.clone();
+                out.push(copy);
+            }
             Kind::ReplaySummary => continue, // never copy-through
         }
     }
