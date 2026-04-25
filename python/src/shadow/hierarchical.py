@@ -781,6 +781,7 @@ _POLICY_KINDS = {
     "max_total_tokens",
     "must_include_text",
     "forbidden_text",
+    "must_match_json_schema",
 }
 
 
@@ -1371,8 +1372,127 @@ def _check_single_rule(
                 )
         return out
 
+    if rule.kind == "must_match_json_schema":
+        return _check_must_match_json_schema(rule, responses)
+
     # pragma: no cover — unreachable given load_policy validation
     return [_whole_trace_violation(rule, f"unhandled rule kind {rule.kind!r}")]
+
+
+def _check_must_match_json_schema(
+    rule: PolicyRule, responses: list[dict[str, Any]]
+) -> list[PolicyViolation]:
+    """Validate each response's text payload against a JSON Schema.
+
+    Params:
+      - ``schema``: inline schema dict (JSON Schema draft-7 / 2020-12)
+      - ``schema_path``: filesystem path to a JSON Schema file
+      Exactly one of the two must be provided.
+
+    The response text is parsed as JSON; non-JSON text is a violation
+    with ``detail="response text is not valid JSON"``. Schema mismatches
+    surface with the first jsonschema error message.
+    """
+    import json
+
+    from shadow.errors import ShadowConfigError
+
+    ps = rule.params
+    inline = ps.get("schema")
+    schema_path = ps.get("schema_path")
+    if (inline is None) == (schema_path is None):
+        return [
+            _whole_trace_violation(
+                rule,
+                "must_match_json_schema requires exactly one of `schema` "
+                "(inline dict) or `schema_path` (file). Got "
+                f"{'both' if inline is not None else 'neither'}.",
+            )
+        ]
+    if inline is not None:
+        if not isinstance(inline, dict):
+            return [_whole_trace_violation(rule, "`schema` must be a JSON object")]
+        schema = inline
+    else:
+        from pathlib import Path
+
+        path = Path(str(schema_path))
+        try:
+            schema = json.loads(path.read_text())
+        except FileNotFoundError as e:
+            return [_whole_trace_violation(rule, f"schema_path not found: {e.filename}")]
+        except json.JSONDecodeError as e:
+            return [_whole_trace_violation(rule, f"schema_path is not valid JSON: {e}")]
+        except OSError as e:
+            raise ShadowConfigError(f"could not read schema_path: {e}") from e
+
+    try:
+        import jsonschema
+    except ImportError as e:  # pragma: no cover — declared as a runtime dep
+        return [
+            _whole_trace_violation(
+                rule, f"jsonschema package not available; install shadow-diff>=1.7: {e}"
+            )
+        ]
+
+    out: list[PolicyViolation] = []
+    for i, resp in enumerate(responses):
+        text = _gather_response_text([resp]).strip()
+        if not text:
+            # Empty / non-text response — schema can't be checked. Treat
+            # as a violation; if the rule cares about absence specifically,
+            # a separate must_include_text rule covers that more cleanly.
+            out.append(
+                PolicyViolation(
+                    rule_id=rule.id,
+                    kind=rule.kind,
+                    severity=rule.severity,
+                    pair_index=i,
+                    detail="response has no text content to validate",
+                )
+            )
+            continue
+        try:
+            # Reject NaN / Infinity / -Infinity. Python's json.loads
+            # accepts them as a CPython extension but they are NOT valid
+            # JSON per RFC 8259. Downstream consumers (browsers, other
+            # languages, strict parsers) will choke on them, so we treat
+            # them as a contract violation here.
+            def _reject_nonstandard(value: str) -> Any:
+                raise ValueError(f"non-standard JSON literal {value!r} (NaN/Infinity not RFC 8259)")
+
+            doc = json.loads(text, parse_constant=_reject_nonstandard)
+        except (json.JSONDecodeError, ValueError) as e:
+            msg = e.msg if isinstance(e, json.JSONDecodeError) else str(e)
+            line_info = f" at line {e.lineno}" if isinstance(e, json.JSONDecodeError) else ""
+            out.append(
+                PolicyViolation(
+                    rule_id=rule.id,
+                    kind=rule.kind,
+                    severity=rule.severity,
+                    pair_index=i,
+                    detail=f"response text is not valid JSON: {msg}{line_info}",
+                )
+            )
+            continue
+        try:
+            jsonschema.validate(instance=doc, schema=schema)
+        except jsonschema.ValidationError as e:
+            # First message only — keeps the PR comment readable. Path
+            # is dotted to help reviewers locate the offending field.
+            path_str = ".".join(str(p) for p in e.absolute_path) or "<root>"
+            out.append(
+                PolicyViolation(
+                    rule_id=rule.id,
+                    kind=rule.kind,
+                    severity=rule.severity,
+                    pair_index=i,
+                    detail=f"json schema mismatch at {path_str}: {e.message}",
+                )
+            )
+        except jsonschema.SchemaError as e:
+            return [_whole_trace_violation(rule, f"schema itself is invalid: {e.message}")]
+    return out
 
 
 def _whole_trace_violation(rule: PolicyRule, detail: str) -> PolicyViolation:
