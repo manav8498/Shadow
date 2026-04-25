@@ -398,7 +398,7 @@ Per-axis math, severity bands, and bootstrap details: [`docs/features/nine-axis.
 |---|:---:|:---:|:---:|:---:|
 | Trace logging | ✅ | ✅ | ✅ | ✅ |
 | Dashboard UI | ✅ | ✅ | ✅ | no |
-| Self-hostable | ✅ | partial | no | ✅ |
+| Local-first / repo-native | partial (self-host) | partial (self-host) | no | ✅ |
 | PR comment from CI | partial | partial | partial | ✅ |
 | Declarative YAML behavior policy | partial via evals | partial via evals | partial via evals | ✅ |
 | Merge-blocking PR check | partial via webhooks | partial via webhooks | partial via webhooks | ✅ |
