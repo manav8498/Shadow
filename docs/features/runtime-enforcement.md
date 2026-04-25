@@ -45,7 +45,7 @@ Anything you return must be a valid `chat_response` payload (`model`, `content`,
 
 ## Incremental evaluation
 
-The enforcer is stateful: it tracks violation identities (`(rule_id, pair_index, detail)`) it has already reported. A whole-trace rule like `max_turns` fires once on the turn that crosses the threshold and is silent on subsequent calls — the user gets one notification, not one per recorded record. A new violation introduced on a later turn fires fresh.
+The enforcer is stateful: it tracks violation identities as `(rule_id, pair_index)` — NOT including the human-readable `detail` text. Whole-trace rules like `max_turns` embed a running count in their detail string ("trace has 5 turns; max is 4", then "trace has 6 turns; max is 4", and so on), so a detail-keyed dedup let those rules respam a "new" violation every subsequent turn. The current key fires the rule once on the turn that crosses the threshold and stays silent on later calls — the user gets one notification, not one per recorded record. A new violation introduced on a later turn (e.g. a different pair tripping a different rule) fires fresh.
 
 This means `PolicyEnforcer.evaluate(records)` returns a `Verdict` with only the *delta* since the previous call. Reuse one enforcer instance across the whole session.
 

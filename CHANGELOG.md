@@ -6,6 +6,19 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-04-25
+
+### Fixed
+
+- `docs/features/runtime-enforcement.md` described the enforcer's dedup key as `(rule_id, pair_index, detail)`. The v2.0.1 fix already changed the code to `(rule_id, pair_index)` only, but the docs still showed the old shape. Now corrected with the same explanation as the inline code comment — whole-trace rules embed running counts in the detail string, so detail-keyed dedup let them respam.
+
+### Docs
+
+- README hedges `causal bisection` from "isolates which specific change caused which specific regression" to "estimates which specific change most likely explains each regression, then points you at the replay / counterfactual primitives to confirm it." Matches the hedged terminal renderer already in the bisect command (the `est.` prefix and `(stable, CI excludes 0)` qualifiers shipped in v1.5).
+- README runtime-enforcement headline rewords "block a violating response *as it happens*" to "block or replace a violating model response at record time". More precise — `EnforcedSession` evaluates after the model returned, not before tool dispatch.
+- README CLI reference table for `shadow certify` and `shadow verify-cert` now mentions the v1.8 signing flags (`--sign`, `--verify-signature`, `--cert-identity`) so a reader scanning the table doesn't miss that signing is shipped.
+- README `must_be_grounded` mention in the rule list now flags it as "cheap lexical grounding gate, not NLI-backed faithfulness" with a pointer to the docs page that documents what it catches and what it doesn't. Same hedging that v2.0.2 added to `docs/features/policy.md`, surfaced inline in the README.
+
 ## [2.0.2] - 2026-04-25
 
 ### Fixed

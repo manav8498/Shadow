@@ -3,7 +3,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-2.0.2-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.3-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -24,7 +24,7 @@ This is a common class of bug with LLM agents. The agent runs, responses look pl
 Shadow treats agent behavior as a thing you can test in CI, the same way you test code. Given a recorded set of real agent interactions (a baseline), and a candidate change (new prompt, new model, renamed tool), Shadow answers three questions on the PR:
 
 1. **What behavior changed?** A nine-axis diff scores the candidate against the baseline on things like meaning, tool use, refusals, latency, and output structure.
-2. **Why did it change?** If the PR touched multiple things at once, causal bisection isolates which specific change caused which specific regression.
+2. **Why did it change?** If the PR touched multiple things at once, causal bisection estimates which specific change most likely explains each regression, then points you at the replay / counterfactual primitives to confirm it before merging.
 3. **Is it safe to merge?** A policy file lets you declare rules the agent must follow (tool ordering, output shape, token budgets, forbidden outputs). Shadow reports regressions against those rules.
 
 The report lands in the PR comment. No dashboard, no separate login, no trace upload. Traces stay on your disk.
@@ -103,7 +103,7 @@ Run:
 shadow diff baseline.agentlog candidate.agentlog --policy shadow-policy.yaml
 ```
 
-The candidate trace is checked against every rule. Violations that are new in the candidate are flagged as regressions. Violations that existed in the baseline and are now cleared are flagged as fixes. Twelve rule kinds ship today: `must_call_before`, `must_call_once`, `no_call`, `max_turns`, `required_stop_reason`, `max_total_tokens`, `must_include_text`, `forbidden_text`, `must_match_json_schema`, `must_remain_consistent`, `must_followup`, `must_be_grounded`.
+The candidate trace is checked against every rule. Violations that are new in the candidate are flagged as regressions. Violations that existed in the baseline and are now cleared are flagged as fixes. Twelve rule kinds ship today: `must_call_before`, `must_call_once`, `no_call`, `max_turns`, `required_stop_reason`, `max_total_tokens`, `must_include_text`, `forbidden_text`, `must_match_json_schema`, `must_remain_consistent`, `must_followup`, `must_be_grounded` (cheap lexical grounding gate, not NLI-backed faithfulness — see [docs/features/policy.md](docs/features/policy.md) for what it catches and what it doesn't).
 
 `must_match_json_schema` is the structured-output assertion: every chat response is parsed as JSON and validated against a JSON Schema. Mismatches name the offending dotted path so reviewers see exactly which field broke.
 
@@ -136,7 +136,7 @@ This is the part that makes Shadow feel like CI for agents instead of monitoring
 
 ## Block bad behavior at runtime
 
-The same policy file can run inside the SDK to block a violating response *as it happens*, not just after the fact:
+The same policy file can run inside the SDK to block or replace a violating model response at record time, not just after the fact:
 
 ```python
 from shadow.policy_runtime import EnforcedSession, PolicyEnforcer
@@ -409,8 +409,8 @@ Every example runs offline from committed fixtures. No API key required:
 | `shadow mine <traces...>` | Cluster production traces and pick representative cases as a regression suite. |
 | `shadow mcp-serve` | Run Shadow as a Model Context Protocol server so agentic CLIs can invoke it as a tool. |
 | `shadow report <report.json>` | Re-render a diff as terminal, markdown, or PR-comment. |
-| `shadow certify <trace>` | Generate an Agent Behavior Certificate (ABOM) for a release. `--baseline` folds in a regression-suite rollup; `--policy` records its hash. |
-| `shadow verify-cert <cert>` | Verify a certificate's content-addressed `cert_id` matches the body. Exits 1 on tamper. |
+| `shadow certify <trace>` | Generate an Agent Behavior Certificate (ABOM) for a release. `--baseline` folds in a regression-suite rollup; `--policy` records its hash. `--sign` adds a sigstore keyless signature (requires `[sign]` extra). |
+| `shadow verify-cert <cert>` | Verify a certificate's content-addressed `cert_id` matches the body. Exits 1 on tamper. `--verify-signature --cert-identity <id>` also verifies the sigstore signature against the canonical body and a specific signer identity. |
 
 ## Project layout
 
