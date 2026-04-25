@@ -169,6 +169,9 @@ mod tests {
             Kind::ToolResult,
             Kind::Error,
             Kind::ReplaySummary,
+            Kind::Chunk,
+            Kind::HarnessEvent,
+            Kind::BlobRef,
         ] {
             let s = serde_json::to_string(&kind).unwrap();
             let back: Kind = serde_json::from_str(&s).unwrap();
