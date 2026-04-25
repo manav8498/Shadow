@@ -36,6 +36,7 @@ from shadow.llm.mock import MockLLM
 from shadow.llm.openai_backend import OpenAILLM
 from shadow.replay_loop import (
     AgentLoopConfig,
+    AgentLoopSummary,
     drive_loop_forward,
     run_agent_loop_replay,
 )
@@ -155,18 +156,18 @@ def section(title: str) -> None:
 # ---- baseline recording --------------------------------------------------
 
 
-async def record_baseline() -> list[dict[str, Any]]:
+async def record_baseline() -> tuple[list[dict[str, Any]], "AgentLoopSummary"]:
     """Record a real customer-support conversation against gpt-4o-mini.
 
-    Returns the .agentlog records list. The user query is fixed so the
-    test is reproducible-ish (real LLM still has nondeterminism but the
-    schema and tool sequence are stable across runs).
+    Returns ``(records, summary)``. The user query is fixed so the
+    test is reproducible-ish (real LLM still has nondeterminism but
+    the schema and tool sequence are stable across runs).
     """
     llm = OpenAILLM(model_override="gpt-4o-mini")
 
     # Build a minimal trace by hand so we have a metadata record to
     # parent everything off, then drive the loop forward.
-    metadata = {
+    metadata: dict[str, Any] = {
         "version": "0.1",
         "id": "sha256:stress-baseline",
         "kind": "metadata",
@@ -489,7 +490,7 @@ async def stress_5_max_turns_truncation() -> None:
                 "usage": {"input_tokens": 1, "output_tokens": 1, "thinking_tokens": 0},
             }
 
-    metadata = {
+    metadata: dict[str, Any] = {
         "version": "0.1",
         "id": "sha256:trunc",
         "kind": "metadata",
@@ -497,13 +498,13 @@ async def stress_5_max_turns_truncation() -> None:
         "parent": None,
         "payload": {"sdk": {"name": "stress"}},
     }
-    req_payload = {
+    req_payload: dict[str, Any] = {
         "model": "loop",
         "messages": [{"role": "user", "content": "hi"}],
         "params": {},
     }
     req_id = _core.content_id(req_payload)
-    baseline = [
+    baseline: list[dict[str, Any]] = [
         metadata,
         {
             "version": "0.1",
@@ -517,7 +518,7 @@ async def stress_5_max_turns_truncation() -> None:
 
     out, summary = await run_agent_loop_replay(
         baseline,
-        llm_backend=LoopingLLM(),  # type: ignore[arg-type]
+        llm_backend=LoopingLLM(),
         tool_backend=ReplayToolBackend.from_trace(baseline, novel_policy=StubPolicy()),
         config=AgentLoopConfig(max_turns=4),
     )
@@ -612,7 +613,7 @@ async def stress_7_concurrent_branches(baseline: list[dict[str, Any]]) -> None:
         block_subprocess=False,
     )
 
-    async def branch():
+    async def branch() -> Any:
         return await branch_at_turn(
             baseline, turn=1, llm_backend=llm, tool_backend=real_tools
         )
@@ -669,7 +670,7 @@ async def stress_8_long_runaway_capped(baseline: list[dict[str, Any]]) -> None:
 
     out, summary = await run_agent_loop_replay(
         baseline,
-        llm_backend=LoopingLLM(),  # type: ignore[arg-type]
+        llm_backend=LoopingLLM(),
         tool_backend=ReplayToolBackend.from_trace(baseline, novel_policy=StubPolicy()),
         config=AgentLoopConfig(max_turns=12),
     )
@@ -703,7 +704,7 @@ async def stress_9_empty_seed() -> None:
             seed_messages=[],
             seed_model="gpt-4o-mini",
             parent_id="sha256:parent",
-            llm_backend=_NeverCalled(),  # type: ignore[arg-type]
+            llm_backend=_NeverCalled(),
             tool_backend=StubToolBackend(),
             config=AgentLoopConfig(max_turns=4),
         )

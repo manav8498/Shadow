@@ -6,6 +6,16 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.6.4] - 2026-04-25
+
+### Fixed
+
+- `examples/stress_v16x/run_stress.py` — corrected `record_baseline`'s declared return type (was `list[dict[str, Any]]`, actually returned a `(records, summary)` tuple), removed two stale `# type: ignore[arg-type]` comments, and added explicit type annotations on baseline-construction dicts. The harness ran correctly at runtime but the type signatures lied; mypy can now actually help.
+
+### Changed
+
+- `just ci-local` and `.github/workflows/ci.yml` mypy scope now includes `examples/stress_v16x/run_stress.py`. Previously only `examples/demo/agent.py` and `examples/demo/generate_fixtures.py` were type-checked, so the committed stress harness drifted unchecked. Future stress-harness changes are now caught by both local and remote CI.
+
 ## [1.6.3] - 2026-04-25
 
 ### Fixed

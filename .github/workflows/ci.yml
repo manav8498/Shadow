@@ -131,7 +131,7 @@ jobs:
         run: "${{ matrix.venv_py }} -m ruff format --check python/ examples/"
 
       - name: mypy --strict
-        run: "${{ matrix.venv_py }} -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py"
+        run: "${{ matrix.venv_py }} -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py examples/stress_v16x/run_stress.py"
 
       - name: pytest (coverage gate 85%)
         run: |
