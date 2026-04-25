@@ -2,7 +2,7 @@
 
 What's shipping and what we're working on. Open an issue if you want to see something added or moved up.
 
-## Shipping today (v1.6.x)
+## Shipping today (v1.7.x)
 
 - Content-addressed `.agentlog` trace format with sharded blob store and SQLite index
 - Nine-axis behavioural diff with bootstrap 95% confidence intervals
@@ -12,7 +12,8 @@ What's shipping and what we're working on. Open an issue if you want to see some
 - Tool backends: `ReplayToolBackend` (recorded-result lookup), `SandboxedToolBackend` (real tool fns under isolation), `StubToolBackend` (deterministic placeholders)
 - Novel-call policies for tool calls the baseline never recorded: `StrictPolicy`, `StubPolicy`, `FuzzyMatchPolicy`, `DelegatePolicy`
 - Counterfactual primitives over the agent loop: `branch_at_turn`, `replace_tool_result`, `replace_tool_args` (each preserves the baseline prefix verbatim with content-addressed ids and drives forward from the pivot)
-- Behaviour-policy rules with conditional `when:` gating: `must_call_before`, `must_call_once`, `no_call`, `max_turns`, `required_stop_reason`, `max_total_tokens`, `must_include_text`, `forbidden_text`. Ten condition operators (`==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`, `not_contains`) over dotted paths into request / response / model / stop_reason
+- Behaviour-policy rules with conditional `when:` gating: `must_call_before`, `must_call_once`, `no_call`, `max_turns`, `required_stop_reason`, `max_total_tokens`, `must_include_text`, `forbidden_text`, `must_match_json_schema` (validates structured outputs against an inline schema or a JSON Schema file, with offending paths in the violation detail). Ten condition operators (`==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`, `not_contains`) over dotted paths into request / response / model / stop_reason
+- Agent Behavior Certificate (ABOM) via `shadow certify` / `shadow verify-cert`: a content-addressed JSON release artefact capturing the trace id, models, prompt hashes, tool schema hashes, policy hash, and an optional baseline-vs-candidate regression-suite rollup. Self-verifying — `verify-cert` exits non-zero on tamper, so it can gate a release pipeline. Format is stable; PKI/cosign signing layer is on the v1.8 roadmap
 - `shadow diff --fail-on {minor,moderate,severe}` exits non-zero on regressions, so the GitHub Action can gate merges instead of just commenting
 - Auto-instrumentation for the Anthropic and OpenAI SDKs (Python and TypeScript, including the OpenAI Responses API and streaming)
 - Framework adapters: LangGraph / LangChain (`shadow-diff[langgraph]`), CrewAI (`shadow-diff[crewai]`), AG2 (`shadow-diff[ag2]`)
@@ -53,11 +54,11 @@ We import MCP session logs today and serve diff/policy/token-diff/schema-watch/s
 
 ### Richer behaviour contracts
 
-The `when:` gate plus eight rule kinds covers most production agents today. Next: `must_match_json_schema` for structured-output assertions, stateful rules that reason across turns (e.g. "if the agent confirmed an amount on turn N, it must not change the amount on turn N+1"), and retrieved-context assertions for RAG agents.
+The `when:` gate, nine rule kinds (including `must_match_json_schema`), and ten condition operators cover most production agents today. Next: stateful rules that reason across turns (e.g. "if the agent confirmed an amount on turn N, it must not change the amount on turn N+1"), retrieved-context assertions for RAG agents, and tool-result-dependent rules ("after `verify_order` returns `disputed`, the next assistant message must call `escalate_to_human`").
 
-### Agent Behaviour Bill of Materials (ABOM)
+### Signed release certificates (v1.8)
 
-Signed release artefact that captures the prompt version, model, tool set, memory policy, retrieval config, contract pass/fail counts, and the regression suite hash. Same idea as a software SBOM, applied to agent behaviour, so an enterprise can prove what behaviour shipped with a given release.
+The Agent Behavior Certificate (ABOM) format ships in v1.7. Next: layer cosign keyless signing on top so a release certificate can be cryptographically attributed to a CI run. Same artefact, optional signing — unsigned certificates remain valid and useful for internal release gates.
 
 ## Not on the roadmap
 
