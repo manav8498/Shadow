@@ -6,6 +6,47 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-04-25
+
+`.agentlog` v0.2 + MCP-native replay. Four roadmap items shipped together. Each design choice researched against canonical conventions (OpenTelemetry GenAI semconv stable Jan 2026, OpenInference, Langfuse v3 media API, RAGAS / TruLens / DeepEval multimodal baselines, MCP SEP-1287 draft) before implementation.
+
+### Added
+
+- **`.agentlog` v0.2** spec (SPEC §4.8 / §4.9 / §4.10) adds three new record kinds. Backwards-compatible: every v0.1 record still validates. v0.2 readers MUST treat unknown kinds as passthrough so future spec adds don't break old tools.
+
+  - **`chunk`** (§4.8) — single streaming-LLM chunk with `chunk_index`, absolute `time_unix_nano` (per OTel convention; relative offsets drift on long streams), provider-shape `delta` (Anthropic `text_delta` / `input_json_delta` / `thinking_delta`, OpenAI `{content?, tool_calls?[]}`), optional `is_final`. Logical-response identity remains the assembled `chat_response`'s content-id.
+  - **`harness_event`** (§4.9) — single record kind with `category` discriminator over the closed taxonomy `{retry, rate_limit, model_switch, context_trim, cache, guardrail, budget, stream_interrupt, tool_lifecycle}` (matches OTel `gen_ai.cache.*`, `gen_ai.guardrail.*`, etc.). Each event carries `name`, `severity ∈ {info, warning, error, fatal}`, free-form `attributes`. Single-kind-with-discriminator beats kinds-per-event because new event types don't require code changes — same lesson Langfuse / Helicone / Phoenix all hit.
+  - **`blob_ref`** (§4.10) — content-addressed binary reference. sha256 `blob_id`, `mime`, `size_bytes`, optional `agentlog-blob://` URI (mirrors OTel's `otel-blob://`), optional 64-bit dHash `phash` (RAGAS / TruLens / DeepEval no-LLM-judge baseline; Hamming ≤10/64 = near-dup, ≥16 = different), optional `embedding` for the semantic-tier diff. Inline base64 stays permitted under a 4 KiB cap; anything larger is a `blob_ref` to keep records parseable in line-buffered tools.
+
+- **`shadow.v02_records` Python module** with full recording + diff support:
+  - `record_harness_event(session, *, category, name, severity, attributes)` — validates category + severity at record time so typos surface up front instead of as silent diff misses.
+  - `record_chunk(session, *, chunk_index, delta, is_final, time_unix_nano)` — `time_unix_nano` defaults to `time.time_ns()` at the call site.
+  - `replay_chunks_async(chunks, yielder, speed=1.0)` — monotonic-deadline replay loop, NOT cumulative `sleep(delta)` (cumulative drifts on long streams; deadline-relative stays accurate). Handles non-monotonic timestamps without deadlocking. `speed` multiplier accepts `1e9` for effectively-instant replay.
+  - `BlobStore(root)` — git-objects-style sharded sha256 blob store with atomic temp-file + rename for crash safety. Identical content collapses to one file across repeated puts.
+  - `compute_phash_dhash64(image_bytes)` — optional `imagehash` dep; returns SPEC-shaped `{algo: dhash64, hex: ...}` or None when the lib is missing.
+  - `phash_distance(a, b)` — Hamming distance over hex; returns None on algo mismatch so callers can branch.
+  - `record_blob_ref(session, *, blob, mime, store)` — content-addresses + writes the blob, computes dHash for `image/*` mime types, appends a `blob_ref` record.
+  - `harness_event_diff(baseline, candidate)` — returns `[HarnessEventDelta]` with `(category, name)` keying, count delta, first-occurrence pair index for both sides, sorted by absolute count delta descending.
+
+- **`shadow.mcp_replay` Python module** — protocol-level MCP replay via the transport-stream shim pattern (research-recommended path; survives SDK upgrades, aligns with SEP-1287's `replay://` URI scheme):
+  - `canonicalize_params(params)` — sorted-keys, no-whitespace, `ensure_ascii=False` JSON encoding so non-ASCII URIs in `resources/read` round-trip cleanly.
+  - `RecordingIndex(calls)` — indexes `MCPCall` objects by `(method, canonicalize(params))`. Repeated calls return responses in recorded order then fall back to the last recorded response (preserves "the second `tools/list` returned one fewer tool" behaviour). `unconsumed_keys()` surfaces calls the candidate skipped — drift detection at the protocol layer.
+  - `ReplayClientSession(index, strict=False)` — drop-in replacement for `mcp.ClientSession`. Implements `call_tool`, `read_resource`, `list_tools` / `list_resources` / `list_prompts`, `get_prompt`, `initialize` (with synthetic capability stub when not recorded). Sync + async variants. `strict=True` raises `MCPCallNotRecorded` on misses; non-strict returns None for null-check paths. Errors in recordings raise `MCPServerError`.
+  - `index_from_imported_mcp_records(records)` — builds an index from an MCP-imported `.agentlog` (Shadow's existing `shadow import --format mcp` output). Recognises `tool_call` + paired `tool_result` records, plus `metadata.payload.mcp.calls` for non-tool methods.
+
+- **Rust core**: `Kind::Chunk`, `Kind::HarnessEvent`, `Kind::BlobRef` added to the `record::Kind` enum so the parser accepts v0.2 records and the replay engine copy-throughs them.
+
+### Tests
+
+- 41 new tests across `python/tests/test_v02_records.py` (22) and `python/tests/test_mcp_replay.py` (19) — chunk record/replay round-trip, replay timing fidelity (deadline loop, non-monotonic timestamps, speed multiplier), harness event recording + diff at scale, BlobStore dedup + atomic replace + URI scheme, dHash distance correctness, MCP canonicalization (key-order independence, unicode, integer-vs-float distinction), 1000-call lookup performance, repeated-call ordering, error propagation, strict vs non-strict miss handling, drift detection via `unconsumed_keys`.
+- Real-world adverse stress harness at `examples/stress_v23x/run_stress.py` — 20 assertions covering 10K-chunk session round-trip, 5 concurrent replays without state leakage, backward-timestamp non-deadlock, harness diff at scale (sub-100ms over thousands of records), 1000-puts dedup, atomic-replace crash simulation, 16 MiB blob round-trip, real PNG dHash, 1000-call MCP recording lookup in <2ms, canonicalize collision matrix (int vs float, key order, unicode). 20/20 passes in 0.32s wall-clock.
+
+### Roadmap
+
+- "What's next" loses streaming replay, multimodal traces, harness-diff instrumentation, MCP-native replay (all shipped). Remaining: cross-modal semantic diff axis (CLIP / Whisper-embed on top of the v0.2 `blob_ref.embedding` slot), harness-diff renderer for PR comments.
+
+786 pytest, 205 cargo, 34 vitest, ci-local green, mkdocs `--strict` green.
+
 ## [2.2.0] - 2026-04-25
 
 Two roadmap items shipped together. Both researched against canonical guardrail / auto-instrumentation patterns (NeMo Guardrails, Bedrock Guardrails, OpenTelemetry openai-instrumentation) before implementation — buffer-to-completion + replace-whole-response is the production norm, not strip-individual-blocks.
