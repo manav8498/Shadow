@@ -258,9 +258,14 @@ def _compare_blob_pair(
                 cheap_severity = "moderate"
 
     # Semantic wins when present; cheap tier is the fallback. If
-    # neither is available, lexical fallback: different blob ids
-    # without semantic signal = minor (conservative).
-    severity = semantic_severity or cheap_severity or "minor"
+    # neither tier has data and the blob ids differ, we have a real
+    # change with no similarity signal to size it. "minor" understates
+    # that case — a swapped image / PDF / audio with no phash and no
+    # embedding is more likely a real regression than a near-duplicate.
+    # Default to "moderate" so a PR-comment reader sees something
+    # worth eyeballing; if the recording side wants quiet diffs it can
+    # add a phash or embedding.
+    severity = semantic_severity or cheap_severity or "moderate"
 
     return BlobDelta(
         pair_index=pair_index,
