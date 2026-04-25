@@ -404,7 +404,7 @@ Per-axis math, severity bands, and bootstrap details: [`docs/features/nine-axis.
 | Merge-blocking PR check | partial via webhooks | partial via webhooks | partial via webhooks | ✅ |
 | Content-addressed release certificate | no | no | no | ✅ |
 | Cosign / sigstore signing on certificate | no | no | no | ✅ |
-| Causal attribution (LASSO + bootstrap CI) | no | no | no | ✅ |
+| Estimated causal attribution (LASSO + bootstrap CI) | no | no | no | ✅ |
 | Nine pre-built behavior axes | partial | partial | partial | ✅ |
 | Open content-addressed trace format | no | no | no | ✅ |
 
