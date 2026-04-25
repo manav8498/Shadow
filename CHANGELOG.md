@@ -6,6 +6,29 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-04-24
+
+### Fixed
+
+- `branch_at_turn(turn=N)` for N≥1 now preserves the baseline prefix verbatim (with content-addressed ids intact through end of turn N, including any trailing `tool_call`/`tool_result` records) and then drives the agent loop forward from turn N+1's seed messages. Earlier behaviour stopped after the prefix and never produced the candidate continuation, so the docstring's promise of "branch and replay forward" was a no-op.
+- `replace_tool_result` re-drive mode (when `llm_backend` is supplied) preserves the prefix through the patched `tool_result`, then continues forward from that point. Previously it re-drove from turn 0, which broke `MockLLM` lookups (the patched tool message changed the next request's content-id) and produced a trace whose prefix did not match the baseline.
+- `branch_at_turn(turn=K)` where K exceeds the baseline's turn count now raises `ShadowConfigError("baseline has fewer than K …")` instead of silently emitting a stub trace.
+- New `drive_loop_forward` primitive in `shadow.replay_loop` is the shared driver these counterfactual helpers now use; existing `run_agent_loop_replay` is unchanged.
+
+### Added
+
+- **Local CI parity script.** `just ci-local` runs the exact command set from `.github/workflows/ci.yml` in the same order — including the `python/ examples/` ruff/mypy scope and the demo step — so drift between local and CI lint scope is caught before pushing. Catches the three classes of failure that bit prior releases: ruff/mypy scope, optional-extras gating, and demo wall-clock regressions. The recipe is portable across macOS (uses `gtimeout` if installed, falls back to plain bash) and Linux.
+- `just lint-python` was widened to match CI scope (`python/ examples/`, plus the demo entry points for mypy). Previously narrower than CI, so `just ci` could pass locally and still fail on push.
+- New tests:
+  - `test_branch_at_turn_one_replays_prefix_then_drives_forward` — verifies the prefix is preserved with content-addressed ids and that forward-drive emits at least one additional chat pair.
+  - `test_branch_at_turn_past_end_raises` — verifies the new bounds-check error.
+  - `test_replace_tool_result_redrive_preserves_prefix_then_drives_forward` — verifies prefix `chat_request` ids carry through verbatim.
+  - `test_delegate_policy_can_bridge_to_sandboxed_backend` — pinpoints the documented composition pattern: novel calls flow through `DelegatePolicy` into `SandboxedToolBackend.execute`.
+  - `test_engine_handles_multi_session_baseline` — multi-session baselines (two `metadata` records) now have an explicit assertion that both sessions replay end-to-end.
+  - `test_replay_loop_live.py` — real-LLM end-to-end test against `gpt-4o-mini`, gated behind `SHADOW_RUN_NETWORK_TESTS=1` so CI never opts in. Asserts the agent-loop engine produces a structurally valid, content-addressed trace from a live API call.
+
+637 pytest tests pass, 205 cargo tests pass, full CI parity script (`just ci-local`) is green on macOS.
+
 ## [1.6.0] - 2026-04-25
 
 ### Added
