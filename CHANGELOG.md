@@ -6,6 +6,25 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-04-25
+
+Major version bump because v2.0 grows the SDK's public surface (new `shadow.policy_runtime` module with `EnforcedSession` / `PolicyEnforcer`). All v1.x APIs remain backwards-compatible — existing `Session`, `policy_diff`, `shadow diff --policy`, certificate workflow are unchanged. The major bump reflects the new public module, not a breaking change to existing code.
+
+### Added
+
+- **Three new policy rule kinds** for stateful and RAG-aware contracts:
+  - `must_remain_consistent` — once a value at `path` is observed, every later pair where the path resolves must equal it. Useful for "the agent must not change the refund amount after confirming it." Pairs where the path is absent are skipped (absence ≠ change).
+  - `must_followup` — when `trigger` conditions hold in pair N, pair N+1 must satisfy `must` (a tool call by name, or a text-includes substring). A trigger on the final pair is itself a violation. Captures patterns like "after a quote, the next turn must call `confirm_with_user`."
+  - `must_be_grounded` — every response must overlap meaningfully with retrieved chunks at `retrieval_path`. Default `min_unigram_precision: 0.5` matches the no-LLM-judge fallback baseline used by RAGAS, TruLens, DeepEval. Tokenisation drops punctuation and len-1 tokens so an attacker can't satisfy the rule by emitting `the , .`. Twelve rule kinds total now.
+- **Runtime policy enforcement** in new module `shadow.policy_runtime`:
+  - `PolicyEnforcer(rules, on_violation=...)` evaluates rules incrementally on a growing record list and reports only NEW violations since the last call. Three modes: `replace` (default — swap the offending response for a refusal payload while preserving structural fields), `raise` (throw `PolicyViolationError`), `warn` (log only).
+  - `EnforcedSession(enforcer=..., output_path=...)` extends `Session` and runs the enforcer on every `record_chat`. The flushed `.agentlog` is structurally valid even when responses were replaced — every existing Shadow command (`diff`, `verify-cert`, `mine`, `mcp-serve`) reads it without modification.
+  - `Verdict` dataclass carries `(allow, replacement, reason, violations)`. `default_replacement_response` builds a refusal payload that preserves `model`, `usage`, `latency_ms` so downstream renderers don't break. Custom builders accepted via `replacement_builder=`.
+  - API shape mirrors NeMo Guardrails / Bedrock Guardrails / Guardrails AI conventions: callback/verdict pattern, return-replacement default, raising opt-in. Researched against canonical guardrails-API patterns to pick the most-canonical shape.
+- 36 new tests across `python/tests/test_policy_stateful_rag.py` (rule semantics) and `python/tests/test_policy_runtime.py` (enforcer + EnforcedSession). Covers happy paths, anchor pinning, absence-isn't-change, final-pair triggers, replace/raise/warn modes, custom replacement builders, incremental violation detection, and round-trip via disk.
+- New docs page `docs/features/runtime-enforcement.md` covering the three modes, custom replacements, the programmatic API for callers not using `EnforcedSession`, and what the surface explicitly does NOT do (no tool-call interception, no network-level guardrails, no cross-process state). Wired into mkdocs `Features` nav.
+- `docs/features/policy.md` updated with a "Stateful and RAG-aware rules" section covering the three new kinds with runnable examples.
+
 ## [1.8.0] - 2026-04-25
 
 ### Added

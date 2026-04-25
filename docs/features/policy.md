@@ -17,6 +17,9 @@ Nine kinds ship today:
 | `must_include_text` | A required string must appear in at least one response |
 | `forbidden_text` | A specific string must never appear in any response |
 | `must_match_json_schema` | Every response's text content must parse as JSON and validate against a JSON Schema |
+| `must_remain_consistent` | Once a value is observed at `path`, every later pair where the path resolves must equal it (e.g. "the agent must not change the refund amount after confirming it") |
+| `must_followup` | When `trigger` conditions hold in pair N, pair N+1 must satisfy `must` (a tool call by name, or a text-includes substring). A trigger on the final pair is itself a violation |
+| `must_be_grounded` | Every response must overlap meaningfully with retrieved chunks at `retrieval_path`. Default threshold is `min_unigram_precision: 0.5` — the standard no-LLM-judge fallback also used by RAGAS, TruLens, DeepEval |
 
 ## Conditional rules — `when:`
 
@@ -36,6 +39,54 @@ rules:
 ```
 
 Operators: `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`, `not_contains`. Paths are dotted into the per-pair context: `request.*` (model, messages, params, tools), `response.*` (content, stop_reason, latency_ms, usage), plus aliases `model` (== `request.model`) and `stop_reason` (== `response.stop_reason`).
+
+## Stateful and RAG-aware rules
+
+Three rule kinds reason across multiple turns or compare against retrieved context.
+
+### `must_remain_consistent`
+
+Once a value is observed at `path` in some pair, every later pair where the same path resolves must equal that anchor. Pairs where the path is absent are skipped — absence is not change, the rule pins consistency *when observed*.
+
+```yaml
+rules:
+  - id: amount-locked-after-confirmation
+    kind: must_remain_consistent
+    params: { path: "request.params.amount" }
+    severity: error
+```
+
+### `must_followup`
+
+When `trigger` conditions hold in pair N, pair N+1 must satisfy `must`. The `must` spec accepts two kinds: `tool_call` (the next response must include a `tool_use` block by that name) and `text_includes` (the next response text must contain the substring). A trigger on the last pair is itself a violation — the obligation could not be satisfied.
+
+```yaml
+rules:
+  - id: confirm-after-quote
+    kind: must_followup
+    params:
+      trigger:
+        - { path: "response.stop_reason", op: "==", value: "tool_use" }
+        - { path: "response.content", op: "contains", value: "quote_total" }
+      must: { kind: tool_call, tool_name: confirm_with_user }
+    severity: error
+```
+
+### `must_be_grounded`
+
+Every response must overlap meaningfully with retrieved chunks at `retrieval_path`. The default `min_unigram_precision: 0.5` is the same no-LLM-judge fallback RAGAS / TruLens / DeepEval use as their cheapest baseline. Pairs without retrieval at the given path are skipped.
+
+```yaml
+rules:
+  - id: rag-grounding
+    kind: must_be_grounded
+    params:
+      retrieval_path: "request.metadata.retrieved_chunks"
+      min_unigram_precision: 0.5
+    severity: error
+```
+
+Tokenisation is lowercased + alphanumeric, len ≥ 2 — punctuation and stopwords-of-length-1 don't count. An attacker can't satisfy the rule by emitting only `the , .`.
 
 ## Structured-output assertions
 
