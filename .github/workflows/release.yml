@@ -35,6 +35,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # On macos-latest the pre-installed Xcode toolchain ships its own
+      # `cargo-clippy` binary; when dtolnay/rust-toolchain reads our
+      # `rust-toolchain.toml` and tries to add the `clippy` component,
+      # rustup refuses to overwrite the existing binary and the wheel
+      # build fails. The wheel build only needs `cargo` + `rustc`, so
+      # on macOS we substitute a minimal toolchain.toml for the duration
+      # of the job. Linux + Windows are unaffected; their toml is the
+      # original.
+      - name: Strip clippy/rustfmt from toolchain on macOS
+        if: matrix.os == 'macos-latest'
+        run: |
+          cat > rust-toolchain.toml <<'EOF'
+          [toolchain]
+          channel = "1.95.0"
+          profile = "minimal"
+          EOF
+
       - uses: dtolnay/rust-toolchain@1.95.0
 
       - uses: actions/setup-python@v5
