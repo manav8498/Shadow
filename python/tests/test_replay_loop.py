@@ -266,6 +266,79 @@ def test_engine_with_stub_tool_backend_passes_through() -> None:
     assert summary.total_tool_calls == 1
 
 
+def test_engine_handles_multi_session_baseline() -> None:
+    """A baseline with two metadata records (two logical sessions)
+    must produce a candidate trace where both sessions are replayed
+    in order, each with its own session-marker metadata."""
+    base_session = _build_baseline()
+    # Build a second session by deep-copying and renaming ids so the
+    # output isn't ambiguous.
+    second_meta = {
+        "version": "0.1",
+        "id": "sha256:meta2",
+        "kind": "metadata",
+        "ts": "2026-04-25T01:00:00.000Z",
+        "parent": None,
+        "payload": {"sdk": {"name": "test"}, "session": "second"},
+    }
+    # Reuse a chat_request/response shape for the second session.
+    req2 = {
+        "model": "m",
+        "messages": [{"role": "user", "content": "second-session-query"}],
+        "params": {},
+    }
+    req2_id = _core.content_id(req2)
+    resp2 = {
+        "model": "m",
+        "content": [{"type": "text", "text": "second-session-answer"}],
+        "stop_reason": "end_turn",
+        "latency_ms": 5,
+        "usage": {"input_tokens": 3, "output_tokens": 2, "thinking_tokens": 0},
+    }
+    resp2_id = _core.content_id(resp2)
+    second_session_records = [
+        second_meta,
+        {
+            "version": "0.1",
+            "id": req2_id,
+            "kind": "chat_request",
+            "ts": "...",
+            "parent": "sha256:meta2",
+            "payload": req2,
+        },
+        {
+            "version": "0.1",
+            "id": resp2_id,
+            "kind": "chat_response",
+            "ts": "...",
+            "parent": req2_id,
+            "payload": resp2,
+        },
+    ]
+    multi_baseline = base_session + second_session_records
+    llm = MockLLM.from_traces([base_session, second_session_records])
+    tools = ReplayToolBackend.from_trace(base_session, novel_policy=StubPolicy())
+    out, summary = asyncio.run(
+        run_agent_loop_replay(multi_baseline, llm_backend=llm, tool_backend=tools)
+    )
+    # Both sessions replayed.
+    assert summary.sessions_replayed == 2
+    # Output trace contains two session-marker metadata records (the
+    # root + the second session's marker, plus the trailing summary).
+    metadata_count = sum(1 for r in out if r["kind"] == "metadata")
+    assert metadata_count >= 3, f"expected root + session2 + summary, got {metadata_count}"
+    # Both sessions' chat pairs are present.
+    response_texts = [
+        b.get("text")
+        for r in out
+        if r["kind"] == "chat_response"
+        for b in r["payload"].get("content", [])
+        if b.get("type") == "text"
+    ]
+    assert "done." in response_texts  # from session 1
+    assert "second-session-answer" in response_texts  # from session 2
+
+
 def test_engine_records_are_content_addressed() -> None:
     """Every record's id must equal the content_id of its payload —
     Shadow's invariant. The agent loop must respect it."""

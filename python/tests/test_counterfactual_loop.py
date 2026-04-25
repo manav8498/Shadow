@@ -283,3 +283,59 @@ def test_branch_at_turn_negative_raises() -> None:
     tools = ReplayToolBackend.from_trace(baseline)
     with pytest.raises(ShadowConfigError, match=">= 0"):
         asyncio.run(branch_at_turn(baseline, turn=-1, llm_backend=llm, tool_backend=tools))
+
+
+def test_branch_at_turn_one_replays_prefix_then_drives_forward() -> None:
+    """Branching at turn 1 should preserve baseline turn 1 verbatim,
+    then drive the agent loop forward from turn 2's seed messages
+    against the supplied backends."""
+    baseline = _build_baseline()
+    llm = MockLLM.from_trace(baseline)
+    tools = ReplayToolBackend.from_trace(baseline, novel_policy=StubPolicy())
+    cf = asyncio.run(branch_at_turn(baseline, turn=1, llm_backend=llm, tool_backend=tools))
+    kinds = [r["kind"] for r in cf.trace]
+    # The prefix carries turn 1's chat_request/chat_response + the
+    # paired tool_call/tool_result; forward-drive emits at least one
+    # additional chat pair.
+    assert kinds.count("chat_request") >= 2
+    assert kinds.count("chat_response") >= 2
+    assert "tool_result" in kinds
+    assert cf.override["turn"] == 1
+    # Prefix records keep their baseline ids (content-addressed).
+    base_ids = {r["id"] for r in baseline if r["kind"] != "metadata"}
+    out_ids = {r["id"] for r in cf.trace}
+    assert base_ids & out_ids, "expected prefix records to preserve their ids"
+
+
+def test_branch_at_turn_past_end_raises() -> None:
+    """Asking to branch past the baseline's actual turn count must
+    raise a clear error rather than producing garbage."""
+    baseline = _build_baseline()  # 2 turns
+    llm = MockLLM.from_trace(baseline)
+    tools = ReplayToolBackend.from_trace(baseline)
+    with pytest.raises(ShadowConfigError, match="fewer than"):
+        asyncio.run(branch_at_turn(baseline, turn=99, llm_backend=llm, tool_backend=tools))
+
+
+def test_replace_tool_result_redrive_preserves_prefix_then_drives_forward() -> None:
+    """Re-drive mode preserves the prefix through the patched tool_result
+    and continues forward from there, not from turn 0."""
+    baseline = _build_baseline()
+    llm = MockLLM.from_trace(baseline)
+    cf = asyncio.run(
+        replace_tool_result(
+            baseline,
+            tool_call_id="t1",
+            new_output="<no results found>",
+            llm_backend=llm,
+        )
+    )
+    # The patched tool_result lands in the output with the new output.
+    tr = next(r for r in cf.trace if r["kind"] == "tool_result")
+    assert tr["payload"]["output"] == "<no results found>"
+    assert cf.override["mode"] == "redrive"
+    # At least one prefix chat_request is preserved verbatim
+    # (content-addressed id matches a baseline record).
+    base_request_ids = {r["id"] for r in baseline if r["kind"] == "chat_request"}
+    out_request_ids = {r["id"] for r in cf.trace if r["kind"] == "chat_request"}
+    assert base_request_ids & out_request_ids

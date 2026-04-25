@@ -43,9 +43,12 @@ lint-rust:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 lint-python:
-    uv run --python .venv/bin/python ruff check python/
-    uv run --python .venv/bin/python ruff format --check python/
-    uv run --python .venv/bin/python mypy --strict python/src
+    # Scope must match .github/workflows/ci.yml exactly. CI lints
+    # `python/ examples/` and type-checks the demo entry points; if
+    # this recipe drifts narrower, broken pushes slip past `just ci`.
+    uv run --python .venv/bin/python ruff check python/ examples/
+    uv run --python .venv/bin/python ruff format --check python/ examples/
+    uv run --python .venv/bin/python mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py
 
 # Run the end-to-end demo (uses MockLLM, must complete <10s).
 demo:
@@ -61,7 +64,35 @@ ci: lint test
 
 fmt:
     cargo fmt --all
-    uv run --python .venv/bin/python ruff format python/
+    uv run --python .venv/bin/python ruff format python/ examples/
+
+# Mirror the GitHub Actions matrix locally: the exact command set from
+# .github/workflows/ci.yml run in the same order. Use this before
+# pushing if `just ci` was green but you suspect a drift between local
+# and CI environments. Catches the three classes of failure that have
+# bitten previous releases:
+#   1. ruff/mypy scope (CI lints examples/, local sometimes didn't)
+#   2. optional-extras gating (mcp/serve modules need extras installed)
+#   3. macOS clippy + windows shell quirks (still local-only here, but
+#      this recipe at least flushes Linux-equivalent breakage early)
+ci-local:
+    @echo "==> rust: fmt + clippy + test + coverage"
+    cargo fmt --all -- --check
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
+    cargo test --workspace
+    cargo llvm-cov --workspace --fail-under-lines 85 --summary-only
+    @echo "==> python: ruff + mypy (CI scope)"
+    .venv/bin/python -m ruff check python/ examples/
+    .venv/bin/python -m ruff format --check python/ examples/
+    .venv/bin/python -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py
+    @echo "==> python: pytest with coverage gate"
+    .venv/bin/python -m pytest python/tests --cov=shadow --cov-config=python/pyproject.toml --cov-fail-under=85 --cov-report=term-missing
+    @echo "==> demo: end-to-end <10s"
+    # GNU `timeout` is `gtimeout` on macOS (coreutils). CI uses Linux
+    # where it's just `timeout`. Pick whichever is on PATH; if neither,
+    # run unguarded — the demo targets <10s and a runaway is rare.
+    bash -c 'if command -v timeout >/dev/null 2>&1; then timeout 30 bash examples/demo/demo.sh; elif command -v gtimeout >/dev/null 2>&1; then gtimeout 30 bash examples/demo/demo.sh; else bash examples/demo/demo.sh; fi'
+    @echo "==> ci-local: ALL GREEN"
 
 # Regenerate demo fixtures (run after the demo stops producing a baseline).
 regen-fixtures:

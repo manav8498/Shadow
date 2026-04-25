@@ -208,3 +208,37 @@ def test_orphan_tool_call_without_result_silently_dropped() -> None:
     trace = [r for r in trace if r["kind"] != "tool_result"]
     backend = ReplayToolBackend.from_trace(trace)
     assert len(backend) == 0
+
+
+def test_delegate_policy_can_bridge_to_sandboxed_backend() -> None:
+    """DelegatePolicy should compose cleanly with SandboxedToolBackend
+    so users can fall back to running their real tool function under
+    sandbox when the baseline doesn't carry a recorded result."""
+    from shadow.tools.sandbox import SandboxedToolBackend
+
+    async def real_search(args: dict[str, Any]) -> str:
+        # Tool function the user would run in production. The sandbox
+        # is what stops it from actually doing anything dangerous.
+        return f"live-result for {args.get('q')!r}"
+
+    sandbox = SandboxedToolBackend({"search": real_search})
+
+    async def via_sandbox(call: ToolCall) -> ToolResult:
+        return await sandbox.execute(call)
+
+    backend = ReplayToolBackend.from_trace(
+        _trace_with_tool(args={"q": "rust"}, output="recorded"),
+        novel_policy=DelegatePolicy(via_sandbox),
+    )
+
+    # Recorded call returns recorded result.
+    recorded_call = ToolCall("a", "search", {"q": "rust"})
+    r1 = asyncio.run(backend.execute(recorded_call))
+    assert r1.output == "recorded"
+
+    # Novel call delegates → sandbox runs the real fn.
+    novel_call = ToolCall("b", "search", {"q": "python"})
+    r2 = asyncio.run(backend.execute(novel_call))
+    assert "live-result" in str(r2.output)
+    assert "python" in str(r2.output)
+    assert not r2.is_error

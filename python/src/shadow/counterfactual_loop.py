@@ -19,14 +19,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from shadow import _core
 from shadow.errors import ShadowConfigError
 from shadow.llm.base import LlmBackend
 from shadow.replay_loop import (
     AgentLoopConfig,
     AgentLoopSummary,
+    drive_loop_forward,
     run_agent_loop_replay,
 )
-from shadow.tools.base import ToolBackend, ToolCall, ToolResult
+from shadow.tools.base import ToolBackend, ToolCall
 from shadow.tools.replay import ReplayToolBackend
 
 
@@ -57,43 +59,116 @@ async def branch_at_turn(
     tool_backend: ToolBackend,
     config: AgentLoopConfig | None = None,
 ) -> CounterfactualLoopResult:
-    """Replay the baseline up through ``turn`` then drive the loop forward.
+    """Replay the baseline up through ``turn`` verbatim, then drive the
+    agent loop forward against the supplied backends.
 
-    The first ``turn`` chat-pairs are taken as a baseline prefix; the
-    agent-loop engine then takes over and completes the trace under
-    the supplied backends. Useful for sensitivity analysis: "if the
-    agent diverged at turn 5, what would turns 5..N look like?"
+    The output trace contains:
 
-    The LLM backend must be able to answer requests the engine
-    constructs from the prefix's tail — typically a live backend or
-    a positional mock keyed by turn rather than a content-id mock.
+    1. A re-emitted root metadata pointing back at ``baseline``.
+    2. Verbatim copies of the first ``turn`` chat pairs (and any
+       interleaved tool / metadata records) — content IDs preserved
+       so the prefix is bit-identical to the baseline's.
+    3. The forward-driven continuation from turn ``turn+1`` onward,
+       seeded with the messages the agent would have seen at that
+       point. The LLM backend gets fresh requests; the tool backend
+       resolves whatever tool calls the candidate decides to make.
+    4. A trailing replay-summary metadata.
+
+    ``turn=0`` is a full forward-drive (equivalent to
+    :func:`run_agent_loop_replay`).
+
+    The LLM backend must be able to answer the post-prefix request
+    the engine constructs — that's the messages array of the
+    baseline's ``turn``-th chat_request, which a content-id-keyed
+    :class:`~shadow.llm.MockLLM` can serve as long as the prefix is
+    intact. For "what if the agent kept going past where the
+    baseline stopped?" use a live backend or a positional mock.
     """
     if turn < 0:
         raise ShadowConfigError(f"turn must be >= 0, got {turn}")
+    if not baseline or baseline[0].get("kind") != "metadata":
+        raise ShadowConfigError("baseline must start with a metadata record")
+    config = config or AgentLoopConfig()
 
-    prefix, _suffix = _split_at_turn(baseline, turn)
-    if not prefix:
-        # turn=0 means a full replay.
-        trace, summary = await run_agent_loop_replay(
-            baseline,
+    out: list[dict[str, Any]] = []
+    summary = AgentLoopSummary()
+
+    # 1. Root metadata with provenance.
+    root = baseline[0]
+    new_meta_payload = dict(root["payload"])
+    new_meta_payload["baseline_of"] = root["id"]
+    new_meta_payload["replay"] = {
+        "engine": "agent_loop_branch",
+        "branch_at_turn": turn,
+        "llm_backend": getattr(llm_backend, "id", "unknown"),
+        "tool_backend": getattr(tool_backend, "id", "unknown"),
+    }
+    new_meta_id = _core.content_id(new_meta_payload)
+    out.append(_envelope("metadata", new_meta_id, parent=None, payload=new_meta_payload))
+    last_parent = new_meta_id
+
+    if turn == 0:
+        # No prefix — drive forward from the baseline's first chat_request.
+        seed_request = _first_chat_request(baseline)
+        if seed_request is None:
+            return CounterfactualLoopResult(
+                trace=out,
+                summary=summary,
+                override={"kind": "branch_at_turn", "turn": 0},
+            )
+        forward, stats, _ = await drive_loop_forward(
+            seed_messages=seed_request.get("messages") or [],
+            seed_model=str(seed_request.get("model") or ""),
+            seed_params=seed_request.get("params") or {},
+            seed_tools=seed_request.get("tools"),
+            parent_id=last_parent,
             llm_backend=llm_backend,
             tool_backend=tool_backend,
             config=config,
         )
+        out.extend(forward)
+        _accumulate(summary, stats)
         return CounterfactualLoopResult(
-            trace=trace,
+            trace=out,
             summary=summary,
             override={"kind": "branch_at_turn", "turn": 0},
         )
 
-    trace, summary = await run_agent_loop_replay(
-        prefix,
+    # 2. Copy the prefix verbatim (records up to and including turn N's response).
+    prefix_records, post_prefix_request = _slice_prefix_at_turn(baseline, turn)
+    if not prefix_records:
+        raise ShadowConfigError(
+            f"baseline has fewer than {turn} chat-response turns; " "cannot branch past the end."
+        )
+    for rec in prefix_records[1:]:  # skip the metadata; we re-emitted ours
+        last_parent = _emit_copy(rec, parent=last_parent, out=out)
+
+    if post_prefix_request is None:
+        # Baseline ended exactly at turn N. Nothing to drive forward.
+        summary.sessions_replayed = 1
+        return CounterfactualLoopResult(
+            trace=out,
+            summary=summary,
+            override={"kind": "branch_at_turn", "turn": turn},
+        )
+
+    # 3. Drive forward starting from turn N+1's seed messages.
+    seed_messages = post_prefix_request.get("messages") or []
+    forward, stats, _ = await drive_loop_forward(
+        seed_messages=seed_messages,
+        seed_model=str(post_prefix_request.get("model") or ""),
+        seed_params=post_prefix_request.get("params") or {},
+        seed_tools=post_prefix_request.get("tools"),
+        parent_id=last_parent,
         llm_backend=llm_backend,
         tool_backend=tool_backend,
         config=config,
     )
+    out.extend(forward)
+    _accumulate(summary, stats)
+
     return CounterfactualLoopResult(
-        trace=trace,
+        trace=out,
         summary=summary,
         override={"kind": "branch_at_turn", "turn": turn},
     )
@@ -150,20 +225,53 @@ async def replace_tool_result(
             },
         )
 
-    tool_backend = ReplayToolBackend.from_trace(baseline)
-    sig = target_call.signature_hash()
-    tool_backend._results[sig] = ToolResult(
-        tool_call_id=target_call.id,
-        output=new_output,
-        is_error=new_is_error,
-        latency_ms=0,
+    # Re-drive mode: emit the prefix verbatim through the patched
+    # ``tool_result``, then drive the agent loop forward from a seed
+    # whose last tool message carries the new output. This is the
+    # difference from re-driving from turn 0 — the prefix's content-
+    # addressed records are preserved, only the suffix diverges.
+    config = config or AgentLoopConfig()
+    if not baseline or baseline[0].get("kind") != "metadata":
+        raise ShadowConfigError("baseline must start with a metadata record")
+    out: list[dict[str, Any]] = []
+    summary = AgentLoopSummary()
+    root = baseline[0]
+    new_meta_payload = dict(root["payload"])
+    new_meta_payload["baseline_of"] = root["id"]
+    new_meta_payload["replay"] = {
+        "engine": "agent_loop_replace_tool_result",
+        "tool_call_id": tool_call_id,
+        "llm_backend": getattr(llm_backend, "id", "unknown"),
+    }
+    new_meta_id = _core.content_id(new_meta_payload)
+    out.append(_envelope("metadata", new_meta_id, parent=None, payload=new_meta_payload))
+    last_parent = new_meta_id
+
+    prefix_records, post_messages, model, params, tools = _slice_prefix_at_tool_result(
+        baseline, tool_call_id, new_output, new_is_error
     )
-    tool_backend._rebuild_secondary_index()
-    trace, summary = await run_agent_loop_replay(
-        baseline, llm_backend=llm_backend, tool_backend=tool_backend, config=config
+    if prefix_records is None:
+        raise ShadowConfigError(f"no tool_result with id {tool_call_id!r} found in baseline")
+    for rec in prefix_records[1:]:  # skip metadata; we re-emitted ours
+        last_parent = _emit_copy(rec, parent=last_parent, out=out)
+
+    # Forward-drive from the messages-as-of-after-the-patched-tool.
+    forward, stats, _ = await drive_loop_forward(
+        seed_messages=post_messages,
+        seed_model=model,
+        seed_params=params,
+        seed_tools=tools,
+        parent_id=last_parent,
+        llm_backend=llm_backend,
+        tool_backend=ReplayToolBackend.from_trace(baseline),
+        config=config,
     )
+    out.extend(forward)
+    _accumulate(summary, stats)
+    summary.total_tool_calls += 1  # the patched call we baked into the prefix
+
     return CounterfactualLoopResult(
-        trace=trace,
+        trace=out,
         summary=summary,
         override={
             "kind": "replace_tool_result",
@@ -279,6 +387,220 @@ async def replace_tool_args(
 
 
 # ---- helpers ------------------------------------------------------------
+
+
+def _envelope(
+    kind: str, record_id: str, *, parent: str | None, payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Shadow record envelope. Uses a fresh timestamp via _now_iso."""
+    return {
+        "version": _core.SPEC_VERSION,
+        "id": record_id,
+        "kind": kind,
+        "ts": _now_iso(),
+        "parent": parent,
+        "payload": payload,
+    }
+
+
+def _now_iso() -> str:
+    import datetime
+
+    now = datetime.datetime.now(datetime.UTC)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+
+def _emit_copy(rec: dict[str, Any], *, parent: str, out: list[dict[str, Any]]) -> str:
+    """Re-emit a baseline record verbatim with a fresh parent.
+
+    Content-addressed: ``rec["id"]`` is preserved (it's a hash of the
+    payload, which we don't touch), so a downstream consumer reading
+    both baseline and the counterfactual can match the prefix records
+    by id. Only ``parent`` and ``ts`` get refreshed — everything else
+    is the original record.
+    """
+    copy = dict(rec)
+    copy["parent"] = parent
+    copy["ts"] = _now_iso()
+    out.append(copy)
+    return str(copy["id"])
+
+
+def _first_chat_request(baseline: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Find the first chat_request payload in a trace, or None."""
+    for rec in baseline:
+        if rec.get("kind") == "chat_request":
+            return rec.get("payload") or {}
+    return None
+
+
+def _accumulate(summary: AgentLoopSummary, stats: Any) -> None:
+    """Fold per-session stats into the aggregate summary."""
+    summary.sessions_replayed += 1
+    summary.total_llm_calls += stats.llm_calls
+    summary.total_tool_calls += stats.tool_calls
+    summary.total_tool_errors += stats.tool_errors
+    if getattr(stats, "truncated", False):
+        summary.sessions_truncated += 1
+
+
+def _slice_prefix_at_turn(
+    baseline: list[dict[str, Any]], turn: int
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """Return (prefix-records, post-prefix request payload).
+
+    The prefix includes every baseline record from index 0 up
+    through turn N's ``chat_response`` *and* through any
+    ``tool_call`` / ``tool_result`` records that follow it before
+    the next ``chat_request``. That way the prefix carries the full
+    state the agent had observed at the end of turn N — the LLM's
+    response plus the resolved tool round-trips it triggered.
+
+    The second element is the payload of the (``turn``+1)-th
+    ``chat_request`` if one exists in baseline, else ``None``.
+
+    If the baseline has fewer than ``turn`` chat_response records,
+    returns ``([], None)`` — caller should error out.
+    """
+    response_count = 0
+    response_idx: int | None = None
+    for i, rec in enumerate(baseline):
+        if rec.get("kind") == "chat_response":
+            response_count += 1
+            if response_count == turn:
+                response_idx = i
+                break
+    if response_idx is None:
+        return [], None
+    # Extend the cut past any trailing tool_call / tool_result / error
+    # / metadata records, stopping just before the next chat_request.
+    cut_idx = response_idx + 1
+    while cut_idx < len(baseline) and baseline[cut_idx].get("kind") != "chat_request":
+        cut_idx += 1
+    prefix = baseline[:cut_idx]
+    post = (baseline[cut_idx].get("payload") or {}) if cut_idx < len(baseline) else None
+    return prefix, post
+
+
+def _slice_prefix_at_tool_result(
+    baseline: list[dict[str, Any]],
+    tool_call_id: str,
+    new_output: str | dict[str, Any],
+    new_is_error: bool,
+) -> tuple[
+    list[dict[str, Any]] | None,
+    list[dict[str, Any]],
+    str,
+    dict[str, Any],
+    list[dict[str, Any]] | None,
+]:
+    """Build the prefix + the post-tool seed messages for re-drive mode.
+
+    Walks the baseline forward up to and including the named
+    ``tool_result``. Replaces that tool_result with one carrying
+    ``new_output`` / ``new_is_error``. Reconstructs the message list
+    the agent would see at that point so the engine can drive
+    forward.
+
+    Returns ``(prefix, post_messages, model, params, tools)`` or
+    ``(None, [], "", {}, None)`` if the named tool_call_id is missing.
+    """
+    prefix: list[dict[str, Any]] = []
+    seen_tool_result = False
+    last_request_payload: dict[str, Any] | None = None
+    pending_tool_use: dict[str, Any] | None = None  # the tool_use block
+    for rec in baseline:
+        kind = rec.get("kind")
+        if kind == "chat_request":
+            last_request_payload = rec.get("payload") or {}
+            prefix.append(rec)
+        elif kind == "chat_response":
+            payload = rec.get("payload") or {}
+            for block in payload.get("content") or []:
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") == "tool_use"
+                    and str(block.get("id") or "") == tool_call_id
+                ):
+                    pending_tool_use = block
+            prefix.append(rec)
+        elif kind == "tool_call":
+            payload = rec.get("payload") or {}
+            if str(payload.get("tool_call_id") or "") == tool_call_id:
+                pending_tool_use = pending_tool_use or {
+                    "id": tool_call_id,
+                    "name": payload.get("tool_name"),
+                    "input": payload.get("arguments") or {},
+                }
+            prefix.append(rec)
+        elif kind == "tool_result":
+            payload = rec.get("payload") or {}
+            if str(payload.get("tool_call_id") or "") == tool_call_id:
+                # Substitute the patched tool_result.
+                patched_payload = dict(payload)
+                patched_payload["output"] = new_output
+                patched_payload["is_error"] = new_is_error
+                # Re-content-id the patched record.
+                patched_id = _core.content_id(patched_payload)
+                prefix.append({**rec, "id": patched_id, "payload": patched_payload})
+                seen_tool_result = True
+                break
+            prefix.append(rec)
+        else:
+            prefix.append(rec)
+
+    if not seen_tool_result or last_request_payload is None:
+        return None, [], "", {}, None
+
+    # Reconstruct what the agent would see at the post-prefix point:
+    # everything in last_request_payload.messages, plus the assistant
+    # message carrying the tool_use block, plus a tool message with
+    # the patched output.
+    base_messages = list(last_request_payload.get("messages") or [])
+    if pending_tool_use:
+        from shadow.tools.base import ToolCall
+
+        call = ToolCall.from_block(pending_tool_use)
+        # Mirror what _build_assistant_message would produce.
+        import json as _json
+
+        base_messages.append(
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {
+                            "name": call.name,
+                            "arguments": _json.dumps(call.arguments, sort_keys=True),
+                        },
+                    }
+                ],
+            }
+        )
+    # Tool message with the patched output. Mirrors _build_tool_message.
+    if isinstance(new_output, str):
+        content = new_output
+    else:
+        import json as _json
+
+        try:
+            content = _json.dumps(new_output, sort_keys=True, default=str)
+        except (TypeError, ValueError):
+            content = str(new_output)
+    if new_is_error:
+        content = f"[tool_error] {content}"
+    base_messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": content})
+
+    return (
+        prefix,
+        base_messages,
+        str(last_request_payload.get("model") or ""),
+        dict(last_request_payload.get("params") or {}),
+        last_request_payload.get("tools"),
+    )
 
 
 def _split_at_turn(
