@@ -6,6 +6,17 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-04-25
+
+### Fixed
+
+- `examples/stress_v17x/run_stress.py` had 5 mypy `--strict` errors that ci-local missed because the harness was outside mypy scope. Same drift pattern caught for `stress_v16x` in v1.6.4 — applied here too. Type signatures fixed; the harness still passes 26/26 at runtime.
+- `just ci-local` and `.github/workflows/ci.yml` mypy scope now covers `examples/stress_v17x/run_stress.py`. Future stress-harness changes are caught by both local and CI mypy.
+
+### Docs
+
+- README now documents `must_match_json_schema` (with example), `--fail-on` for `shadow diff`, and the `shadow certify` / `shadow verify-cert` workflow. Comparison table includes "Merge-blocking CI gate" and "Signed release certificate" rows. CLI reference table covers the new commands. The previous 1.7.0 README still listed only eight policy rule kinds — fixed to nine.
+
 ## [1.7.0] - 2026-04-25
 
 ### Added

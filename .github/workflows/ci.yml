@@ -131,7 +131,13 @@ jobs:
         run: "${{ matrix.venv_py }} -m ruff format --check python/ examples/"
 
       - name: mypy --strict
-        run: "${{ matrix.venv_py }} -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py examples/stress_v16x/run_stress.py"
+        run: |
+          # Two mypy invocations because both stress harnesses are named
+          # run_stress.py and mypy can't disambiguate them in one run
+          # without --explicit-package-bases. Cleaner to run them separately.
+          ${{ matrix.venv_py }} -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py
+          ${{ matrix.venv_py }} -m mypy --config-file python/pyproject.toml --strict examples/stress_v16x/run_stress.py
+          ${{ matrix.venv_py }} -m mypy --config-file python/pyproject.toml --strict examples/stress_v17x/run_stress.py
 
       - name: pytest (coverage gate 85%)
         run: |

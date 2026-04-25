@@ -484,7 +484,7 @@ def stress_certify_per_field_tamper_detection(tmp_path: Path) -> None:
     cert = build_certificate(trace=records, agent_id="x")
     base = cert.to_dict()
 
-    mutations: list[tuple[str, dict[str, Any]]] = [
+    mutations: list[tuple[str, dict[str, Any] | None]] = [
         ("agent_id", {**base, "agent_id": "evil"}),
         ("released_at", {**base, "released_at": "2099-12-31T23:59:59Z"}),
         ("trace_id", {**base, "trace_id": "sha256:fakeoldtrace"}),
@@ -573,7 +573,7 @@ def stress_certify_concurrent_builds_match(tmp_path: Path) -> None:
 
 
 def stress_certify_unsupported_versions_rejected() -> None:
-    bad_payloads = [
+    bad_payloads: list[dict[str, Any]] = [
         {"cert_version": "0.0", "cert_id": "sha256:x"},
         {"cert_version": "0.99", "cert_id": "sha256:x"},
         {"cert_version": "1.0", "cert_id": "sha256:x"},
@@ -593,7 +593,7 @@ def stress_certify_unsupported_versions_rejected() -> None:
 
 
 def stress_certify_malformed_cert_id_rejected() -> None:
-    cases = [
+    cases: list[dict[str, Any]] = [
         {"cert_version": "0.1", "cert_id": "not-a-hash"},
         {"cert_version": "0.1", "cert_id": "md5:abcd"},
         {"cert_version": "0.1", "cert_id": ""},
