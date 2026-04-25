@@ -60,6 +60,8 @@ nav:
   - Features:
       - Nine-axis diff: features/nine-axis.md
       - Hierarchical diff: features/hierarchical.md
+      - Behavior policy: features/policy.md
+      - Release certificate: features/certificate.md
       - Causal bisection: features/bisect.md
       - Judges: features/judges.md
       - Schema watch: features/schema-watch.md

@@ -25,10 +25,12 @@ from shadow.mcp_server import (  # noqa: E402
     TOOL_HANDLERS,
     _build_tools,
     _call_tool_impl,
+    _handle_certify,
     _handle_check_policy,
     _handle_diff,
     _handle_summarise,
     _handle_token_diff,
+    _handle_verify_cert,
 )
 
 
@@ -87,7 +89,7 @@ def tiny_traces(tmp_path: Path) -> tuple[Path, Path]:
 # ---- tool list ------------------------------------------------------------
 
 
-def test_build_tools_returns_all_five() -> None:
+def test_build_tools_returns_all_seven() -> None:
     tools = _build_tools()
     names = [t.name for t in tools]
     assert names == [
@@ -96,6 +98,8 @@ def test_build_tools_returns_all_five() -> None:
         "shadow_token_diff",
         "shadow_schema_watch",
         "shadow_summarise",
+        "shadow_certify",
+        "shadow_verify_cert",
     ]
     # Every tool must have a non-empty description and an inputSchema
     for t in tools:
@@ -214,3 +218,73 @@ def test_call_tool_impl_round_trip(tiny_traces: tuple[Path, Path]) -> None:
     assert len(out) == 1
     payload = json.loads(out[0].text)
     assert len(payload["rows"]) == 9
+
+
+# ---- shadow_certify / shadow_verify_cert ---------------------------------
+
+
+def test_certify_handler_writes_and_returns_cert(
+    tiny_traces: tuple[Path, Path], tmp_path: Path
+) -> None:
+    _, c = tiny_traces
+    out_path = tmp_path / "release.cert.json"
+    result = asyncio.run(
+        _handle_certify(
+            {
+                "trace": str(c),
+                "agent_id": "test-agent@1.0",
+                "output": str(out_path),
+            }
+        )
+    )
+    assert result["cert_id"].startswith("sha256:")
+    assert result["output"] == str(out_path)
+    assert "cert" in result
+    # The file on disk must round-trip back to the same cert_id.
+    on_disk = json.loads(out_path.read_text())
+    assert on_disk["cert_id"] == result["cert_id"]
+
+
+def test_certify_handler_with_baseline_includes_regression_suite(
+    tiny_traces: tuple[Path, Path], tmp_path: Path
+) -> None:
+    b, c = tiny_traces
+    out_path = tmp_path / "release.cert.json"
+    result = asyncio.run(
+        _handle_certify(
+            {
+                "trace": str(c),
+                "agent_id": "x",
+                "output": str(out_path),
+                "baseline": str(b),
+            }
+        )
+    )
+    rs = result["cert"]["regression_suite"]
+    assert rs is not None
+    assert len(rs["axes"]) == 9
+
+
+def test_verify_cert_handler_passes_for_valid_cert(
+    tiny_traces: tuple[Path, Path], tmp_path: Path
+) -> None:
+    _, c = tiny_traces
+    out_path = tmp_path / "release.cert.json"
+    asyncio.run(_handle_certify({"trace": str(c), "agent_id": "x", "output": str(out_path)}))
+    result = asyncio.run(_handle_verify_cert({"cert": str(out_path)}))
+    assert result["ok"] is True
+    assert result["cert_id"].startswith("sha256:")
+
+
+def test_verify_cert_handler_fails_for_tampered_cert(
+    tiny_traces: tuple[Path, Path], tmp_path: Path
+) -> None:
+    _, c = tiny_traces
+    out_path = tmp_path / "release.cert.json"
+    asyncio.run(_handle_certify({"trace": str(c), "agent_id": "x", "output": str(out_path)}))
+    payload = json.loads(out_path.read_text())
+    payload["agent_id"] = "tampered"
+    out_path.write_text(json.dumps(payload))
+    result = asyncio.run(_handle_verify_cert({"cert": str(out_path)}))
+    assert result["ok"] is False
+    assert "mismatch" in result["detail"]

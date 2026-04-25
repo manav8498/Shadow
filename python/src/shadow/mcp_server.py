@@ -16,6 +16,10 @@ Tools exposed:
   configs (breaking / risky / additive / neutral).
 - `shadow_token_diff`  per-turn token distribution summary.
 - `shadow_summarise`  plain-English summary of a saved DiffReport.
+- `shadow_certify`  generate an Agent Behavior Certificate (ABOM) for
+  a release trace and write it to disk.
+- `shadow_verify_cert`  verify a certificate's content-addressed
+  cert_id matches the body; tampering surfaces as `ok: false`.
 
 A typical usage inside Claude Code or Cursor:
 
@@ -139,12 +143,49 @@ async def _handle_summarise(arguments: dict[str, Any]) -> dict[str, Any]:
     return {"summary": summary}
 
 
+async def _handle_certify(arguments: dict[str, Any]) -> dict[str, Any]:
+    from shadow.certify import build_certificate
+
+    trace = _load_agentlog(arguments["trace"])
+    baseline_trace: list[dict[str, Any]] | None = None
+    if arguments.get("baseline"):
+        baseline_trace = _load_agentlog(arguments["baseline"])
+    policy_path: Path | None = None
+    if arguments.get("policy_path"):
+        policy_path = Path(arguments["policy_path"]).expanduser().resolve()
+        if not policy_path.is_file():
+            raise FileNotFoundError(f"no such policy file: {policy_path}")
+    cert = build_certificate(
+        trace=trace,
+        agent_id=str(arguments["agent_id"]),
+        policy_path=policy_path,
+        baseline_trace=baseline_trace,
+    )
+    output_path = Path(arguments["output"]).expanduser().resolve()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(cert.to_dict(), indent=2) + "\n")
+    return {"cert_id": cert.cert_id, "output": str(output_path), "cert": cert.to_dict()}
+
+
+async def _handle_verify_cert(arguments: dict[str, Any]) -> dict[str, Any]:
+    from shadow.certify import verify_certificate
+
+    cert_path = Path(arguments["cert"]).expanduser().resolve()
+    if not cert_path.is_file():
+        raise FileNotFoundError(f"no such certificate file: {cert_path}")
+    payload = json.loads(cert_path.read_text())
+    ok, detail = verify_certificate(payload)
+    return {"ok": ok, "detail": detail, "cert_id": payload.get("cert_id")}
+
+
 TOOL_HANDLERS = {
     "shadow_diff": _handle_diff,
     "shadow_check_policy": _handle_check_policy,
     "shadow_token_diff": _handle_token_diff,
     "shadow_schema_watch": _handle_schema_watch,
     "shadow_summarise": _handle_summarise,
+    "shadow_certify": _handle_certify,
+    "shadow_verify_cert": _handle_verify_cert,
 }
 
 
@@ -195,7 +236,8 @@ def _build_tools() -> list[Any]:
                 "Check two traces against a YAML or JSON policy file. "
                 "Supported rule kinds: must_call_before, must_call_once, "
                 "no_call, max_turns, required_stop_reason, "
-                "max_total_tokens, must_include_text, forbidden_text. "
+                "max_total_tokens, must_include_text, forbidden_text, "
+                "must_match_json_schema. "
                 "Each rule accepts `scope: trace` (default) or "
                 "`scope: session` — session-scoped rules are evaluated "
                 "independently per user-initiated session, which is "
@@ -264,6 +306,68 @@ def _build_tools() -> list[Any]:
                     "report_json": {"type": "string", "description": "path to a saved report.json"},
                 },
                 "required": ["report_json"],
+            },
+        ),
+        Tool(
+            name="shadow_certify",
+            title="Generate an Agent Behavior Certificate (ABOM)",
+            description=(
+                "Generate a content-addressed Agent Behavior Certificate "
+                "for a release trace. The certificate captures the trace's "
+                "content-id, all distinct models, content-ids of system "
+                "prompts, content-ids of tool schemas, optional policy "
+                "hash, and an optional baseline-vs-candidate nine-axis "
+                "regression-suite rollup. Writes to `output` and returns "
+                "the cert_id plus the full certificate body. The result "
+                "is self-verifying via shadow_verify_cert."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "trace": {
+                        "type": "string",
+                        "description": "path to the release trace .agentlog file",
+                    },
+                    "agent_id": {
+                        "type": "string",
+                        "description": (
+                            "stable identifier for the release, e.g. 'refund-agent@2.3.0'"
+                        ),
+                    },
+                    "output": {
+                        "type": "string",
+                        "description": "path to write the certificate JSON",
+                    },
+                    "policy_path": {
+                        "type": "string",
+                        "description": "optional policy YAML/JSON path; recorded as policy_hash",
+                    },
+                    "baseline": {
+                        "type": "string",
+                        "description": "optional baseline .agentlog; folded into regression_suite",
+                    },
+                },
+                "required": ["trace", "agent_id", "output"],
+            },
+        ),
+        Tool(
+            name="shadow_verify_cert",
+            title="Verify an Agent Behavior Certificate",
+            description=(
+                "Verify a certificate's content-addressed cert_id matches "
+                "the body. Returns `ok: true` when consistent, `ok: false` "
+                "with a `detail` reason when tampered, malformed, or of an "
+                "unsupported cert_version."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cert": {
+                        "type": "string",
+                        "description": "path to a certificate JSON produced by shadow_certify",
+                    },
+                },
+                "required": ["cert"],
             },
         ),
     ]

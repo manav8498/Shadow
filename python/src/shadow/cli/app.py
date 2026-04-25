@@ -97,6 +97,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh pr comment "${{ github.event.pull_request.number }}" --body-file comment.md
+
+      # OPTIONAL — gate the merge on regressions.
+      # Uncomment this step (and add a `--policy <file>` flag if you
+      # have one) to fail the check when the worst axis severity or
+      # policy regression hits the threshold. The PR comment is already
+      # posted above, so a blocked PR still has the explanation.
+      #
+      # - name: Block merge on severe regression
+      #   run: shadow diff "$BASELINE" "$CANDIDATE" --fail-on severe
 """
 
 
