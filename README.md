@@ -3,7 +3,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-1.5.0-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.6.0-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -194,6 +194,21 @@ with Session(output_path="trace.agentlog") as s:
 ```
 
 `pip install 'shadow-diff[ag2]'`. Captures the message bodies that `autogen.opentelemetry` redacts by default, so semantic diffs have something to compare against.
+
+## Replay the candidate, end-to-end, without touching production
+
+For a candidate change to a prompt or model, `shadow diff` shows what's different between two recorded traces. Sandboxed replay drives the candidate's agent loop *forward* against a baseline and produces a candidate trace without making any real LLM calls or running any real tool side effects:
+
+```bash
+shadow replay candidate.yaml \
+  --baseline baseline.agentlog \
+  --agent-loop \
+  --tool-backend replay \
+  --novel-tool-policy stub \
+  --output candidate.agentlog
+```
+
+`--tool-backend replay` resolves every tool call against the baseline's recorded results. `--novel-tool-policy` decides what happens when the candidate calls a tool the baseline didn't (`strict` aborts, `stub` returns a placeholder, `fuzzy` matches the nearest same-tool call by arg shape). For real tool functions with side effects you'd otherwise hit, the programmatic API exposes `SandboxedToolBackend` which patches `socket.connect`, `subprocess.run`, and write-mode `open()` calls during execution. Counterfactual primitives (`branch_at_turn`, `replace_tool_result`, `replace_tool_args`) let you isolate one variable at a time. See [docs/features/sandboxed-replay.md](docs/features/sandboxed-replay.md).
 
 ## Import traces from any OpenTelemetry backend
 

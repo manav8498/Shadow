@@ -6,6 +6,24 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-04-25
+
+### Added
+
+**Sandboxed deterministic agent-loop replay.** A new replay mode that drives the candidate's agent loop forward against a baseline — same shape as a real agent run, no real network calls, no real database writes, no real charges. The output is an ordinary `.agentlog` so every existing Shadow command (`diff`, `check-policy`, `mine`, `mcp-serve`, `bisect`) reads it without modification.
+
+- New `shadow.tools` package mirrors `shadow.llm`: `ToolBackend` Protocol with three implementations.
+  - `ReplayToolBackend` indexes baseline `tool_result` records by `(tool_name, canonical_args_hash)` and serves them back. Default for `shadow replay --agent-loop`.
+  - `SandboxedToolBackend` wraps user tool functions; blocks `socket.connect`, `subprocess.run` / `Popen` / `os.system` / `os.execvp`, and write-mode `open()` calls (redirected to a tempdir). Optional `freeze_time` pins `time.time` and `datetime.utcnow`. Best-effort isolation for replay determinism, not a security boundary.
+  - `StubToolBackend` returns deterministic placeholders. For tests and the `stub` novel-call policy.
+- New `shadow.replay_loop` module: `run_agent_loop_replay(baseline, llm_backend, tool_backend)` drives the loop forward with a `max_turns` safety cap and a structured `AgentLoopSummary` of stats. Errors from a tool backend become `is_error=True` `tool_result` records by default; runaway loops emit an `error` record with `code=loop_max_exceeded`.
+- New `shadow.tools.novel` module: four configurable policies for tool calls the baseline never recorded — `StrictPolicy` (raise), `StubPolicy` (placeholder), `FuzzyMatchPolicy` (Jaccard distance over arg keys), `DelegatePolicy` (defer to a user-supplied async callable).
+- New `shadow.counterfactual_loop` module: `replace_tool_result`, `replace_tool_args`, `branch_at_turn`. Each produces a `CounterfactualLoopResult` carrying the new trace, summary, and an `override` dict describing the substitution. These are the rails the bisect renderer's "confirm with `shadow replay`" caveat references.
+- `shadow replay` gains `--agent-loop`, `--tool-backend {replay|stub|sandbox}`, `--novel-tool-policy {strict|stub|fuzzy}`, and `--max-turns` flags.
+- New docs page (`docs/features/sandboxed-replay.md`) and a runnable worked example at `examples/sandboxed-replay/run.py` (no API keys needed).
+
+48 new tests across the new modules. 632 pytest, 205 cargo, mypy --strict / ruff / clippy / fmt all clean. Coverage 85.56%.
+
 ## [1.5.0] - 2026-04-25
 
 ### Added

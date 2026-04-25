@@ -65,6 +65,7 @@ nav:
       - Schema watch: features/schema-watch.md
       - Cost attribution: features/cost-attribution.md
       - Framework adapters: features/adapters.md
+      - Sandboxed replay: features/sandboxed-replay.md
       - MCP importer: features/mcp.md
   - Reference:
       - CLI: reference/cli.md
