@@ -55,9 +55,10 @@ record kinds were added in v2.3 inside that envelope.
 - `harness_event`: a single record kind for harness-side events with
   a `category` discriminator over a closed taxonomy: `retry`,
   `rate_limit`, `model_switch`, `context_trim`, `cache`, `guardrail`,
-  `budget`, `stream_interrupt`, `tool_lifecycle`. Carries
-  `severity` (`info`/`warning`/`error`/`fatal`) and a free-form
-  `reason`.
+  `budget`, `stream_interrupt`, `tool_lifecycle`. Also carries `name`
+  (a sub-event identifier within the category, required), `severity`
+  (`info`/`warning`/`error`/`fatal`), and a free-form `attributes`
+  dict.
 - `blob_ref`: content-addressed binary reference. Carries `blob_id`
   (sha256 of bytes), `mime`, `size_bytes`, optional
   `agentlog-blob://` URI, optional 64-bit dHash `phash` for the cheap
