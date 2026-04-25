@@ -149,6 +149,40 @@ def test_load_policy_rejects_wrong_shape() -> None:
         load_policy(42)
 
 
+def test_load_policy_rejects_unknown_severity() -> None:
+    """`severity: critical` (or any non-{info,warning,error} value)
+    used to silently store as the raw string and then NEVER trip
+    `--fail-on severe` because the rank lookup fell through to a
+    default. Now it errors at policy-load time so the misuse is
+    visible up front."""
+    with pytest.raises(ShadowConfigError, match="invalid severity"):
+        load_policy(
+            [
+                {
+                    "id": "r",
+                    "kind": "no_call",
+                    "params": {"tool": "x"},
+                    "severity": "critical",
+                }
+            ]
+        )
+
+
+def test_load_policy_accepts_each_valid_severity() -> None:
+    """The three documented severities all parse cleanly."""
+    for sev in ("info", "warning", "error"):
+        rules = load_policy(
+            [{"id": "r", "kind": "no_call", "params": {"tool": "x"}, "severity": sev}]
+        )
+        assert rules[0].severity == sev
+
+
+def test_load_policy_default_severity_is_error() -> None:
+    """Policy rules with no explicit severity default to `error`."""
+    rules = load_policy([{"id": "r", "kind": "no_call", "params": {"tool": "x"}}])
+    assert rules[0].severity == "error"
+
+
 def test_must_call_before_passes_when_ordered_correctly() -> None:
     rules = load_policy(
         [

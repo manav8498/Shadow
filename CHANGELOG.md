@@ -6,6 +6,14 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.7.6] - 2026-04-25
+
+### Fixed
+
+- **README + `docs/features/hierarchical.md` policy examples used `severity: critical`** — not a valid severity. The loader silently stored unknown values as the raw string, and the `shadow diff --fail-on` gate's rank lookup fell through to a default, so a rule the user wrote as "block hard" never tripped a severe gate. Examples updated to `severity: error` (the documented value for a hard-block rule).
+- **`load_policy` now validates `severity`** against `{info, warning, error}` and raises `ShadowConfigError("policy rule #N has invalid severity 'X'")` at load time. Three new tests cover the rejection, the three valid values, and the default. The validation makes the v1.6.5 `--fail-on` gate actually trip on the rule the user wrote, instead of silently downgrading to info.
+- **README comparison table said "Signed release certificate"** — overclaim. The certificate is content-addressed and self-verifying; PKI/cosign signing is on the roadmap, not shipped. Row corrected to "Content-addressed release certificate."
+
 ## [1.7.5] - 2026-04-25
 
 ### Fixed
