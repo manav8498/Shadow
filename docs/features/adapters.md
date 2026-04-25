@@ -14,6 +14,9 @@ Three framework adapters ship in v1.4:
 
 The adapter is an `AsyncCallbackHandler` subclass. Drop it into `RunnableConfig.callbacks`:
 
+The `[langgraph]` extra pulls `langchain-core`, `langgraph`, and `langchain-openai` (the chat provider most LangGraph users pick). To run against Anthropic, Bedrock, or something else, add the matching LangChain integration alongside — `pip install 'shadow-diff[langgraph]' langchain-anthropic` and so on. The adapter itself is provider-neutral and doesn't care which chat model you instantiate.
+
+
 ```python
 from shadow.sdk import Session
 from shadow.adapters.langgraph import ShadowLangChainHandler
