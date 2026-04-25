@@ -753,6 +753,220 @@ def test_explicit_markers_ignored_when_only_one_metadata_record() -> None:
     assert check_policy(trace, rules) == []
 
 
+# ---- conditional rule matching -----------------------------------------
+
+
+def _bare_request(payload: dict[str, Any]) -> dict[str, Any]:
+    """Bare chat_request record fixture for `when`-clause tests."""
+    return {"kind": "chat_request", "payload": payload}
+
+
+def _resp_with_text(text: str, stop_reason: str = "end_turn") -> dict[str, Any]:
+    """chat_response with a single text content block."""
+    return {
+        "kind": "chat_response",
+        "payload": {
+            "content": [{"type": "text", "text": text}],
+            "stop_reason": stop_reason,
+            "usage": {"input_tokens": 5, "output_tokens": 5, "thinking_tokens": 0},
+        },
+    }
+
+
+def test_when_clause_gates_rule_to_matching_pairs() -> None:
+    """A `forbidden_text` rule gated on `request.params.amount > 500`
+    should only fire on the high-amount request — not the low-amount
+    one, even if both happen to contain the forbidden text."""
+    trace = [
+        _bare_request({"model": "m", "params": {"amount": 100}, "messages": []}),
+        _resp_with_text("approved without confirmation"),
+        _bare_request({"model": "m", "params": {"amount": 1000}, "messages": []}),
+        _resp_with_text("approved without confirmation"),
+    ]
+    rules = load_policy(
+        [
+            {
+                "id": "high-value-must-confirm",
+                "kind": "forbidden_text",
+                "params": {"text": "approved without confirmation"},
+                "when": [
+                    {"path": "request.params.amount", "op": ">", "value": 500},
+                ],
+            }
+        ]
+    )
+    vs = check_policy(trace, rules)
+    # Only the high-amount pair (pair_index 1) should violate.
+    assert len(vs) == 1
+    assert vs[0].pair_index == 1
+
+
+def test_when_clause_with_equality_on_model() -> None:
+    """`when: request.model == "gpt-5"` only fires on gpt-5 pairs."""
+    trace = [
+        _bare_request({"model": "gpt-4.1", "params": {}, "messages": []}),
+        _resp_with_text("forbidden phrase here"),
+        _bare_request({"model": "gpt-5", "params": {}, "messages": []}),
+        _resp_with_text("forbidden phrase here"),
+    ]
+    rules = load_policy(
+        [
+            {
+                "id": "gpt5-only",
+                "kind": "forbidden_text",
+                "params": {"text": "forbidden phrase"},
+                "when": [{"path": "request.model", "op": "==", "value": "gpt-5"}],
+            }
+        ]
+    )
+    vs = check_policy(trace, rules)
+    assert len(vs) == 1
+    assert vs[0].pair_index == 1
+
+
+def test_when_clause_with_membership_on_stop_reason() -> None:
+    """`stop_reason in [content_filter, refusal]` matches both."""
+    trace = [
+        _bare_request({"model": "m", "params": {}, "messages": []}),
+        _resp_with_text("response one", stop_reason="end_turn"),
+        _bare_request({"model": "m", "params": {}, "messages": []}),
+        _resp_with_text("response two", stop_reason="content_filter"),
+        _bare_request({"model": "m", "params": {}, "messages": []}),
+        _resp_with_text("response three", stop_reason="refusal"),
+    ]
+    rules = load_policy(
+        [
+            {
+                "id": "no-text-on-refusal",
+                "kind": "must_include_text",
+                "params": {"text": "ESCALATED"},
+                "when": [
+                    {
+                        "path": "stop_reason",
+                        "op": "in",
+                        "value": ["content_filter", "refusal"],
+                    }
+                ],
+            }
+        ]
+    )
+    # Pairs 1 and 2 match (content_filter, refusal). Neither has the
+    # required text "ESCALATED" so both should violate (must_include_text
+    # is a whole-subset rule). Pair 0 doesn't match the `when`, so it's
+    # silently skipped.
+    vs = check_policy(trace, rules)
+    assert len(vs) >= 1, f"expected at least one violation, got {vs}"
+
+
+def test_when_clause_filtering_everything_silences_rule() -> None:
+    """If `when` filters out every pair, the rule produces no
+    violations (not a spurious whole-trace one)."""
+    trace = [
+        _bare_request({"model": "m", "params": {"amount": 10}, "messages": []}),
+        _resp_with_text("approved without confirmation"),
+    ]
+    rules = load_policy(
+        [
+            {
+                "id": "high-value-must-confirm",
+                "kind": "forbidden_text",
+                "params": {"text": "approved without confirmation"},
+                "when": [{"path": "request.params.amount", "op": ">", "value": 500}],
+            }
+        ]
+    )
+    assert check_policy(trace, rules) == []
+
+
+def test_when_clause_with_missing_path_silently_skips() -> None:
+    """A rule whose path isn't present on a request must just not
+    match that pair — never crash the policy check."""
+    trace = [
+        _bare_request({"model": "m", "params": {}, "messages": []}),  # no amount
+        _resp_with_text("forbidden"),
+    ]
+    rules = load_policy(
+        [
+            {
+                "id": "x",
+                "kind": "forbidden_text",
+                "params": {"text": "forbidden"},
+                "when": [{"path": "request.params.amount", "op": ">", "value": 100}],
+            }
+        ]
+    )
+    assert check_policy(trace, rules) == []
+
+
+def test_when_clause_combines_multiple_conditions_with_and() -> None:
+    """All `when` items must hold for a pair to match (logical AND)."""
+    trace = [
+        # gpt-4 high-amount: matches both conditions, should violate
+        _bare_request({"model": "gpt-4", "params": {"amount": 1000}, "messages": []}),
+        _resp_with_text("danger"),
+        # gpt-4 low-amount: amount fails, shouldn't violate
+        _bare_request({"model": "gpt-4", "params": {"amount": 100}, "messages": []}),
+        _resp_with_text("danger"),
+        # gpt-5 high-amount: model fails, shouldn't violate
+        _bare_request({"model": "gpt-5", "params": {"amount": 1000}, "messages": []}),
+        _resp_with_text("danger"),
+    ]
+    rules = load_policy(
+        [
+            {
+                "id": "gpt4-high-value",
+                "kind": "forbidden_text",
+                "params": {"text": "danger"},
+                "when": [
+                    {"path": "request.model", "op": "==", "value": "gpt-4"},
+                    {"path": "request.params.amount", "op": ">", "value": 500},
+                ],
+            }
+        ]
+    )
+    vs = check_policy(trace, rules)
+    assert len(vs) == 1
+    assert vs[0].pair_index == 0
+
+
+def test_load_policy_rejects_invalid_when_op() -> None:
+    with pytest.raises(ShadowConfigError, match="invalid op"):
+        load_policy(
+            [
+                {
+                    "id": "x",
+                    "kind": "forbidden_text",
+                    "params": {"text": "x"},
+                    "when": [{"path": "model", "op": "matches", "value": "gpt-5"}],
+                }
+            ]
+        )
+
+
+def test_load_policy_rejects_when_missing_value() -> None:
+    with pytest.raises(ShadowConfigError, match="value"):
+        load_policy(
+            [
+                {
+                    "id": "x",
+                    "kind": "forbidden_text",
+                    "params": {"text": "x"},
+                    "when": [{"path": "model", "op": "=="}],
+                }
+            ]
+        )
+
+
+def test_when_clause_default_empty_preserves_legacy_behavior() -> None:
+    """Rules with no `when` clause continue to match every pair."""
+    trace = [
+        _bare_request({"model": "m", "params": {}, "messages": []}),
+        _resp_with_text("forbidden"),
+    ]
+    rules = load_policy([{"id": "x", "kind": "forbidden_text", "params": {"text": "forbidden"}}])
+    assert len(check_policy(trace, rules)) == 1
+
+
 def test_session_scope_falls_back_to_single_session_when_no_requests() -> None:
     """Fixture-style traces (just responses, no requests) have no session
     markers; scope=session should degrade to single-session (trace-like)

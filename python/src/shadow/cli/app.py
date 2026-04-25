@@ -974,6 +974,14 @@ class BisectBackend(StrEnum):
     positional = "positional"
 
 
+class BisectFormat(StrEnum):
+    """Output formats for `shadow bisect`."""
+
+    terminal = "terminal"
+    markdown = "markdown"
+    json = "json"
+
+
 @app.command()
 def bisect(
     config_a: Annotated[Path, typer.Argument(help="Baseline config YAML")],
@@ -1011,10 +1019,29 @@ def bisect(
     output_json: Annotated[
         Path | None, typer.Option("--output-json", help="Write attribution JSON here")
     ] = None,
+    fmt: Annotated[
+        BisectFormat,
+        typer.Option(
+            "--format",
+            "-f",
+            help=(
+                "Output format. `terminal` (default) prints a hedged human-"
+                "readable summary. `markdown` emits a table for PR comments. "
+                "`json` dumps the raw attribution dict — use this for "
+                "scripts; everything else uses the renderer that softens "
+                "'74.9% caused' into 'est. 74.9% (correlational, not "
+                "causally proven; confirm with `shadow replay`)'."
+            ),
+        ),
+    ] = BisectFormat.terminal,
 ) -> None:
     """Rank which atomic config deltas caused which behavioral axes to move."""
     try:
         from shadow.bisect import run_bisect
+        from shadow.bisect.render import (
+            render_attribution_markdown,
+            render_attribution_terminal,
+        )
     except ImportError as e:
         _fail(
             Exception(
@@ -1047,12 +1074,17 @@ def bisect(
             candidate_traces=candidate_traces,
             backend=live_backend,
         )
-        text = json.dumps(_json_safe(result), indent=2)
+        json_text = json.dumps(_json_safe(result), indent=2)
         if output_json is not None:
             output_json.parent.mkdir(parents=True, exist_ok=True)
-            output_json.write_text(text)
+            output_json.write_text(json_text)
+        if fmt is BisectFormat.json:
+            if output_json is None:
+                sys.stdout.write(json_text + "\n")
+        elif fmt is BisectFormat.markdown:
+            sys.stdout.write(render_attribution_markdown(_json_safe(result)))
         else:
-            sys.stdout.write(text + "\n")
+            sys.stdout.write(render_attribution_terminal(_json_safe(result)))
     except ShadowError as e:
         _fail(e)
     except Exception as e:

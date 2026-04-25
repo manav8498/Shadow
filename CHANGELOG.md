@@ -6,6 +6,22 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-04-25
+
+### Added
+
+- **Conditional policy rules.** Every rule can now carry a `when:` clause that gates it on a list of field-path conditions; the rule only fires on pairs whose request/response context satisfies every condition. Path is a dotted expression rooted at a per-pair context (`request.*`, `response.*`, plus `model` and `stop_reason` aliases). Operators: `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`, `not_contains`. Multiple conditions AND together. Missing paths silently don't match instead of crashing. This unlocks rules like "high-value refunds must call confirm first" without forking the policy file by amount bucket.
+- **`shadow bisect` terminal renderer with hedged language.** The CLI now renders attribution output through a dedicated formatter that prefixes percentages with `est.`, replaces the bare `✓` with explicit `(stable, CI excludes 0)` / `(screening only)` / `(weak signal)` qualifiers, labels brackets as 95% bootstrap CIs, and leads every output with a one-line caveat noting attribution is correlational, not causally proven (confirm with `shadow replay`). New `--format terminal|markdown|json` flag; previous JSON shape is preserved under `--format json`.
+
+### Changed
+
+- **README**: framework users are now pointed at the matching adapter as the more stable instrumentation surface than auto-instrument's monkey-patching of provider SDK `.create` methods.
+- **`docs/features/bisect.md`**: example output updated to match the new hedged renderer; reading-the-signal section explains each row's qualifier instead of claiming `✓` means "proven."
+
+### Notes
+
+- The provider SDK upper bounds (`anthropic<1`, `openai<3`) are intentionally aligned with the next major because that's where `.create` class paths can move and our auto-instrument patches can silently break. Users on a major above the cap can lift the pin in their own pyproject and report breakage.
+
 ## [1.4.1] - 2026-04-24
 
 ### Changed

@@ -3,7 +3,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-1.4.1-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.5.0-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -105,6 +105,20 @@ shadow diff baseline.agentlog candidate.agentlog --policy shadow-policy.yaml
 
 The candidate trace is checked against every rule. Violations that are new in the candidate are flagged as regressions. Violations that existed in the baseline and are now cleared are flagged as fixes. Eight rule kinds ship today: `must_call_before`, `must_call_once`, `no_call`, `max_turns`, `required_stop_reason`, `max_total_tokens`, `must_include_text`, `forbidden_text`.
 
+Each rule can carry a `when:` clause that gates it on field-path conditions, so a rule fires only on the matching subset of pairs:
+
+```yaml
+rules:
+  - id: confirm-large-refunds
+    kind: forbidden_text
+    params: { text: "refund issued" }
+    when:
+      - { path: "request.params.amount", op: ">", value: 500 }
+      - { path: "request.model", op: "==", value: "gpt-4.1" }
+```
+
+Supported operators: `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`, `not_contains`. Multiple conditions AND together. Missing paths quietly don't match (rule is skipped on that pair) instead of crashing the whole check.
+
 This is the part that makes Shadow feel like CI for agents instead of monitoring.
 
 ## Recording real agent traces
@@ -130,6 +144,8 @@ with Session(output_path="trace.agentlog", tags={"env": "prod"}):
 ```
 
 Secrets (API keys, emails, credit cards) are redacted by default. The TypeScript SDK works the same way.
+
+If your agent is built on LangGraph, CrewAI, or AG2, prefer the matching adapter (next section) over auto-instrumentation. Auto-instrument patches `.create` on the underlying provider SDK, which is a moving target across SDK majors. The framework adapters hook each framework's documented extension surface, which is the more stable contract.
 
 ## Record from agent frameworks
 
