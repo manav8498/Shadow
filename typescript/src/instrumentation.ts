@@ -29,6 +29,7 @@ const nodeRequire = createRequire(import.meta.url);
 export async function autoInstrument(session: Session): Promise<InstrumentorHandle> {
   const handle: InstrumentorHandle = { patches: [] };
   await tryPatchOpenAI(session, handle);
+  await tryPatchOpenAIResponses(session, handle);
   await tryPatchAnthropic(session, handle);
   return handle;
 }
@@ -57,6 +58,17 @@ async function tryPatchOpenAI(
       .AsyncCompletions;
     patchCreate(session, Completions?.prototype, handle, openaiTranslators);
     patchCreate(session, AsyncCompletions?.prototype, handle, openaiTranslators);
+  }
+}
+
+async function tryPatchOpenAIResponses(
+  session: Session,
+  handle: InstrumentorHandle,
+): Promise<void> {
+  const candidates = await loadModuleBothWays('openai/resources/responses');
+  for (const mod of candidates) {
+    const Responses = (mod as { Responses?: { prototype?: object } }).Responses;
+    patchCreate(session, Responses?.prototype, handle, openaiResponsesTranslators);
   }
 }
 
@@ -420,6 +432,239 @@ class OpenAIStreamAggregator implements StreamAggregator {
         },
       ],
       usage: this.usage,
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI Responses API.
+//
+// Different surface from Chat Completions — `input` instead of `messages`,
+// `instructions` instead of system role, `output[]` of typed items instead
+// of `choices[].message`, and a different streaming event taxonomy
+// (response.completed, response.output_text.delta, etc.). Translators
+// below normalise both shapes onto the same envelope Shadow records.
+// ---------------------------------------------------------------------------
+
+export const openaiResponsesTranslators: Translators = {
+  req: (kwargs) => {
+    const input = kwargs.input;
+    let messages: Array<Record<string, unknown>> = [];
+    if (typeof input === 'string') {
+      messages = [{ role: 'user', content: input }];
+    } else if (Array.isArray(input)) {
+      messages = (input as Array<Record<string, unknown>>).map((m) => ({ ...m }));
+    }
+    const instructions = kwargs.instructions;
+    if (typeof instructions === 'string' && instructions.length > 0) {
+      messages = [{ role: 'system', content: instructions }, ...messages];
+    }
+    const params: Record<string, unknown> = {};
+    const copy = [
+      ['max_output_tokens', 'max_tokens'],
+      ['max_tokens', 'max_tokens'],
+      ['temperature', 'temperature'],
+      ['top_p', 'top_p'],
+      ['stop', 'stop'],
+    ] as const;
+    for (const [src, dst] of copy) {
+      if (src in kwargs && kwargs[src] !== undefined) params[dst] = kwargs[src];
+    }
+    const out: Record<string, unknown> = {
+      model: kwargs.model ?? '',
+      messages,
+      params,
+    };
+    if (Array.isArray(kwargs.tools) && kwargs.tools.length > 0) {
+      out.tools = (kwargs.tools as Array<Record<string, unknown>>).map((t) => {
+        if (t && t.type === 'function') {
+          return {
+            name: t.name ?? '',
+            description: t.description ?? '',
+            input_schema: t.parameters ?? {},
+          };
+        }
+        return { ...t };
+      });
+    }
+    return out;
+  },
+  resp: (result, latencyMs) => {
+    const r = result as {
+      model?: string;
+      output?: Array<{
+        type: string;
+        role?: string;
+        content?: Array<{ type: string; text?: string }>;
+        call_id?: string;
+        id?: string;
+        name?: string;
+        arguments?: string;
+      }>;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        output_tokens_details?: { reasoning_tokens?: number };
+        input_tokens_details?: { cached_tokens?: number };
+      };
+      status?: string;
+      incomplete_details?: { reason?: string };
+    };
+    const content: Array<Record<string, unknown>> = [];
+    for (const item of r.output ?? []) {
+      if (item.type === 'message') {
+        for (const part of item.content ?? []) {
+          if (
+            part.type === 'output_text' &&
+            typeof part.text === 'string' &&
+            part.text.length > 0
+          ) {
+            content.push({ type: 'text', text: part.text });
+          } else if (
+            part.type === 'refusal' &&
+            typeof part.text === 'string' &&
+            part.text.length > 0
+          ) {
+            content.push({ type: 'refusal', text: part.text });
+          }
+        }
+      } else if (item.type === 'function_call') {
+        let parsed: unknown = {};
+        if (typeof item.arguments === 'string') {
+          try {
+            parsed = JSON.parse(item.arguments);
+          } catch {
+            parsed = { _raw: item.arguments };
+          }
+        }
+        content.push({
+          type: 'tool_use',
+          id: item.call_id ?? item.id ?? '',
+          name: item.name ?? '',
+          input: parsed,
+        });
+      }
+    }
+    let stopReason = 'end_turn';
+    if (r.status === 'incomplete') {
+      const reason = r.incomplete_details?.reason ?? '';
+      stopReason = reason === 'max_output_tokens' ? 'max_tokens' : reason || 'incomplete';
+    } else if (content.some((b) => b.type === 'tool_use')) {
+      stopReason = 'tool_use';
+    }
+    const reasoning = r.usage?.output_tokens_details?.reasoning_tokens ?? 0;
+    const cachedTokens = r.usage?.input_tokens_details?.cached_tokens ?? 0;
+    const usage: Record<string, unknown> = {
+      input_tokens: r.usage?.input_tokens ?? 0,
+      output_tokens: r.usage?.output_tokens ?? 0,
+      thinking_tokens: reasoning,
+    };
+    if (cachedTokens > 0) usage.cached_input_tokens = cachedTokens;
+    return {
+      model: r.model ?? '',
+      content,
+      stop_reason: stopReason,
+      latency_ms: latencyMs,
+      usage,
+    };
+  },
+  aggregate: () => new OpenAIResponsesStreamAggregator(),
+};
+
+/**
+ * Aggregates an OpenAI Responses streaming sequence into a final
+ * Response-shaped object. Two paths:
+ *
+ *   1. Best path — `response.completed` event arrives carrying the
+ *      full Response object. We pass it straight through to `resp()`.
+ *   2. Fallback — caller broke early or the stream ended without
+ *      `response.completed`. We rebuild from delta events:
+ *        - response.output_text.delta → accumulate text
+ *        - response.output_item.added (function_call) → register tool
+ *        - response.function_call_arguments.delta → accumulate args
+ */
+class OpenAIResponsesStreamAggregator implements StreamAggregator {
+  private completedResponse: unknown | undefined;
+  private model = '';
+  private status: string | undefined;
+  private textParts: string[] = [];
+  private toolCallsByItemId: Record<
+    string,
+    { call_id?: string; name?: string; arguments?: string }
+  > = {};
+  private orderedItemIds: string[] = [];
+  private usage: Record<string, unknown> | undefined;
+
+  consume(chunk: unknown): void {
+    const c = chunk as {
+      type?: string;
+      response?: unknown;
+      delta?: unknown;
+      item?: unknown;
+      item_id?: string;
+    };
+    const type = c.type ?? '';
+    if (type === 'response.completed' && c.response) {
+      this.completedResponse = c.response;
+      return;
+    }
+    if ((type === 'response.created' || type === 'response.in_progress') && c.response) {
+      const r = c.response as { model?: string; status?: string };
+      if (r.model) this.model = r.model;
+      if (r.status) this.status = r.status;
+    }
+    if (type === 'response.output_text.delta' && typeof c.delta === 'string') {
+      this.textParts.push(c.delta);
+    }
+    if (type === 'response.output_item.added' && c.item) {
+      const item = c.item as { id?: string; type?: string; call_id?: string; name?: string };
+      if (item.type === 'function_call' && item.id) {
+        if (!(item.id in this.toolCallsByItemId)) this.orderedItemIds.push(item.id);
+        this.toolCallsByItemId[item.id] = {
+          call_id: item.call_id,
+          name: item.name,
+          arguments: '',
+        };
+      }
+    }
+    if (
+      type === 'response.function_call_arguments.delta' &&
+      c.item_id &&
+      typeof c.delta === 'string'
+    ) {
+      if (!(c.item_id in this.toolCallsByItemId)) {
+        this.orderedItemIds.push(c.item_id);
+        this.toolCallsByItemId[c.item_id] = { arguments: '' };
+      }
+      const slot = this.toolCallsByItemId[c.item_id];
+      slot.arguments = (slot.arguments ?? '') + c.delta;
+    }
+  }
+
+  finalize(): unknown {
+    if (this.completedResponse) return this.completedResponse;
+    const output: Array<Record<string, unknown>> = [];
+    if (this.textParts.length > 0) {
+      output.push({
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: this.textParts.join('') }],
+      });
+    }
+    for (const id of this.orderedItemIds) {
+      const slot = this.toolCallsByItemId[id];
+      output.push({
+        type: 'function_call',
+        call_id: slot.call_id ?? '',
+        name: slot.name ?? '',
+        arguments: slot.arguments ?? '',
+      });
+    }
+    return {
+      model: this.model,
+      output,
+      usage: this.usage,
+      status: this.status,
     };
   }
 }
