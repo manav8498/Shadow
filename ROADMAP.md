@@ -17,16 +17,16 @@ What's shipping and what we're working on. Open an issue if you want to see some
 - Agent Behavior Certificate (ABOM) via `shadow certify` / `shadow verify-cert`: a content-addressed JSON release artefact capturing the trace id, models, prompt hashes, tool schema hashes, policy hash, and an optional baseline-vs-candidate regression-suite rollup. Self-verifying — `verify-cert` exits non-zero on tamper, so it can gate a release pipeline.
 - Cosign / sigstore keyless signing for certificates via `shadow certify --sign` and `shadow verify-cert --verify-signature` (optional `[sign]` extra). Writes a sidecar sigstore Bundle containing the signature, Fulcio-issued signing certificate, and Rekor transparency-log entry. Verification binds to a specific signer identity (workflow URL or email) so leaked Bundles signed by another identity fail.
 - `shadow diff --fail-on {minor,moderate,severe}` exits non-zero on regressions, so the GitHub Action can gate merges instead of just commenting
-- Auto-instrumentation for the Anthropic and OpenAI SDKs (Python and TypeScript, including the OpenAI Responses API and streaming)
+- Auto-instrumentation for the Anthropic and OpenAI SDKs. Python: covers Anthropic Messages, OpenAI Chat Completions, OpenAI Responses API, plus streaming aggregation (each streamed call lands as a single record with the assembled response). TypeScript: covers non-streaming Anthropic and OpenAI calls; streaming requests are passed through unrecorded in the current TS SDK (parity with Python streaming is on the roadmap)
 - Framework adapters: LangGraph / LangChain (`shadow-diff[langgraph]`), CrewAI (`shadow-diff[crewai]`), AG2 (`shadow-diff[ag2]`)
 - Ten built-in judges, including a rubric-driven `LlmJudge`
-- Eight importers: Langfuse, Braintrust, LangSmith, OpenAI Evals, OTLP (GenAI semconv v1.40), MCP, A2A, Vercel AI SDK, PydanticAI
+- Nine importers: Langfuse, Braintrust, LangSmith, OpenAI Evals, OTLP (GenAI semconv v1.40), MCP, A2A, Vercel AI SDK, PydanticAI
 - OTel GenAI exporter
 - Hierarchical diff at six levels: trace, session, turn, span, token, policy
 - Token-level distribution summaries and policy-rule overlays
 - LLM-assisted prescriptive fixes grounded on deterministic recommendations
 - Production trace mining (`shadow mine`) — clusters real traces by tool sequence, stop reason, response length, and latency, then surfaces representative regression cases
-- MCP server (`shadow mcp-serve`) exposing diff, policy check, token diff, schema watch, and summary as MCP tools
+- MCP server (`shadow mcp-serve`) exposing seven tools: `shadow_diff`, `shadow_check_policy`, `shadow_token_diff`, `shadow_schema_watch`, `shadow_summarise`, `shadow_certify`, `shadow_verify_cert`
 - SOC 2-oriented access log, CycloneDX 1.5 SBOMs, cosign keyless signing
 - Ubuntu, macOS, and Windows CI across Python 3.11, 3.12, 3.13
 - PyPI Trusted Publisher release pipeline; published as `shadow-diff`
@@ -50,13 +50,9 @@ Capture retries, tool-ordering, and context-trim events as first-class diff dime
 
 We import MCP session logs today and serve diff/policy/token-diff/schema-watch/summary over MCP. Next: protocol-level interception so MCP tool invocations replay deterministically without re-running the MCP server.
 
-### Runtime policy enforcement
+### TypeScript SDK parity for streaming
 
-`shadow diff --policy` checks a YAML policy after the fact. The runtime version: enforce the same rules at recording time, block a run that would violate one.
-
-### Richer behaviour contracts
-
-The `when:` gate, nine rule kinds (including `must_match_json_schema`), and ten condition operators cover most production agents today. Next: stateful rules that reason across turns (e.g. "if the agent confirmed an amount on turn N, it must not change the amount on turn N+1"), retrieved-context assertions for RAG agents, and tool-result-dependent rules ("after `verify_order` returns `disputed`, the next assistant message must call `escalate_to_human`").
+The Python SDK's streaming auto-instrumentation aggregates streamed responses into a single trace record. The TypeScript SDK currently passes streaming calls (`stream: true`) through unrecorded — the comment is in `typescript/src/instrumentation.ts`. Bringing TS to parity requires intercepting the `AsyncIterable` and aggregating chunks the way the Python layer does.
 
 ### Tool-call pre-dispatch interception
 

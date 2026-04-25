@@ -171,13 +171,29 @@ jobs:
       - name: Install shadow with every optional extra
         run: |
           uv venv --python 3.11 .venv
+          # Core extras + provider SDKs + observability + serve.
+          uv pip install --python .venv/bin/python \
+            -e "python[dev,anthropic,openai,otel,serve,mcp]"
           # `embeddings` pulls sentence-transformers (~500 MB with
           # torch), so it's in its own install step to keep the output
           # legible if that step ever times out.
           uv pip install --python .venv/bin/python \
-            -e "python[dev,anthropic,openai,otel,serve]"
-          uv pip install --python .venv/bin/python \
             -e "python[embeddings]"
+          # Framework adapters. Each pulls a different ecosystem
+          # (langgraph + langchain-openai, crewai, autogen via ag2).
+          # Split per extra so a flake in one doesn't mask the others.
+          uv pip install --python .venv/bin/python \
+            -e "python[langgraph]"
+          uv pip install --python .venv/bin/python \
+            -e "python[crewai]"
+          uv pip install --python .venv/bin/python \
+            -e "python[ag2]"
+          # `sign` pulls sigstore which carries pre-release deps
+          # (sigstore-rekor-types, sigstore-protobuf-specs). Needs
+          # --prerelease=allow. Same flag the local ci-local-extras
+          # recipe uses; this CI job mirrors it now.
+          uv pip install --python .venv/bin/python --prerelease=allow \
+            -e "python[sign]"
 
       - name: Build PyO3 extension
         run: |

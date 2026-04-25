@@ -126,7 +126,16 @@ Within one `.agentlog` file:
   appears earlier in the same file. Forward references are forbidden.
 - `ts` values MUST be monotonically non-decreasing. Two records MAY have
   the same `ts` if they occurred within the same millisecond.
-- A trace MUST NOT contain more than one `metadata` record.
+- A trace MAY contain additional `metadata` records after the root, used
+  to mark logical session boundaries within a single trace file (e.g. a
+  long-running agent that processes many user-initiated sessions and
+  emits a `metadata` marker at the start of each one). Non-root
+  `metadata` records MUST have `parent` pointing at the previous record
+  in the file (not `null`). Consumers that don't need session
+  boundaries MAY treat all `metadata` records after the first as
+  no-ops; consumers that do (the differ's session-level breakdown,
+  cost-attribution partitioning) treat them as authoritative session
+  splits.
 
 ## §4 Payload types
 
