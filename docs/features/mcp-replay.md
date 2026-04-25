@@ -24,7 +24,14 @@ result = await session.call_tool("search", arguments={"q": "foo"})
 
 ## Strict vs non-strict
 
-`ReplayClientSession(index)` defaults to `strict=True`. On a missing key it raises `MCPCallNotRecorded` so a candidate that drifts from the baseline fails fast — that's the whole point of deterministic replay. Pass `strict=False` to opt back in to silent-None on miss for the rare case where you want the caller's existing error path to run instead.
+`ReplayClientSession(index)` defaults to `strict=True`. Strict mode treats two situations as drift and raises `MCPCallNotRecorded`:
+
+1. The candidate calls a `(method, params)` pair that wasn't in the recording at all.
+2. The candidate calls a recorded `(method, params)` pair more times than the baseline did (over-consumption).
+
+Non-strict mode (`strict=False`) is the historical permissive behavior: case 1 returns `None` so the caller's null-check path runs, and case 2 reuses the last recorded response so chatty agents don't crash. Use it when you're recording-once-replaying-many and the call counts shouldn't matter; otherwise leave strict on.
+
+Both modes also surface left-over recordings via `index.unconsumed_keys()` — call this after the run to detect "the candidate skipped a baseline step."
 
 ## Surface
 
