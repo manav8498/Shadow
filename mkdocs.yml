@@ -71,6 +71,10 @@ nav:
       - Sandboxed replay: features/sandboxed-replay.md
       - MCP importer: features/mcp.md
       - MCP server: features/mcp-server.md
+      - MCP-native replay: features/mcp-replay.md
+      - Streaming replay: features/streaming-replay.md
+      - Harness events: features/harness-events.md
+      - Multimodal diff: features/multimodal-diff.md
   - Reference:
       - CLI: reference/cli.md
       - agentlog format: reference/agentlog.md
