@@ -179,12 +179,32 @@ def test_bisect_runs_end_to_end_on_differing_configs(tmp_path: Path) -> None:
     _make_trace(traces, latency_ms=100, text="x")
     result = runner.invoke(
         app,
-        ["bisect", str(cfg_a), str(cfg_b), "--traces", str(traces)],
+        ["bisect", str(cfg_a), str(cfg_b), "--traces", str(traces), "--format", "json"],
     )
     assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
     assert data["deltas"][0]["path"] == "params.temperature"
     assert "attributions" in data
+
+
+def test_bisect_default_format_is_hedged_terminal_text(tmp_path: Path) -> None:
+    """Default `shadow bisect` output must lead with the correlational
+    caveat instead of dumping JSON or claiming proven causation."""
+    cfg_a = tmp_path / "a.yaml"
+    cfg_b = tmp_path / "b.yaml"
+    cfg_a.write_text("model: m\nparams:\n  temperature: 0.2\n")
+    cfg_b.write_text("model: m\nparams:\n  temperature: 0.7\n")
+    traces = tmp_path / "traces.agentlog"
+    _make_trace(traces, latency_ms=100, text="x")
+    result = runner.invoke(
+        app,
+        ["bisect", str(cfg_a), str(cfg_b), "--traces", str(traces)],
+    )
+    assert result.exit_code == 0, result.output
+    assert "estimated, correlational" in result.stdout
+    assert "shadow replay" in result.stdout
+    # Bare check-mark is gone in favor of explicit qualifiers.
+    assert " ✓" not in result.stdout
 
 
 def test_version_prints_version() -> None:

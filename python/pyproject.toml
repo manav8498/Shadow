@@ -9,7 +9,7 @@ build-backend = "maturin"
 # the CLI stays `shadow`, and the repo stays Shadow — only the
 # `pip install` name is different.
 name = "shadow-diff"
-version = "1.4.1"
+version = "1.5.0"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
 # Dual-licensed to match the Rust community convention (tokio, serde,
 # ruff, uv). MIT keeps embedding frictionless; Apache-2.0 adds an
@@ -74,10 +74,14 @@ Discussions = "https://github.com/manav8498/Shadow/discussions"
 Specification = "https://github.com/manav8498/Shadow/blob/main/SPEC.md"
 
 [project.optional-dependencies]
-# Provider SDKs — wide ranges so shadow's optional extras don't conflict
-# with the user's existing pinned anthropic/openai versions. Verified
-# against both the lower bound (the original pin) and the current latest
-# (anthropic 0.97, openai 2.32). Upper bounds exclude the next major.
+# Provider SDKs. Upper bounds are the next major above the latest
+# version we run in CI (anthropic 0.40.x, openai 2.x); the auto-
+# instrument layer in `shadow.sdk` patches `.create` on `Messages` /
+# `AsyncMessages` / `Completions` / `AsyncCompletions` / `Responses`
+# / `AsyncResponses`, and a major-version bump in either SDK is the
+# point at which those class paths or signatures can move and our
+# patches silently break. Users on a new major can lift the pin in
+# their own pyproject and report breakage.
 anthropic = ["anthropic>=0.40,<1"]
 openai = ["openai>=1.58,<3"]
 embeddings = ["sentence-transformers>=3.3,<6"]

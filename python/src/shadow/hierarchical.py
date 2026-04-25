@@ -682,17 +682,20 @@ def render_token_diff(diff: TokenDiff) -> str:
 class PolicyRule:
     """One declarative constraint a policy can check against a trace.
 
-    `scope` controls how the rule is applied to traces containing multiple
-    user-initiated sessions (e.g. a production trace with N tickets
-    concatenated). ``"trace"`` (the default, for back-compat) runs the rule
-    once across the whole record list. ``"session"`` partitions the trace
-    into user-initiated sessions — each request whose most recent
-    non-system message is from the user starts a new session — and runs
-    the rule independently within each session, emitting one violation
-    per offending session. For ordering rules like ``must_call_before``,
-    session scope is almost always what you want on multi-ticket traces:
-    otherwise a correct ordering in ticket #1 masks every subsequent
-    violation.
+    ``scope`` controls how the rule is applied to traces containing
+    multiple user-initiated sessions (e.g. a production trace with N
+    tickets concatenated). ``"trace"`` (the default, for back-compat)
+    runs the rule once across the whole record list. ``"session"``
+    partitions the trace into user-initiated sessions and runs the
+    rule independently within each session, emitting one violation
+    per offending session.
+
+    ``when`` is a list of conditions that gate the rule. A rule with
+    a non-empty ``when`` clause is only evaluated against the subset
+    of pairs (per-pair rules like ``forbidden_text``) or sessions
+    (whole-trace rules) where every condition holds. Each condition
+    is a ``ConditionExpr`` (path + operator + value). Empty/missing
+    means "always fires" — back-compat.
     """
 
     id: str  # e.g. "call-backup-before-migration"
@@ -701,6 +704,38 @@ class PolicyRule:
     severity: str = "error"  # "warning" | "error" | "critical"
     description: str = ""
     scope: str = "trace"  # "trace" | "session"
+    when: tuple[ConditionExpr, ...] = ()
+
+
+@dataclass(frozen=True)
+class ConditionExpr:
+    """One field-path comparison gating a policy rule.
+
+    Path is a dotted expression rooted at a per-pair context dict
+    Shadow assembles for each chat pair: ``request.<key>``,
+    ``response.<key>``, ``request.params.<key>``, ``response.usage.<key>``,
+    plus the convenience aliases ``model`` (== request.model) and
+    ``stop_reason`` (== response.stop_reason).
+
+    Supported operators (kept tight on purpose so behavior is
+    auditable):
+
+    - ``==`` / ``!=`` — equality on scalars (string, number, bool)
+    - ``>``, ``>=``, ``<``, ``<=`` — numeric comparison
+    - ``in`` / ``not_in`` — membership in a list literal
+    - ``contains`` / ``not_contains`` — substring on strings, element
+      membership on lists
+
+    Missing paths evaluate to ``None``; comparisons against ``None``
+    fail (match returns False) so a rule like
+    ``request.params.amount > 500`` simply won't fire on requests
+    that didn't carry an ``amount`` param. That's the safe default
+    for "fire only on the matching subset" semantics.
+    """
+
+    path: str
+    op: str
+    value: Any
 
 
 @dataclass
@@ -784,8 +819,9 @@ def load_policy(data: Any) -> list[PolicyRule]:
         scope = raw.get("scope", "trace")
         if scope not in ("trace", "session"):
             raise ShadowConfigError(
-                f"policy rule #{i} has invalid scope {scope!r}; " f"must be 'trace' or 'session'."
+                f"policy rule #{i} has invalid scope {scope!r}; must be 'trace' or 'session'."
             )
+        when = _parse_when(raw.get("when"), rule_index=i)
         out.append(
             PolicyRule(
                 id=str(raw.get("id") or f"rule-{i}"),
@@ -794,31 +830,246 @@ def load_policy(data: Any) -> list[PolicyRule]:
                 severity=str(raw.get("severity") or "error"),
                 description=str(raw.get("description") or ""),
                 scope=scope,
+                when=when,
             )
         )
     return out
+
+
+_VALID_OPS = frozenset(
+    {"==", "!=", ">", ">=", "<", "<=", "in", "not_in", "contains", "not_contains"}
+)
+
+
+def _parse_when(raw: Any, *, rule_index: int) -> tuple[ConditionExpr, ...]:
+    """Coerce a YAML ``when:`` clause into a tuple of ``ConditionExpr``.
+
+    Accepts:
+    - ``None`` / missing → empty tuple (rule fires on everything)
+    - a single mapping ``{path, op, value}`` → one-element tuple
+    - a list of such mappings → all conditions must hold (logical AND)
+
+    Defensive: a malformed ``when`` raises ``ShadowConfigError`` with
+    a hint pointing at the offending rule index, so users see the
+    error at policy-load time instead of silent never-firing rules.
+    """
+    from shadow.errors import ShadowConfigError
+
+    if raw is None:
+        return ()
+    items = raw if isinstance(raw, list) else [raw]
+    out: list[ConditionExpr] = []
+    for j, cond in enumerate(items):
+        if not isinstance(cond, dict):
+            raise ShadowConfigError(
+                f"policy rule #{rule_index} `when[{j}]` must be a mapping; "
+                f"got {type(cond).__name__}"
+            )
+        path = cond.get("path")
+        op = cond.get("op")
+        if not isinstance(path, str) or not path:
+            raise ShadowConfigError(
+                f"policy rule #{rule_index} `when[{j}]` requires a non-empty `path` string"
+            )
+        if op not in _VALID_OPS:
+            raise ShadowConfigError(
+                f"policy rule #{rule_index} `when[{j}]` has invalid op {op!r}; "
+                f"supported: {sorted(_VALID_OPS)}"
+            )
+        if "value" not in cond:
+            raise ShadowConfigError(
+                f"policy rule #{rule_index} `when[{j}]` requires a `value` field"
+            )
+        out.append(ConditionExpr(path=path, op=op, value=cond["value"]))
+    return tuple(out)
 
 
 def check_policy(records: list[dict[str, Any]], rules: list[PolicyRule]) -> list[PolicyViolation]:
     """Run every rule against one trace; return the flat violation list.
 
     Rules with ``scope="session"`` are applied independently within each
-    user-initiated session (see :func:`_compute_session_of_pair`), so a
+    user-initiated session (see :func:`_compute_session_of_pair``), so a
     single well-ordered ticket cannot mask subsequent violations.
+
+    Rules with a non-empty ``when`` clause are gated to the matching
+    pairs only. Tool-sequence rules see only the tool calls produced by
+    pairs whose context satisfies every condition; per-response rules
+    see only the matching responses; whole-trace rules pass through.
     """
     violations: list[PolicyViolation] = []
     tool_calls = _extract_tool_call_sequence(records)
     responses = [r for r in records if r.get("kind") == "chat_response"]
+    pair_contexts = _build_pair_contexts(records)
 
     needs_sessions = any(rule.scope == "session" for rule in rules)
     session_of_pair = _compute_session_of_pair(records) if needs_sessions else []
 
     for rule in rules:
-        if rule.scope == "session":
-            violations.extend(_check_rule_per_session(rule, tool_calls, responses, session_of_pair))
+        if rule.when:
+            mask = _matching_pair_indices(rule.when, pair_contexts)
+            if not mask:
+                continue
+            # Filter and remember the local→absolute pair_index map. Rule
+            # checkers index responses 0..N-1 internally; we need to
+            # translate those back to the absolute trace position so a
+            # reviewer can locate the failing turn.
+            local_to_abs = sorted(mask)
+            r_responses = [responses[i] for i in local_to_abs]
+            # Tool calls keep their absolute pair_index in tuple[0],
+            # but rule checkers use that field to find which response
+            # they belong to. We re-index to the local pair position
+            # so the rule sees a contiguous 0..N-1, then remap on the
+            # way out.
+            abs_to_local = {abs_i: local_i for local_i, abs_i in enumerate(local_to_abs)}
+            r_tool_calls = [
+                (abs_to_local[tc[0]], tc[1], tc[2]) for tc in tool_calls if tc[0] in mask
+            ]
+            r_session_of_pair = (
+                [session_of_pair[i] for i in local_to_abs] if session_of_pair else []
+            )
+            if not r_responses and not r_tool_calls:
+                continue
+            if rule.scope == "session":
+                raw = _check_rule_per_session(rule, r_tool_calls, r_responses, r_session_of_pair)
+            else:
+                raw = _check_single_rule(rule, records, r_tool_calls, r_responses)
+            # Remap local pair_index back to absolute.
+            for v in raw:
+                if v.pair_index is not None and 0 <= v.pair_index < len(local_to_abs):
+                    violations.append(
+                        PolicyViolation(
+                            rule_id=v.rule_id,
+                            kind=v.kind,
+                            severity=v.severity,
+                            pair_index=local_to_abs[v.pair_index],
+                            detail=v.detail,
+                        )
+                    )
+                else:
+                    violations.append(v)
         else:
-            violations.extend(_check_single_rule(rule, records, tool_calls, responses))
+            if rule.scope == "session":
+                violations.extend(
+                    _check_rule_per_session(rule, tool_calls, responses, session_of_pair)
+                )
+            else:
+                violations.extend(_check_single_rule(rule, records, tool_calls, responses))
     return violations
+
+
+# ---- conditional gating --------------------------------------------------
+
+
+def _build_pair_contexts(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build a per-pair context dict for `when` evaluation.
+
+    One context per chat_response in the trace. Each context exposes:
+
+    - ``request.*``    — the paired chat_request payload (model,
+      messages, params, tools, ...)
+    - ``response.*``   — the chat_response payload (model, content,
+      stop_reason, latency_ms, usage, ...)
+    - convenience aliases ``model`` (== request.model) and
+      ``stop_reason`` (== response.stop_reason)
+
+    The context is intentionally a plain dict so evaluation is cheap
+    and doesn't depend on the surrounding trace shape.
+    """
+    contexts: list[dict[str, Any]] = []
+    pending_request: dict[str, Any] | None = None
+    for rec in records:
+        kind = rec.get("kind")
+        if kind == "chat_request":
+            pending_request = rec.get("payload") or {}
+        elif kind == "chat_response":
+            req = pending_request or {}
+            resp = rec.get("payload") or {}
+            ctx: dict[str, Any] = {
+                "request": req,
+                "response": resp,
+                "model": req.get("model") or resp.get("model"),
+                "stop_reason": resp.get("stop_reason"),
+            }
+            contexts.append(ctx)
+            pending_request = None
+    return contexts
+
+
+def _matching_pair_indices(
+    conditions: tuple[ConditionExpr, ...], contexts: list[dict[str, Any]]
+) -> set[int]:
+    """Pair indices whose context satisfies every condition (logical AND)."""
+    out: set[int] = set()
+    for i, ctx in enumerate(contexts):
+        if all(_eval_condition(c, ctx) for c in conditions):
+            out.add(i)
+    return out
+
+
+def _eval_condition(cond: ConditionExpr, context: dict[str, Any]) -> bool:
+    """Evaluate one ``ConditionExpr`` against a per-pair context.
+
+    Missing path or operands of incompatible types return False rather
+    than raising — a rule like ``request.params.amount > 500`` should
+    silently not match requests without an ``amount`` instead of
+    crashing the whole policy check.
+    """
+    actual = _lookup_path(context, cond.path)
+    op = cond.op
+    expected = cond.value
+    try:
+        if op == "==":
+            return bool(actual == expected)
+        if op == "!=":
+            return bool(actual != expected)
+        if op in (">", ">=", "<", "<="):
+            if actual is None or not isinstance(actual, int | float):
+                return False
+            if not isinstance(expected, int | float):
+                return False
+            if op == ">":
+                return bool(actual > expected)
+            if op == ">=":
+                return bool(actual >= expected)
+            if op == "<":
+                return bool(actual < expected)
+            return bool(actual <= expected)
+        if op == "in":
+            if not isinstance(expected, list | tuple | set):
+                return False
+            return actual in expected
+        if op == "not_in":
+            if not isinstance(expected, list | tuple | set):
+                return False
+            return actual not in expected
+        if op == "contains":
+            if isinstance(actual, str) and isinstance(expected, str):
+                return expected in actual
+            if isinstance(actual, list | tuple | set):
+                return expected in actual
+            return False
+        if op == "not_contains":
+            if isinstance(actual, str) and isinstance(expected, str):
+                return expected not in actual
+            if isinstance(actual, list | tuple | set):
+                return expected not in actual
+            return True
+    except TypeError:
+        return False
+    return False
+
+
+def _lookup_path(ctx: dict[str, Any], path: str) -> Any:
+    """Walk a dotted path into a nested mapping. Returns None if missing."""
+    cur: Any = ctx
+    for part in path.split("."):
+        if isinstance(cur, dict):
+            cur = cur.get(part)
+        else:
+            return None
+        if cur is None:
+            return None
+    return cur
 
 
 def _extract_tool_call_sequence(
