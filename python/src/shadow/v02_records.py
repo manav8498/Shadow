@@ -320,16 +320,38 @@ def compute_phash_dhash64(image_bytes: bytes) -> dict[str, str] | None:
 
 def phash_distance(a: dict[str, Any], b: dict[str, Any]) -> int | None:
     """Hamming distance between two SPEC-shaped phash dicts. Returns
-    None if the algorithms don't match (callers can decide whether to
-    treat that as "different" or fall back to another comparison)."""
-    if a.get("algo") != b.get("algo"):
+    None if the algorithms don't match, the hex is missing/malformed,
+    or the hex length is wrong for the algo (each algo has a fixed bit
+    width, so comparing different lengths would silently produce a
+    misleading distance).
+    """
+    algo = a.get("algo")
+    if algo != b.get("algo"):
+        return None
+    expected_hex_len = _PHASH_HEX_LEN.get(algo)
+    if expected_hex_len is None:
         return None
     try:
-        ah = int(a["hex"], 16)
-        bh = int(b["hex"], 16)
-    except (KeyError, ValueError, TypeError):
+        ah_str, bh_str = a["hex"], b["hex"]
+    except KeyError:
+        return None
+    if not isinstance(ah_str, str) or not isinstance(bh_str, str):
+        return None
+    if len(ah_str) != expected_hex_len or len(bh_str) != expected_hex_len:
+        return None
+    try:
+        ah = int(ah_str, 16)
+        bh = int(bh_str, 16)
+    except ValueError:
         return None
     return bin(ah ^ bh).count("1")
+
+
+# Hex-character widths for known phash algorithms. dhash64 is 64 bits
+# = 16 hex chars. New algorithms register their bit width here.
+_PHASH_HEX_LEN: dict[str, int] = {
+    "dhash64": 16,
+}
 
 
 def record_blob_ref(
