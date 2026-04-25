@@ -6,6 +6,16 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.4] - 2026-04-25
+
+### Fixed
+
+- **`shadow.certify_sign` was breaking mypy `--strict` on CI.** The module's lazy `sigstore` imports raise `import-not-found` when sigstore isn't installed (which is the default — sigstore is gated behind the optional `[sign]` extra and additionally requires `--prerelease=allow` at install time because its dependency tree pulls pre-release wheels). CI doesn't install the `[sign]` extra; my local venv had sigstore from a manual install during v1.8 development, which is why ci-local was green locally while v1.8.0–v2.0.3 silently failed mypy on every CI run.
+
+  Fix: add `shadow.certify_sign` to the existing `ignore_errors` mypy override block in `pyproject.toml`, alongside the other optional-extra-only modules (`shadow.serve.*`, `shadow.mcp_server`, `shadow.adapters.*`, `shadow.tools.sandbox`). Verified: with sigstore uninstalled locally, mypy `--strict` now passes; with sigstore installed, the imports type-check normally.
+
+  This is the same local/CI parity drift class that v1.6.5's `ci-local` recipe was meant to prevent. The recipe's `python-full-extras` job installs every extra EXCEPT `[sign]` (because the `--prerelease=allow` flag complicates the install command), so CI exposed a mismatch the local recipe didn't. Worth a follow-up to extend `ci-local-extras` with a sigstore-install step under `--prerelease=allow`.
+
 ## [2.0.3] - 2026-04-25
 
 ### Fixed
