@@ -9,7 +9,7 @@ build-backend = "maturin"
 # the CLI stays `shadow`, and the repo stays Shadow — only the
 # `pip install` name is different.
 name = "shadow-diff"
-version = "2.0.0"
+version = "2.0.1"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
 # Dual-licensed to match the Rust community convention (tokio, serde,
 # ruff, uv). MIT keeps embedding frictionless; Apache-2.0 adds an

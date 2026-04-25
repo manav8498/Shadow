@@ -53,6 +53,7 @@ lint-python:
     # both into one run without colliding the module name. Two invocations.
     uv run --python .venv/bin/python mypy --config-file python/pyproject.toml --strict examples/stress_v16x/run_stress.py
     uv run --python .venv/bin/python mypy --config-file python/pyproject.toml --strict examples/stress_v17x/run_stress.py
+    uv run --python .venv/bin/python mypy --config-file python/pyproject.toml --strict examples/stress_v20x/run_stress.py
 
 # Run the end-to-end demo (uses MockLLM, must complete <10s).
 demo:
@@ -91,6 +92,7 @@ ci-local:
     .venv/bin/python -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py
     .venv/bin/python -m mypy --config-file python/pyproject.toml --strict examples/stress_v16x/run_stress.py
     .venv/bin/python -m mypy --config-file python/pyproject.toml --strict examples/stress_v17x/run_stress.py
+    .venv/bin/python -m mypy --config-file python/pyproject.toml --strict examples/stress_v20x/run_stress.py
     @echo "==> python: pytest with coverage gate"
     .venv/bin/python -m pytest python/tests --cov=shadow --cov-config=python/pyproject.toml --cov-fail-under=85 --cov-report=term-missing
     @echo "==> demo: end-to-end <10s"
