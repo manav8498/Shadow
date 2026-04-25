@@ -36,26 +36,40 @@ Meinshausen-Bühlmann stability selection, and honest bootstrap CIs.
 
 ## Output format
 
+`shadow bisect` defaults to a terminal renderer that hedges the
+language. Without sandboxed counterfactual replay, attribution is
+**correlational, not causally proven** — LASSO + stability selection
+narrows the field, but two correlated deltas can still split a single
+axis's true cause and look equally significant. The renderer leads
+with this caveat:
+
 ```
+Bisect attribution (estimated, correlational). Confirm with
+`shadow replay --backend <provider>` for causal proof.
+
 semantic:
-  prompt.system            74.9% [71.0%, 89.2%]  sel_freq=1.00  ✓
-  model_id x prompt.system 13.8% [3.8%, 17.5%]   sel_freq=0.89  ✓
+  prompt.system          est. 74.9%   95% CI [71.0%, 89.2%]  sel_freq=1.00  (stable, CI excludes 0)
 
 latency:
-  model_id          61.3% [59.2%, 68.0%]  sel_freq=1.00  ✓
-  tools             19.7% [15.3%, 22.4%]  sel_freq=0.94  ✓
-  model_id x tools  16.6% [12.0%, 19.4%]  sel_freq=0.96  ✓
+  model_id               est. 61.3%   95% CI [59.2%, 68.0%]  sel_freq=1.00  (stable, CI excludes 0)
+  tools                  est. 19.7%   95% CI [15.3%, 22.4%]  sel_freq=0.94  (stable, CI excludes 0)
 ```
 
 Reading the signal:
 
-- `78%` = attributed share of that axis's total delta
-- `[71%, 89%]` = 95% bootstrap percentile CI
-- `sel_freq=1.00` = how often the delta was selected across bootstrap
-  resamples (Meinshausen-Bühlmann stability)
-- `✓` = conjunction-significant (selection_frequency ≥ 0.6 AND
-  CI excludes 0)
-- `x` = pairwise interaction term
+- `est. 74.9%` is the estimated attributed share of the axis's total
+  delta. The `est.` prefix is intentional — this is a regression
+  coefficient, not a proof of causation.
+- `95% CI [a%, b%]` is the 95% bootstrap percentile CI on the share.
+- `sel_freq=1.00` is how often the delta survived across bootstrap
+  resamples (Meinshausen-Bühlmann stability).
+- The trailing qualifier spells out which conditions a row passes:
+  `(stable, CI excludes 0)` means selection frequency ≥ 0.6 *and* the
+  CI excludes zero. Rows that pass screening but fail one say so
+  explicitly (`screening only`, `CI crosses 0`, `weak signal`).
+
+Use `--format json` to get the raw attribution dict for scripting,
+or `--format markdown` for PR comments.
 
 ## When to use
 
