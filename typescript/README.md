@@ -3,9 +3,14 @@
 TypeScript SDK for **Shadow**, Git-native behavioral diff for LLM agents.
 
 Records your agent's LLM calls into a `.agentlog` file compatible with
-the [Shadow v0.1 SPEC](../SPEC.md), same content-addressed format the
-Python SDK and Rust core use. Run `shadow diff` or `shadow bisect` on
-the output.
+the `.agentlog` v0.1 envelope and v0.2 record-kind extensions defined in
+[SPEC.md](../SPEC.md), same content-addressed format the Python SDK
+and Rust core use. Run `shadow diff` or `shadow bisect` on the output.
+
+The TypeScript SDK has its own version line and only covers the
+recording side (Session, redaction, auto-instrument). Replay, diff,
+bisect, certify, and the MCP server live in the Python CLI, which
+reads the same trace format without translation.
 
 ## Install
 
