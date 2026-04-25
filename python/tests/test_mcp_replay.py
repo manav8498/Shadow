@@ -137,6 +137,42 @@ def test_replay_session_call_tool_non_strict_returns_none_on_miss() -> None:
     assert sess.call_tool("missing_tool", {}) is None
 
 
+def test_replay_session_strict_raises_on_overflow() -> None:
+    """Strict mode treats over-consumption as drift, not a quiet
+    last-response replay. A candidate that calls the same tool more
+    times than the baseline should fail loudly under strict."""
+    idx = RecordingIndex(
+        calls=[
+            MCPCall(
+                method="tools/call",
+                params={"name": "fetch", "arguments": {}},
+                response="first",
+            ),
+        ]
+    )
+    sess = ReplayClientSession(idx, strict=True)
+    assert sess.call_tool("fetch", {}) == "first"
+    with pytest.raises(MCPCallNotRecorded, match="tools/call"):
+        sess.call_tool("fetch", {})
+
+
+def test_replay_session_non_strict_overflow_reuses_last_response() -> None:
+    """Non-strict preserves the historical permissive behaviour: the
+    last recorded response is replayed for over-consumed calls."""
+    idx = RecordingIndex(
+        calls=[
+            MCPCall(
+                method="tools/call",
+                params={"name": "fetch", "arguments": {}},
+                response="first",
+            ),
+        ]
+    )
+    sess = ReplayClientSession(idx, strict=False)
+    assert sess.call_tool("fetch", {}) == "first"
+    assert sess.call_tool("fetch", {}) == "first"
+
+
 def test_replay_session_raises_when_recording_carries_error() -> None:
     idx = RecordingIndex(
         calls=[

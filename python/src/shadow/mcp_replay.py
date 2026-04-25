@@ -84,16 +84,31 @@ class RecordingIndex:
                 continue
             self._index.setdefault(call.match_key, []).append(call)
 
-    def lookup(self, method: str, params: Any) -> MCPCall | None:
+    def lookup(
+        self, method: str, params: Any, *, fail_on_overflow: bool = False
+    ) -> MCPCall | None:
+        """Return the next recorded call for ``(method, params)``.
+
+        ``fail_on_overflow=False`` (the historical default) returns the
+        last recorded response when the candidate replays a call more
+        times than the baseline did — a pragmatic fallback so chatty
+        agents don't crash.
+
+        ``fail_on_overflow=True`` returns ``None`` instead, so strict
+        replay can treat over-consumption the same as a missing
+        recording. ``ReplayClientSession(strict=True)`` flips this.
+        """
         key = (method, canonicalize_params(params))
         bucket = self._index.get(key)
         if not bucket:
             return None
         idx = self._consumed.get(key, 0)
         if idx >= len(bucket):
-            # Repeated call beyond what was recorded — return the
-            # last recorded response (a sensible fallback). Callers
-            # that want strict mode can check `unconsumed()`.
+            if fail_on_overflow:
+                return None
+            # Non-strict: return the last recorded response. A reviewer
+            # auditing drift should still call ``unconsumed_keys()``
+            # afterwards.
             return bucket[-1]
         self._consumed[key] = idx + 1
         return bucket[idx]
@@ -259,7 +274,10 @@ class ReplayClientSession:
     # --- helpers --------------------------------------------------
 
     def _lookup_or_raise(self, method: str, params: Any) -> Any:
-        call = self._index.lookup(method, params)
+        # Strict mode treats over-consumption as drift — same as a
+        # missing recording — by passing fail_on_overflow=True. The
+        # default lookup keeps reusing the last response.
+        call = self._index.lookup(method, params, fail_on_overflow=self._strict)
         if call is None:
             if self._strict:
                 raise MCPCallNotRecorded(method=method, params=params)
