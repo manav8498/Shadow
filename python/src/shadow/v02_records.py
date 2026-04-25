@@ -287,8 +287,8 @@ def compute_phash_dhash64(image_bytes: bytes) -> dict[str, str] | None:
     later — this is the cheap tier.
     """
     try:
-        import imagehash  # type: ignore[import-not-found, unused-ignore]
-        from PIL import Image  # type: ignore[import-not-found, unused-ignore]
+        import imagehash  # type: ignore[import-not-found, import-untyped, unused-ignore]
+        from PIL import Image  # type: ignore[import-not-found, import-untyped, unused-ignore]
     except ImportError:
         return None
     try:
