@@ -390,7 +390,7 @@ Each dimension is measured independently with a bootstrap 95% confidence interva
 | 8 | `judge` | Your own LLM-judge rubric (optional). |
 | 9 | `conformance` | Does the output match the expected structure? |
 
-Full details in [`SPEC.md`](SPEC.md).
+Per-axis math, severity bands, and bootstrap details: [`docs/features/nine-axis.md`](docs/features/nine-axis.md). The on-disk trace format is in [`SPEC.md`](SPEC.md).
 
 ## Where Shadow fits among existing tools
 
