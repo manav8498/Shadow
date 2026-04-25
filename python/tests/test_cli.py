@@ -213,3 +213,60 @@ def test_version_prints_version() -> None:
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
     assert f"shadow {__version__}" in result.stdout
+
+
+# ---- shadow diff --fail-on (merge-gate) ---------------------------------
+
+
+def test_diff_fail_on_never_exits_zero_even_on_severe(tmp_path: Path) -> None:
+    """The default --fail-on never must always exit 0 so existing
+    callers don't suddenly start failing CI."""
+    baseline = tmp_path / "b.agentlog"
+    candidate = tmp_path / "c.agentlog"
+    _make_trace(baseline, latency_ms=10, text="hi")
+    _make_trace(candidate, latency_ms=10000, text="hi")  # severe latency regression
+    result = runner.invoke(app, ["diff", str(baseline), str(candidate)])
+    assert result.exit_code == 0, result.output
+
+
+def test_diff_fail_on_severe_exits_one_when_severe_axis_present(tmp_path: Path) -> None:
+    """A severe latency regression must trigger the gate at --fail-on severe."""
+    baseline = tmp_path / "b.agentlog"
+    candidate = tmp_path / "c.agentlog"
+    # Need n>=2 so the bootstrap CI is meaningful.
+    for _ in range(3):
+        _make_trace(baseline, latency_ms=10, text="hi")
+        _make_trace(candidate, latency_ms=10000, text="hi")
+    result = runner.invoke(
+        app,
+        ["diff", str(baseline), str(candidate), "--fail-on", "severe"],
+    )
+    assert result.exit_code == 1, result.output
+
+
+def test_diff_fail_on_severe_exits_zero_when_traces_match(tmp_path: Path) -> None:
+    """Identical traces must never trip the gate."""
+    baseline = tmp_path / "b.agentlog"
+    candidate = tmp_path / "c.agentlog"
+    _make_trace(baseline, latency_ms=100, text="hello")
+    _make_trace(candidate, latency_ms=100, text="hello")
+    result = runner.invoke(
+        app,
+        ["diff", str(baseline), str(candidate), "--fail-on", "severe"],
+    )
+    assert result.exit_code == 0, result.output
+
+
+def test_diff_fail_on_invalid_value_exits_two(tmp_path: Path) -> None:
+    """Misuse of --fail-on must surface as exit 2 with a clear message,
+    not a silent pass."""
+    baseline = tmp_path / "b.agentlog"
+    candidate = tmp_path / "c.agentlog"
+    _make_trace(baseline, latency_ms=100, text="hello")
+    _make_trace(candidate, latency_ms=100, text="hello")
+    result = runner.invoke(
+        app,
+        ["diff", str(baseline), str(candidate), "--fail-on", "catastrophic"],
+    )
+    assert result.exit_code == 2
+    assert "fail-on" in result.output
