@@ -6,7 +6,19 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
-## [1.6.1] - 2026-04-24
+## [1.6.2] - 2026-04-25
+
+### Fixed
+
+- `drive_loop_forward` now returns `AgentLoopSummary` (a public type) instead of the private `_SessionStats`. The function was added to `__all__` in 1.6.1 but leaked an internal struct, which made it impossible to type-annotate user code that consumed it. The internal `_accumulate(summary, stats)` helper in `shadow.counterfactual_loop` is replaced by `_merge(summary, addend)` which sums two public summaries.
+- `CHANGELOG.md` v1.6.1 was incorrectly dated 2026-04-24 (predating v1.6.0 on the same day). The 1.6.1 section is unchanged in content.
+
+### Added
+
+- Direct contract tests for `drive_loop_forward`: `test_drive_loop_forward_returns_public_summary_type` (verifies the public-type return, parent chaining, and content-addressing) and `test_drive_loop_forward_truncation_surfaces_in_summary` (verifies `sessions_truncated` propagates from inner stats to the public summary).
+- `just ci-local` now also runs the `python-full-extras` job locally — installs every optional extra (`anthropic`, `openai`, `otel`, `serve`, `mcp`, `embeddings`) and re-runs pytest with no `--ignore` filter so optional-extras gating bugs (the kind that bit v1.4.1 with `mcp`) get caught before pushing.
+
+## [1.6.1] - 2026-04-25
 
 ### Fixed
 
