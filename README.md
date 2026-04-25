@@ -3,7 +3,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-2.0.4-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.0.5-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -172,7 +172,25 @@ with Session(output_path="trace.agentlog", tags={"env": "prod"}):
     client.messages.create(model="claude-sonnet-4-6", messages=[...])
 ```
 
-Secrets (API keys, emails, credit cards) are redacted by default. The TypeScript SDK works the same way.
+Secrets (API keys, emails, credit cards) are redacted by default.
+
+The TypeScript SDK covers the recording side of this same workflow. The Python and TypeScript surfaces are not at full parity yet — anything that depends on the Rust core (replay, diff, bisect, certify, MCP server) lives on the Python/CLI side:
+
+| Feature | Python | TypeScript |
+|---|:---:|:---:|
+| `.agentlog` write / parse / canonicalisation | ✅ | ✅ |
+| `Session` context manager | ✅ | ✅ |
+| Redaction | ✅ | ✅ |
+| Distributed-trace (W3C) propagation | ✅ | ✅ |
+| OpenAI Chat Completions + Anthropic Messages auto-instrument | ✅ | ✅ |
+| OpenAI Responses API auto-instrument | ✅ | ✅ |
+| Streaming aggregation in auto-instrument | ✅ | ❌ (passes through unrecorded) |
+| Runtime policy enforcement (`EnforcedSession`) | ✅ | ❌ |
+| `shadow certify` / `--sign` / `verify-cert` | ✅ (CLI) | ❌ |
+| `shadow diff` / `bisect` / `replay` / `mine` | ✅ (CLI) | ❌ |
+| MCP server (`shadow mcp-serve`) | ✅ (CLI) | ❌ |
+
+The TypeScript SDK is at v1.3.0; the Python SDK is at v2.0.x. The `.agentlog` format itself is the contract — TS-recorded traces feed into Python's `shadow diff`, `shadow certify`, and the MCP server without translation. If you need replay or runtime enforcement, run those steps from the Python CLI against the TS-recorded trace.
 
 If your agent is built on LangGraph, CrewAI, or AG2, prefer the matching adapter (next section) over auto-instrumentation. Auto-instrument patches `.create` on the underlying provider SDK, which is a moving target across SDK majors. The framework adapters hook each framework's documented extension surface, which is the more stable contract.
 

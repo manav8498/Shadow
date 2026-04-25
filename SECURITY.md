@@ -6,10 +6,11 @@ Shadow has not had a formal third-party security audit. The v1.1 hardening pass 
 
 | Version | Supported |
 |---------|:---------:|
-| `1.x`   | ✅ latest minor receives security patches |
+| `2.x`   | ✅ latest minor receives security patches |
+| `1.x`   | ✅ security fixes only on the latest `1.7.x` line |
 | `0.x`   | ❌ |
 
-Upgrades within `1.x.y` stay backward compatible at the `.agentlog` format level. See `SPEC.md §13`.
+`2.0.0` was a major bump because the `shadow.policy_runtime` module added new public surface — all `1.x` APIs (`Session`, `policy_diff`, `shadow diff --policy`, certificate workflow, `.agentlog` format) remain backwards compatible at runtime and on the wire. See `SPEC.md §13` for `.agentlog` compatibility guarantees.
 
 ## Reporting a vulnerability
 
@@ -49,7 +50,7 @@ We default to coordinated disclosure with credit to the reporter (anonymous if y
 
 ## Encryption
 
-GitHub's [private security advisory](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability) channel is end-to-end between you and the maintainers. That is the preferred transport. If you need a separate encrypted channel, open the advisory with a note asking for one and we will coordinate.
+GitHub's [private security advisory](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability) channel is the preferred private reporting transport. Access is restricted to the reporter and the repo's security maintainers, and GitHub does not display the advisory publicly until it is published. We do not assert cryptographic end-to-end encryption — GitHub holds the data at rest. If you need a separate cryptographic channel, open the advisory with a note asking for one and we will coordinate a key exchange.
 
 ## v1.1 hardening pass
 

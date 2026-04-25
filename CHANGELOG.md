@@ -6,6 +6,22 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.0.5] - 2026-04-25
+
+All six items the reviewer raised were verified real and fixed.
+
+### Fixed
+
+- **`SPEC.md` §3.3 said "A trace MUST NOT contain more than one `metadata` record"** — directly contradicted shipping code. `Session.record_metadata()` has been writing additional metadata records to mark session boundaries since v1.4 (a docstring explicitly says "Shadow's session detector treats multiple metadata records in a trace as the canonical session boundary signal"). The spec rule is removed; replaced with an explicit clause documenting that non-root `metadata` records are valid as session-boundary markers, MUST have a non-null `parent`, and that consumers without session-boundary semantics MAY treat them as no-ops.
+- **`SECURITY.md` "Supported versions"** still listed `1.x` and `0.x`. Updated to `2.x` (active) + `1.x` (security fixes only on the latest 1.7.x line) + `0.x` (unsupported).
+- **`SECURITY.md` overclaim about "end-to-end" private advisories** — softened. GitHub's private advisory channel is access-restricted but not cryptographic E2E (GitHub holds the data at rest). The doc now says it's the "preferred private reporting transport" and offers a separate cryptographic channel on request.
+- **`ROADMAP.md` duplicated runtime enforcement and richer behavior contracts in BOTH "Shipping today" and "What's next"** — these shipped in v2.0.0. Removed from the "What's next" section, leaving only the truly outstanding items (streaming replay, multimodal, harness-diff, MCP-native replay, TypeScript streaming parity, tool-call pre-dispatch interception).
+- **`ROADMAP.md` said "Eight importers"** but listed nine (Langfuse, Braintrust, LangSmith, OpenAI Evals, OTLP, MCP, A2A, Vercel AI SDK, PydanticAI). Off-by-one fixed.
+- **`ROADMAP.md` MCP server bullet** listed five tools (diff, policy check, token diff, schema watch, summary). v1.7.2 added `shadow_certify` and `shadow_verify_cert`. Now lists all seven.
+- **`ROADMAP.md` claimed Python and TypeScript auto-instrumentation "including the OpenAI Responses API and streaming"** — TypeScript explicitly passes streaming through unrecorded (`typescript/src/instrumentation.ts:10`). Bullet now states the gap honestly: Python covers streaming aggregation, TypeScript currently passes streaming through unrecorded. New roadmap entry "TypeScript SDK parity for streaming" tracks closing it.
+- **CI `python-full-extras` job was installing only six extras** (`dev`, `anthropic`, `openai`, `otel`, `serve`, `embeddings`) — missed `mcp`, `sign`, and the three framework adapters (`langgraph`, `crewai`, `ag2`). Local `ci-local-extras` was already more complete. The CI job now installs every optional extra including `[sign]` under `--prerelease=allow`. This closes the "local parity stronger than GitHub CI" inversion.
+- **README claimed the TypeScript SDK "works the same way"** as Python. Replaced with an explicit feature parity matrix that names every gap: TS streaming passes through unrecorded; runtime enforcement / certify / sign / replay / diff / bisect / mine / MCP server are Python-CLI-only. The `.agentlog` format itself is the contract — TS-recorded traces feed into Python's tooling without translation.
+
 ## [2.0.4] - 2026-04-25
 
 ### Fixed
