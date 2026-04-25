@@ -9,7 +9,7 @@ build-backend = "maturin"
 # the CLI stays `shadow`, and the repo stays Shadow — only the
 # `pip install` name is different.
 name = "shadow-diff"
-version = "2.0.3"
+version = "2.0.4"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
 # Dual-licensed to match the Rust community convention (tokio, serde,
 # ruff, uv). MIT keeps embedding frictionless; Apache-2.0 adds an
@@ -154,10 +154,14 @@ strict = true
 python_version = "3.11"
 files = ["src/shadow"]
 
-# Modules that depend on optional extras (fastapi / starlette / uvicorn) not
-# installed in the default CI venv. When a user opts into those extras, mypy
-# can check these too — but the default install shouldn't fail on missing
-# stubs for deps the user explicitly didn't install.
+# Modules that depend on optional extras (fastapi / starlette / uvicorn /
+# sigstore) not installed in the default CI venv. When a user opts into
+# those extras, mypy can check these too — but the default install
+# shouldn't fail on missing stubs for deps the user explicitly didn't
+# install. The [sign] extra additionally requires --prerelease=allow
+# at install time (sigstore's dependencies pull pre-release wheels),
+# which CI doesn't pass by default; certify_sign goes here for the
+# same reason.
 [[tool.mypy.overrides]]
 module = [
     "shadow.enterprise.*",
@@ -165,6 +169,7 @@ module = [
     "shadow.mcp_server",
     "shadow.adapters.*",
     "shadow.tools.sandbox",
+    "shadow.certify_sign",
 ]
 ignore_errors = true
 

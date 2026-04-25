@@ -115,6 +115,12 @@ ci-local-extras:
     # split into its own step so a flake here doesn't mask earlier
     # failures and the output stays legible.
     uv pip install --python .venv/bin/python -e "python[embeddings]"
+    # `sign` pulls sigstore + Fulcio/Rekor client trees. sigstore-rekor-types
+    # carries pre-release wheels at versions like 0.0.18 and similar pulls
+    # sigstore-protobuf-specs at >0.3.5,<0.4.dev0 — uv refuses by default,
+    # so this step needs --prerelease=allow. Same prerelease policy as the
+    # release pipeline.
+    uv pip install --python .venv/bin/python --prerelease=allow -e "python[sign]"
     @echo "==> ci-local-extras: pytest with all extras (no --ignore)"
     .venv/bin/python -m pytest python/tests -v --ignore=python/tests/test_judge_live.py
 
