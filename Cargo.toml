@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/shadow-core"]
 
 [workspace.package]
-version = "1.7.0"
+version = "1.7.1"
 edition = "2021"
 rust-version = "1.95"
 # Dual-licensed per Rust community convention (tokio, serde, ruff, uv, polars).

@@ -48,7 +48,11 @@ lint-python:
     # this recipe drifts narrower, broken pushes slip past `just ci`.
     uv run --python .venv/bin/python ruff check python/ examples/
     uv run --python .venv/bin/python ruff format --check python/ examples/
-    uv run --python .venv/bin/python mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py examples/stress_v16x/run_stress.py
+    uv run --python .venv/bin/python mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py
+    # Stress harnesses share the filename `run_stress.py`; mypy can't load
+    # both into one run without colliding the module name. Two invocations.
+    uv run --python .venv/bin/python mypy --config-file python/pyproject.toml --strict examples/stress_v16x/run_stress.py
+    uv run --python .venv/bin/python mypy --config-file python/pyproject.toml --strict examples/stress_v17x/run_stress.py
 
 # Run the end-to-end demo (uses MockLLM, must complete <10s).
 demo:
@@ -84,7 +88,9 @@ ci-local:
     @echo "==> python: ruff + mypy (CI scope)"
     .venv/bin/python -m ruff check python/ examples/
     .venv/bin/python -m ruff format --check python/ examples/
-    .venv/bin/python -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py examples/stress_v16x/run_stress.py
+    .venv/bin/python -m mypy --config-file python/pyproject.toml --strict python/src examples/demo/agent.py examples/demo/generate_fixtures.py
+    .venv/bin/python -m mypy --config-file python/pyproject.toml --strict examples/stress_v16x/run_stress.py
+    .venv/bin/python -m mypy --config-file python/pyproject.toml --strict examples/stress_v17x/run_stress.py
     @echo "==> python: pytest with coverage gate"
     .venv/bin/python -m pytest python/tests --cov=shadow --cov-config=python/pyproject.toml --cov-fail-under=85 --cov-report=term-missing
     @echo "==> demo: end-to-end <10s"

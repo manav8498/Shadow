@@ -3,7 +3,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-1.7.0-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-1.7.1-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -103,7 +103,20 @@ Run:
 shadow diff baseline.agentlog candidate.agentlog --policy shadow-policy.yaml
 ```
 
-The candidate trace is checked against every rule. Violations that are new in the candidate are flagged as regressions. Violations that existed in the baseline and are now cleared are flagged as fixes. Eight rule kinds ship today: `must_call_before`, `must_call_once`, `no_call`, `max_turns`, `required_stop_reason`, `max_total_tokens`, `must_include_text`, `forbidden_text`.
+The candidate trace is checked against every rule. Violations that are new in the candidate are flagged as regressions. Violations that existed in the baseline and are now cleared are flagged as fixes. Nine rule kinds ship today: `must_call_before`, `must_call_once`, `no_call`, `max_turns`, `required_stop_reason`, `max_total_tokens`, `must_include_text`, `forbidden_text`, `must_match_json_schema`.
+
+`must_match_json_schema` is the structured-output assertion: every chat response is parsed as JSON and validated against a JSON Schema. Mismatches name the offending dotted path so reviewers see exactly which field broke.
+
+```yaml
+rules:
+  - id: structured-output
+    kind: must_match_json_schema
+    params:
+      schema_path: schemas/refund_decision.schema.json
+    severity: error
+```
+
+Supply either an inline `schema:` dict or a `schema_path:` to a JSON Schema file. NaN / Infinity literals are rejected because they aren't valid JSON per RFC 8259 even though Python's parser accepts them.
 
 Each rule can carry a `when:` clause that gates it on field-path conditions, so a rule fires only on the matching subset of pairs:
 
@@ -228,6 +241,30 @@ shadow init --github-action
 
 Drops a ready-to-commit workflow at `.github/workflows/shadow-diff.yml`. Point the `BASELINE` and `CANDIDATE` paths at fixtures you commit, and every PR gets a behavior-diff comment.
 
+To gate the merge, add `--fail-on severe` (or `moderate` / `minor`) to the `shadow diff` step. The PR comment posts first; the gate runs as a separate step so a blocked PR still has the explanation.
+
+```bash
+shadow diff baseline.agentlog candidate.agentlog \
+  --policy shadow-policy.yaml \
+  --fail-on severe
+```
+
+Exits 1 when the worst axis severity or policy regression hits the threshold; 0 otherwise.
+
+## Sign every release with an Agent Behavior Certificate
+
+```bash
+shadow certify candidate.agentlog \
+  --agent-id refund-agent@2.3.0 \
+  --policy shadow-policy.yaml \
+  --baseline baseline.agentlog \
+  --output release.cert.json
+
+shadow verify-cert release.cert.json
+```
+
+Produces a content-addressed JSON release artifact (Agent Behavior Bill of Materials) that captures the trace's content-id, all distinct models observed, content-ids of system prompts and tool schemas, the policy file hash, and an optional baseline-vs-candidate nine-axis regression-suite rollup. The certificate is self-verifying: `verify-cert` recomputes the body hash and exits 1 on tamper, so it works as a release gate. PKI / cosign signing layers on top in a future release; the format is stable today.
+
 ## Use Shadow from an agentic CLI (MCP server)
 
 Shadow speaks the Model Context Protocol. Any MCP-aware client (Claude Desktop, Claude Code, Cursor, Zed, Windsurf, and others) can invoke Shadow as a tool:
@@ -302,6 +339,8 @@ Full details in [`SPEC.md`](SPEC.md).
 | Self-hostable | ✅ | no | no | ✅ |
 | PR comment from CI | partial | partial | partial | ✅ |
 | Behavior policy rules | no | no | no | ✅ |
+| Merge-blocking CI gate | no | no | no | ✅ |
+| Signed release certificate | no | no | no | ✅ |
 | Causal attribution | no | no | no | ✅ |
 | Nine pre-built behavior axes | no | no | no | ✅ |
 | Open content-addressed trace format | no | no | no | ✅ |
@@ -329,13 +368,15 @@ Every example runs offline from committed fixtures. No API key required:
 | `shadow init` | Scaffold a `.shadow/` folder. `--github-action` drops a CI workflow. |
 | `shadow record -- <cmd>` | Run `<cmd>`, auto-capture its LLM calls. Zero code changes. |
 | `shadow replay <cfg> --baseline <trace>` | Replay baseline through a new config. `--partial --branch-at N` locks a prefix, replays only the suffix. |
-| `shadow diff <baseline> <candidate>` | Nine-axis behavior diff. `--policy <f>` to enforce rules. `--token-diff` for per-turn token distribution. `--suggest-fixes` for LLM-assisted fix proposals. |
+| `shadow diff <baseline> <candidate>` | Nine-axis behavior diff. `--policy <f>` to enforce rules. `--fail-on {minor,moderate,severe}` to gate the merge. `--token-diff` for per-turn token distribution. `--suggest-fixes` for LLM-assisted fix proposals. |
 | `shadow bisect <cfg-a> <cfg-b> --traces <set>` | Attribute each axis regression to specific config deltas. |
 | `shadow schema-watch <cfg-a> <cfg-b>` | Classify tool-schema changes before replaying. |
 | `shadow import <src> --format <fmt>` | Import foreign traces (langfuse, braintrust, langsmith, openai-evals, otel, mcp, a2a, vercel-ai, pydantic-ai). |
 | `shadow mine <traces...>` | Cluster production traces and pick representative cases as a regression suite. |
 | `shadow mcp-serve` | Run Shadow as a Model Context Protocol server so agentic CLIs can invoke it as a tool. |
 | `shadow report <report.json>` | Re-render a diff as terminal, markdown, or PR-comment. |
+| `shadow certify <trace>` | Generate an Agent Behavior Certificate (ABOM) for a release. `--baseline` folds in a regression-suite rollup; `--policy` records its hash. |
+| `shadow verify-cert <cert>` | Verify a certificate's content-addressed `cert_id` matches the body. Exits 1 on tamper. |
 
 ## Project layout
 
