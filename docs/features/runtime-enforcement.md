@@ -53,7 +53,46 @@ This means `PolicyEnforcer.evaluate(records)` returns a `Verdict` with only the 
 
 Every rule kind in [Behavior policy](policy.md) works at runtime. Some rules are inherently post-hoc — `must_followup` queues an obligation at trigger time and only confirms whether it was met when the next pair lands. The runtime enforcer evaluates obligations at every turn, so an unmet `must_followup` surfaces on the *following* turn that didn't satisfy it.
 
-Tool-side enforcement (blocking a tool call before it fires) is not part of this surface. The runtime enforcer evaluates `record_chat` after the model has responded; for pre-call blocking, your code calls the model directly and consults `enforcer.evaluate(records_so_far)` before deciding whether to dispatch the tool.
+## Pre-tool-call enforcement (v2.1)
+
+For dangerous tools — `issue_refund`, `send_email`, `execute_sql`, `delete_user`, `deploy_service` — post-response enforcement is too late. The side effect already happened. v2.1 adds `wrap_tools` to move the policy check BEFORE the tool function runs:
+
+```python
+from shadow.policy_runtime import EnforcedSession, PolicyEnforcer
+
+enforcer = PolicyEnforcer.from_policy_file("policy.yaml")
+with EnforcedSession(enforcer=enforcer, output_path="run.agentlog") as s:
+    guarded = s.wrap_tools({
+        "issue_refund": issue_refund,
+        "delete_user": delete_user,
+    })
+    # The wrapper evaluates the policy with a synthesised candidate
+    # tool_call appended to the trace-so-far. If it would violate, the
+    # underlying function is NEVER called.
+    result = guarded["delete_user"](user_id="u-42")
+```
+
+How it works under the hood:
+
+1. The wrapper synthesises a candidate `tool_call` record (tool name + arguments) and appends it to a copy of `session._records`.
+2. It calls `enforcer.probe(records + [candidate])`. **Probe is non-mutating** — a denied probe doesn't leave state behind, so a tool that's repeatedly blocked doesn't pollute the enforcer's `_known` set.
+3. On `allow`: the underlying function runs and returns its result.
+4. On deny, behaviour follows the enforcer's `on_violation`:
+   - `replace`: the wrapper returns a placeholder (default: a string marker; override via `blocked_replacement=`)
+   - `raise`: `PolicyViolationError` thrown; the underlying function is never called
+   - `warn`: logged and the underlying function runs anyway
+
+Rules that catch tool-sequence violations (`no_call`, `must_call_before`, `must_call_once`) work pre-dispatch automatically. Rules that depend on response text (`must_be_grounded`, `forbidden_text`, `must_match_json_schema`) are still response-side and run via `record_chat`.
+
+The `_extract_tool_call_sequence` helper now reads BOTH `tool_use` blocks inside `chat_response` records (the LLM-emitted shape) AND standalone `tool_call` records (the explicit `Session.record_tool_call` shape, plus pre-dispatch probes). This means `Session.record_tool_call` calls are now first-class to the policy engine — historically they were invisible to `no_call` and the ordering rules.
+
+For frameworks (LangGraph, LangChain, CrewAI) that manage their own session state, `wrap_tools` accepts a `records_provider=` callable instead of a `session=`:
+
+```python
+guarded = wrap_tools(tools, enforcer, records_provider=lambda: my_records_list)
+```
+
+That gives an integration point without forcing the host code to use Shadow's `Session`.
 
 ## Programmatic API without `EnforcedSession`
 
