@@ -92,7 +92,23 @@ ci-local:
     # where it's just `timeout`. Pick whichever is on PATH; if neither,
     # run unguarded — the demo targets <10s and a runaway is rare.
     bash -c 'if command -v timeout >/dev/null 2>&1; then timeout 30 bash examples/demo/demo.sh; elif command -v gtimeout >/dev/null 2>&1; then gtimeout 30 bash examples/demo/demo.sh; else bash examples/demo/demo.sh; fi'
+    @just ci-local-extras
     @echo "==> ci-local: ALL GREEN"
+
+# Replicate the `python-full-extras` CI job: install every optional
+# extra, then run the entire pytest suite with no --ignore filter.
+# Catches optional-extras gating bugs (e.g. an mcp test that imports at
+# collection time and crashes a fresh-extras install). Idempotent —
+# extras add to whatever's already in .venv.
+ci-local-extras:
+    @echo "==> ci-local-extras: install every optional extra"
+    uv pip install --python .venv/bin/python -e "python[dev,anthropic,openai,otel,serve,mcp]"
+    # `embeddings` pulls sentence-transformers (~500 MB with torch);
+    # split into its own step so a flake here doesn't mask earlier
+    # failures and the output stays legible.
+    uv pip install --python .venv/bin/python -e "python[embeddings]"
+    @echo "==> ci-local-extras: pytest with all extras (no --ignore)"
+    .venv/bin/python -m pytest python/tests -v --ignore=python/tests/test_judge_live.py
 
 # Regenerate demo fixtures (run after the demo stops producing a baseline).
 regen-fixtures:
