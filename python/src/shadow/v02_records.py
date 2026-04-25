@@ -263,6 +263,13 @@ class BlobStore:
         self.root = Path(self.root)
         self.root.mkdir(parents=True, exist_ok=True)
 
+    @classmethod
+    def at(cls, path: str | Path) -> BlobStore:
+        """Convenience: ``BlobStore.at(".shadow/blobs")`` is the same
+        as ``BlobStore(root=Path(".shadow/blobs"))``. Easier to read
+        in user code that doesn't already have ``Path`` imported."""
+        return cls(root=Path(path))
+
     def put(self, data: bytes) -> str:
         """Write ``data`` and return its sha256 content id (with prefix)."""
         digest = hashlib.sha256(data).hexdigest()
