@@ -200,21 +200,23 @@ def test_multimodal_diff_unmatched_blob_severe() -> None:
     assert out.deltas[0].baseline_blob_id is None
 
 
-def test_multimodal_diff_no_phash_no_embedding_minor() -> None:
-    """Different blob_ids without any signal = minor (conservative)."""
+def test_multimodal_diff_no_phash_no_embedding_moderate() -> None:
+    """Different blob_ids without any signal = moderate. A swapped
+    blob with no similarity signal is more likely a real regression
+    than a near-duplicate; calling it minor under-flagged the case."""
     base = [_meta(), _blob_ref(blob_id="b1")]
     cand = [_meta(), _blob_ref(blob_id="c1")]
     out = multimodal_diff(base, cand)
-    assert out.deltas[0].severity == "minor"
+    assert out.deltas[0].severity == "moderate"
 
 
 def test_multimodal_diff_worst_severity_aggregation() -> None:
     """worst_severity is the max across all deltas."""
     base = [_meta(), _blob_ref(blob_id="a"), _blob_ref(blob_id="b")]
     cand = [_meta(), _blob_ref(blob_id="a"), _blob_ref(blob_id="c")]
-    # First pair: identical → none. Second pair: blob_id differs, no signal → minor.
+    # First pair: identical → none. Second pair: blob_id differs, no signal → moderate.
     out = multimodal_diff(base, cand)
-    assert out.worst_severity == "minor"
+    assert out.worst_severity == "moderate"
 
 
 def test_render_terminal_handles_empty() -> None:
