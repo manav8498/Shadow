@@ -1094,17 +1094,51 @@ def _lookup_path(ctx: dict[str, Any], path: str) -> Any:
 def _extract_tool_call_sequence(
     records: list[dict[str, Any]],
 ) -> list[tuple[int, str, dict[str, Any]]]:
-    """Return [(pair_index, tool_name, args), ...] in call order."""
+    """Return [(pair_index, tool_name, args), ...] in call order.
+
+    Two sources contribute, both treated as first-class:
+
+    1. ``tool_use`` content blocks inside ``chat_response`` records
+       (the Anthropic / OpenAI-Responses wire shape — the LLM emitted
+       a tool_use as part of its response).
+    2. Standalone ``tool_call`` records (the explicit Session API
+       shape: ``Session.record_tool_call`` and v2.1 pre-dispatch
+       ``GuardedTool`` probes both produce these). A standalone
+       ``tool_call`` is associated with the most recent
+       ``chat_response`` for ``pair_index`` purposes; if it precedes
+       any response (e.g. a probe on a fresh session before the LLM
+       has been called), it gets ``pair_index = pair_idx + 1`` to
+       sit "after" the recorded responses.
+
+    Including (2) is what makes pre-dispatch enforcement
+    (`shadow.policy_runtime.wrap_tools`) and explicit
+    `Session.record_tool_call` integration with policy rules work —
+    rules like `no_call`, `must_call_before`, and `must_call_once`
+    see standalone tool_calls without each rule needing its own
+    extraction logic.
+    """
     out: list[tuple[int, str, dict[str, Any]]] = []
     pair_idx = -1
     for rec in records:
-        if rec.get("kind") != "chat_response":
-            continue
-        pair_idx += 1
-        payload = rec.get("payload") or {}
-        for block in payload.get("content") or []:
-            if isinstance(block, dict) and block.get("type") == "tool_use":
-                out.append((pair_idx, str(block.get("name") or ""), dict(block.get("input") or {})))
+        kind = rec.get("kind")
+        if kind == "chat_response":
+            pair_idx += 1
+            payload = rec.get("payload") or {}
+            for block in payload.get("content") or []:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    out.append(
+                        (pair_idx, str(block.get("name") or ""), dict(block.get("input") or {}))
+                    )
+        elif kind == "tool_call":
+            payload = rec.get("payload") or {}
+            name = str(payload.get("tool_name") or "")
+            args = dict(payload.get("arguments") or {})
+            # Associate with the next pair (i.e. the response that
+            # would follow). For a pre-dispatch probe with no later
+            # response, this is pair_idx + 1; for a Session-recorded
+            # tool_call after a chat_response, pair_idx is already
+            # incremented and we use the next-after-current index.
+            out.append((pair_idx + 1, name, args))
     return out
 
 

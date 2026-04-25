@@ -3,7 +3,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-2.0.5-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.1.0-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -148,7 +148,18 @@ with EnforcedSession(enforcer=enforcer, output_path="run.agentlog") as s:
 
 When a recorded turn introduces a new violation, the session swaps the response for a refusal payload by default (`stop_reason: "policy_blocked"`) so downstream code keeps running. Set `on_violation="raise"` for hard failure, `"warn"` for log-only. The enforcer is incremental — whole-trace rules fire once when crossed, not once per recorded record.
 
-**Scope: this is post-response, not pre-tool-call.** `EnforcedSession.record_chat` evaluates after the model has returned. To block a *tool* before it executes, your code calls `enforcer.evaluate(records_so_far)` between the model response and the tool dispatch and acts on the verdict — Shadow doesn't sit between your agent and the tool. Pre-dispatch interception via the auto-instrument layer is on the roadmap. See [docs/features/runtime-enforcement.md](docs/features/runtime-enforcement.md).
+For dangerous tools (`issue_refund`, `send_email`, `execute_sql`, `delete_user`), wrap the tool registry to enforce BEFORE the function runs:
+
+```python
+guarded = s.wrap_tools({
+    "issue_refund": issue_refund,
+    "delete_user": delete_user,
+})
+result = guarded["delete_user"](user_id="u-42")
+# → blocked by no_call rule, real delete_user never called
+```
+
+The wrapper probes the enforcer with a synthesised candidate `tool_call` record. Tool-sequence rules (`no_call`, `must_call_before`, `must_call_once`) all work pre-dispatch. Response-text rules stay on `record_chat`. See [docs/features/runtime-enforcement.md](docs/features/runtime-enforcement.md) for the full surface, including standalone `wrap_tools(..., records_provider=...)` for framework-adapter integrations.
 
 ## Recording real agent traces
 

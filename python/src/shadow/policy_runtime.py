@@ -213,6 +213,26 @@ class PolicyEnforcer:
             violations=new_violations,
         )
 
+    def probe(self, records: list[dict[str, Any]]) -> Verdict:
+        """Like :meth:`evaluate` but does NOT mutate ``_known``. Use this
+        for pre-dispatch checks where the candidate may or may not end
+        up in the trace.
+
+        Pre-tool-call enforcement (see :func:`wrap_tools`) appends a
+        synthesised ``tool_call`` record to the records list and calls
+        ``probe`` to ask the enforcer "if this tool call happened, would
+        any rule fire?" If the verdict denies, the candidate is never
+        recorded — so we don't want the probe to remember that
+        violation as "already reported." When the probe allows, the
+        caller dispatches the tool for real and the next ``evaluate``
+        call (e.g. from the next ``record_chat``) sees the actual
+        records and correctly reports any violations once.
+        """
+        snapshot = set(self._known)
+        verdict = self.evaluate(records)
+        self._known = snapshot
+        return verdict
+
 
 class EnforcedSession(Session):
     """A :class:`Session` that runs policy evaluation incrementally on
@@ -291,13 +311,192 @@ class EnforcedSession(Session):
         self._records[-1] = new_resp_record
         return req_id, new_resp_id
 
+    def wrap_tools(
+        self,
+        tools: dict[str, Callable[..., Any]],
+    ) -> dict[str, GuardedTool]:
+        """Convenience: wrap a tool registry against this session's
+        enforcer. Equivalent to ``wrap_tools(tools, self._enforcer,
+        session=self)``."""
+        return wrap_tools(tools, self._enforcer, session=self)
+
+
+# ---- pre-dispatch tool-call enforcement --------------------------------
+
+
+# Default placeholder returned in `replace` mode when a tool call is
+# blocked. Tool functions can return any type, so we hand back a string
+# the caller can pattern-match on. Custom replacement-builders can
+# override.
+_DEFAULT_BLOCKED_TOOL_RETURN = "[shadow.policy_runtime] tool call blocked by policy"
+
+
+class GuardedTool:
+    """A tool function wrapped with pre-dispatch policy enforcement.
+
+    When invoked, the wrapper:
+
+    1. Synthesises a candidate ``tool_call`` record from the call's
+       ``args``/``kwargs`` and the wrapper's tool name.
+    2. Asks the enforcer to ``probe(records + [candidate])`` —
+       non-mutating, so a denied probe doesn't leave state behind.
+    3. On ``allow``: calls the underlying tool function, returns its
+       result.
+    4. On deny: behaviour depends on the enforcer's ``on_violation``:
+       - ``raise``: raises :class:`PolicyViolationError`
+       - ``replace``: returns a placeholder (custom builder if set)
+       - ``warn``: logs and calls the underlying function anyway
+
+    The wrapper does NOT itself record the ``tool_call`` /
+    ``tool_result`` pair — that's the caller's job, via
+    :meth:`Session.record_tool_call` and :meth:`record_tool_result`.
+    Recording on success keeps Shadow's content-addressing pure (the
+    real tool-result content-id ends up in the trace, not a synthesised
+    probe id).
+    """
+
+    def __init__(
+        self,
+        name: str,
+        fn: Callable[..., Any],
+        enforcer: PolicyEnforcer,
+        *,
+        session: Session | None = None,
+        records_provider: Callable[[], list[dict[str, Any]]] | None = None,
+        blocked_replacement: Any = None,
+    ) -> None:
+        self.name = name
+        self.fn = fn
+        self._enforcer = enforcer
+        self._session = session
+        self._records_provider = records_provider
+        self._blocked_replacement = (
+            blocked_replacement if blocked_replacement is not None else _DEFAULT_BLOCKED_TOOL_RETURN
+        )
+        if session is None and records_provider is None:
+            raise ValueError(
+                "GuardedTool needs either a `session` to read records from "
+                "or an explicit `records_provider` callable"
+            )
+
+    def _records_so_far(self) -> list[dict[str, Any]]:
+        if self._session is not None:
+            return list(self._session._records)
+        assert self._records_provider is not None  # checked in __init__
+        return list(self._records_provider())
+
+    def _build_probe(self, args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Build a synthesised ``tool_call`` record for the candidate
+        invocation. ``arguments`` is a best-effort merge of positional
+        and keyword args — most tool functions are kwarg-only in
+        production code, so positional args are stuffed under
+        ``"args"`` and the rule-evaluators fall back gracefully.
+        """
+        from shadow import _core
+
+        arguments = dict(kwargs)
+        if args:
+            arguments["args"] = list(args)
+        # Synthesise a stable-enough tool_call_id. Real call ids come
+        # from the LLM provider; a probe won't have one, so we mint a
+        # deterministic-ish placeholder. The id is opaque to rules.
+        import uuid
+
+        call_id = f"probe-{uuid.uuid4().hex[:12]}"
+        payload = {
+            "tool_name": self.name,
+            "tool_call_id": call_id,
+            "arguments": arguments,
+        }
+        records = self._records_so_far()
+        parent = records[-1]["id"] if records else "sha256:none"
+        return {
+            "version": "0.1",
+            "id": _core.content_id(payload),
+            "kind": "tool_call",
+            "ts": "1970-01-01T00:00:00.000Z",  # not part of content_id
+            "parent": parent,
+            "payload": payload,
+        }
+
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        records = self._records_so_far()
+        probe_record = self._build_probe(args, kwargs)
+        verdict = self._enforcer.probe([*records, probe_record])
+        if verdict.allow:
+            return self.fn(*args, **kwargs)
+
+        if self._enforcer.on_violation == "raise":
+            raise PolicyViolationError(verdict.violations)
+        if self._enforcer.on_violation == "warn":
+            log.warning(
+                "shadow.policy_runtime: tool `%s` would be blocked but warn "
+                "mode is set; calling anyway. Violations: %s",
+                self.name,
+                verdict.reason,
+            )
+            return self.fn(*args, **kwargs)
+        # replace mode: return the placeholder. We do NOT call the real
+        # tool. Callers can supply a richer replacement via the
+        # `blocked_replacement` constructor arg.
+        log.info(
+            "shadow.policy_runtime: tool `%s` blocked pre-dispatch: %s",
+            self.name,
+            verdict.reason,
+        )
+        return self._blocked_replacement
+
+
+def wrap_tools(
+    tools: dict[str, Callable[..., Any]],
+    enforcer: PolicyEnforcer,
+    *,
+    session: Session | None = None,
+    records_provider: Callable[[], list[dict[str, Any]]] | None = None,
+    blocked_replacement: Any = None,
+) -> dict[str, GuardedTool]:
+    """Wrap a tool registry with pre-dispatch policy enforcement.
+
+    Each entry in ``tools`` becomes a :class:`GuardedTool` that
+    enforces the policy BEFORE invoking the underlying function —
+    catches ``no_call``, ``must_call_before``, ``must_call_once`` and
+    similar tool-sequence rules at the dispatch site, not after the
+    tool has already executed. Critical for dangerous tools like
+    ``issue_refund``, ``send_email``, ``execute_sql``,
+    ``delete_user``, ``deploy_service``.
+
+    Either supply a ``session`` (the wrapper reads ``session._records``
+    on each call) or an explicit ``records_provider`` callable. The
+    convenience method :meth:`EnforcedSession.wrap_tools` passes the
+    session automatically.
+
+    ``blocked_replacement`` overrides the default placeholder string
+    that ``replace`` mode hands back when a call is blocked.
+
+    Returns a dict mirroring the input — caller dispatches with
+    ``guarded[name](*args, **kwargs)``.
+    """
+    return {
+        name: GuardedTool(
+            name,
+            fn,
+            enforcer,
+            session=session,
+            records_provider=records_provider,
+            blocked_replacement=blocked_replacement,
+        )
+        for name, fn in tools.items()
+    }
+
 
 __all__ = [
     "EnforcedSession",
+    "GuardedTool",
     "OnViolation",
     "PolicyEnforcer",
     "PolicyViolationError",
     "ReplacementBuilder",
     "Verdict",
     "default_replacement_response",
+    "wrap_tools",
 ]

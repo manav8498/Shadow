@@ -6,6 +6,26 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-04-25
+
+### Added
+
+- **Pre-tool-call (pre-dispatch) policy enforcement.** New public API in `shadow.policy_runtime`:
+  - `wrap_tools(tools, enforcer, *, session=None, records_provider=None, blocked_replacement=None)` — wraps a `{name: callable}` tool registry. Each entry returns a `GuardedTool` that probes the enforcer with a synthesised candidate `tool_call` record BEFORE invoking the underlying function. On `allow`, the function runs. On deny: `raise` mode throws `PolicyViolationError`, `replace` mode returns a placeholder (configurable per-tool via `blocked_replacement=`), `warn` mode logs and runs anyway. Catches `no_call`, `must_call_before`, `must_call_once` at the dispatch site for dangerous tools (`issue_refund`, `send_email`, `execute_sql`, `delete_user`, `deploy_service`).
+  - `Session.wrap_tools(tools)` convenience method on `EnforcedSession` that auto-binds the session.
+  - `PolicyEnforcer.probe(records)` non-mutating evaluation. The probe asks "if these records were the trace, would any rule fire?" without remembering the violation in `_known` — repeatedly blocked tool calls don't pollute enforcer state, and a denied probe followed by a real dispatch correctly fires once on the next `evaluate`.
+  - `GuardedTool` — the per-tool wrapper. Exposes `.name`, `.fn`, and a `__call__` that performs the probe + dispatch.
+
+- **`_extract_tool_call_sequence` now reads standalone `tool_call` records**, not only `tool_use` blocks inside `chat_response` content. This is what makes pre-dispatch enforcement work — a synthesised candidate `tool_call` record is now visible to `no_call` / `must_call_before` / `must_call_once` rules. Side benefit: `Session.record_tool_call` calls are now first-class to the policy engine; previously they were invisible to those rules unless paired with an Anthropic-style `tool_use` content block.
+
+- 11 new tests at `python/tests/test_policy_runtime_predispatch.py` covering: probe non-mutation, allowed dispatch passing through, blocked dispatch in all three modes (raise / replace / warn), `must_call_before` ordering enforcement, `wrap_tools` with explicit `records_provider`, `wrap_tools` requiring either session or records_provider, custom `blocked_replacement`, and repeated-block probe-state cleanliness.
+
+### Docs
+
+- `docs/features/runtime-enforcement.md` adds a "Pre-tool-call enforcement (v2.1)" section covering the new surface, the probe-vs-evaluate distinction, what rule kinds fire pre-dispatch vs response-side, and the `records_provider=` integration point for framework adapters.
+- README runtime-enforcement section gains a runnable `s.wrap_tools(...)` example with the `delete_user` blocked case.
+- ROADMAP moves "Pre-tool-call interception" out of "What's next." Remaining roadmap entry is auto-instrument-layer pre-dispatch (so OpenAI/Anthropic-driven agents get pre-dispatch enforcement automatically without wrapping their tool registry).
+
 ## [2.0.5] - 2026-04-25
 
 All six items the reviewer raised were verified real and fixed.
