@@ -1,5 +1,5 @@
 name: 'Shadow behavioral diff'
-description: 'Post a nine-axis behavioral diff of LLM agent traces on every PR. Optionally gate the merge on severity.'
+description: 'Post a behavioral diff of LLM agent traces on every PR. Nine axes by default, with optional harness-event and multimodal-blob sections. Optionally gate the merge on severity.'
 
 inputs:
   baseline:
