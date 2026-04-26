@@ -129,7 +129,7 @@ def test_token_diff_percentiles_correct() -> None:
 # ---- policy diff ----------------------------------------------------------
 
 
-def test_load_policy_accepts_wrapped_and_bare() -> None:
+def testload_policy_accepts_wrapped_and_bare() -> None:
     wrapped = {"rules": [{"id": "r1", "kind": "no_call", "params": {"tool": "bad"}}]}
     rules = load_policy(wrapped)
     assert rules[0].id == "r1"
@@ -139,17 +139,17 @@ def test_load_policy_accepts_wrapped_and_bare() -> None:
     assert rules2[0].id == "r1"
 
 
-def test_load_policy_rejects_unknown_kind() -> None:
+def testload_policy_rejects_unknown_kind() -> None:
     with pytest.raises(ShadowConfigError):
         load_policy([{"id": "r", "kind": "make-coffee", "params": {}}])
 
 
-def test_load_policy_rejects_wrong_shape() -> None:
+def testload_policy_rejects_wrong_shape() -> None:
     with pytest.raises(ShadowConfigError):
         load_policy(42)
 
 
-def test_load_policy_rejects_unknown_severity() -> None:
+def testload_policy_rejects_unknown_severity() -> None:
     """`severity: critical` (or any non-{info,warning,error} value)
     used to silently store as the raw string and then NEVER trip
     `--fail-on severe` because the rank lookup fell through to a
@@ -168,7 +168,7 @@ def test_load_policy_rejects_unknown_severity() -> None:
         )
 
 
-def test_load_policy_accepts_each_valid_severity() -> None:
+def testload_policy_accepts_each_valid_severity() -> None:
     """The three documented severities all parse cleanly."""
     for sev in ("info", "warning", "error"):
         rules = load_policy(
@@ -177,7 +177,7 @@ def test_load_policy_accepts_each_valid_severity() -> None:
         assert rules[0].severity == sev
 
 
-def test_load_policy_default_severity_is_error() -> None:
+def testload_policy_default_severity_is_error() -> None:
     """Policy rules with no explicit severity default to `error`."""
     rules = load_policy([{"id": "r", "kind": "no_call", "params": {"tool": "x"}}])
     assert rules[0].severity == "error"
@@ -963,7 +963,7 @@ def test_when_clause_combines_multiple_conditions_with_and() -> None:
     assert vs[0].pair_index == 0
 
 
-def test_load_policy_rejects_invalid_when_op() -> None:
+def testload_policy_rejects_invalid_when_op() -> None:
     with pytest.raises(ShadowConfigError, match="invalid op"):
         load_policy(
             [
@@ -977,7 +977,7 @@ def test_load_policy_rejects_invalid_when_op() -> None:
         )
 
 
-def test_load_policy_rejects_when_missing_value() -> None:
+def testload_policy_rejects_when_missing_value() -> None:
     with pytest.raises(ShadowConfigError, match="value"):
         load_policy(
             [
@@ -1022,3 +1022,56 @@ def test_session_scope_falls_back_to_single_session_when_no_requests() -> None:
     # same output as trace-scope on this shape (one violation at pair 0).
     vs = check_policy(records, rules)
     assert len(vs) == 1
+
+
+# ---- regression: load_policy validates required params per kind ----
+
+
+def testload_policy_rejects_must_call_before_with_wrong_params() -> None:
+    """The dogfood bug: a typo'd must_call_before with `tool`/`before_text`
+    (instead of `first`/`then`) used to slip through and produce a
+    `missing param` violation at check time on every trace, which then
+    canceled when comparing baseline vs candidate. Catch it at load."""
+    bad = {
+        "rules": [
+            {
+                "id": "must-search-before-writing",
+                "kind": "must_call_before",
+                "severity": "error",
+                "params": {"tool": "search", "before_text": "report"},
+            }
+        ]
+    }
+    with pytest.raises(ShadowConfigError, match="must_call_before.*missing required param 'first'"):
+        load_policy(bad)
+
+
+def testload_policy_rejects_wrong_param_type() -> None:
+    """Param type mismatch fails loud at load."""
+    bad = {
+        "rules": [
+            {
+                "id": "r",
+                "kind": "must_call_once",
+                "severity": "error",
+                "params": {"tool": 42},
+            }
+        ]
+    }
+    with pytest.raises(ShadowConfigError, match="param 'tool' must be str"):
+        load_policy(bad)
+
+
+def testload_policy_rejects_forbidden_text_without_text_param() -> None:
+    bad = {
+        "rules": [
+            {
+                "id": "r",
+                "kind": "forbidden_text",
+                "severity": "error",
+                "params": {},
+            }
+        ]
+    }
+    with pytest.raises(ShadowConfigError, match="forbidden_text.*missing required param 'text'"):
+        load_policy(bad)

@@ -839,11 +839,19 @@ def load_policy(data: Any) -> list[PolicyRule]:
                 f"must be one of {sorted(_VALID_SEVERITIES)}"
             )
         when = _parse_when(raw.get("when"), rule_index=i)
+        params = dict(raw.get("params") or {})
+        # Validate required params per kind. Without this, a typo in
+        # the params (e.g. `tool` instead of `first`/`then` on
+        # must_call_before) used to slip through and produce a
+        # "missing param" violation at check time on every trace —
+        # which canceled when comparing baseline vs candidate, so the
+        # rule appeared to do nothing. Fail at load instead.
+        _validate_rule_params(i, kind, params)
         out.append(
             PolicyRule(
                 id=str(raw.get("id") or f"rule-{i}"),
                 kind=kind,
-                params=dict(raw.get("params") or {}),
+                params=params,
                 severity=severity,
                 description=str(raw.get("description") or ""),
                 scope=scope,
@@ -851,6 +859,52 @@ def load_policy(data: Any) -> list[PolicyRule]:
             )
         )
     return out
+
+
+# Per-kind required-param contract. Only the kinds with simple,
+# unambiguous required keys are listed here — must_followup and
+# must_match_json_schema have richer contracts (must.kind dispatch,
+# schema-vs-schema_path) and stay validated at check time.
+_REQUIRED_PARAMS: dict[str, tuple[tuple[str, type | tuple[type, ...]], ...]] = {
+    "must_call_before": (("first", str), ("then", str)),
+    "must_call_once": (("tool", str),),
+    "no_call": (("tool", str),),
+    "max_turns": (("limit", (int, float)),),
+    "max_total_tokens": (("limit", (int, float)),),
+    "must_include_text": (("text", str),),
+    "forbidden_text": (("text", str),),
+    "required_stop_reason": (("allowed", (list, str)),),
+    "must_remain_consistent": (("path", str),),
+    "must_be_grounded": (("retrieval_path", str),),
+}
+
+
+def _validate_rule_params(index: int, kind: str, params: dict[str, Any]) -> None:
+    """Raise ShadowConfigError if ``params`` is missing or has the
+    wrong type for any of ``kind``'s required keys."""
+    from shadow.errors import ShadowConfigError
+
+    spec = _REQUIRED_PARAMS.get(kind)
+    if spec is None:
+        return
+    for key, expected in spec:
+        if key not in params:
+            raise ShadowConfigError(
+                f"policy rule #{index} (kind={kind!r}) is missing required param "
+                f"{key!r}.\nhint: required params for {kind} are "
+                f"{', '.join(k for k, _ in spec)}"
+            )
+        value = params[key]
+        if not isinstance(value, expected):
+            type_names = (
+                expected.__name__
+                if isinstance(expected, type)
+                else " or ".join(t.__name__ for t in expected)
+            )
+            raise ShadowConfigError(
+                f"policy rule #{index} (kind={kind!r}) param {key!r} must be "
+                f"{type_names}; got {type(value).__name__}"
+            )
 
 
 _VALID_SEVERITIES = frozenset({"info", "warning", "error"})
