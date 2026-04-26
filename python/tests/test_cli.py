@@ -270,3 +270,44 @@ def test_diff_fail_on_invalid_value_exits_two(tmp_path: Path) -> None:
     )
     assert result.exit_code == 2
     assert "fail-on" in result.output
+
+
+def test_diff_output_json_contains_policy_diff(tmp_path: Path) -> None:
+    """Regression: --policy results were terminal-only. CI scripts and PR-comment
+    renderers couldn't see which rules fired or where. Now policy_diff
+    rides along in the report JSON."""
+    baseline = tmp_path / "b.agentlog"
+    candidate = tmp_path / "c.agentlog"
+    _make_trace(baseline, latency_ms=100, text="hello FY2023")  # forbidden text
+    _make_trace(candidate, latency_ms=100, text="hello FY2026")  # clean
+    policy = tmp_path / "p.yaml"
+    policy.write_text(
+        "version: '1'\n"
+        "rules:\n"
+        "  - id: no-stale\n"
+        "    kind: forbidden_text\n"
+        "    severity: error\n"
+        "    params:\n"
+        "      text: 'FY2023'\n"
+    )
+    out_json = tmp_path / "report.json"
+    result = runner.invoke(
+        app,
+        [
+            "diff",
+            str(baseline),
+            str(candidate),
+            "--policy",
+            str(policy),
+            "--output-json",
+            str(out_json),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(out_json.read_text())
+    assert "policy_diff" in data, "policy_diff must appear in the saved report JSON"
+    pd = data["policy_diff"]
+    assert pd["baseline_violations"], "baseline had FY2023, expected violation"
+    assert not pd["candidate_violations"], "candidate had FY2026, expected clean"
+    assert len(pd["fixes"]) == 1
+    assert pd["fixes"][0]["rule_id"] == "no-stale"
