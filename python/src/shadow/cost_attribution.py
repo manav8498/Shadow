@@ -38,8 +38,35 @@ reasoning rates + batch_discount).
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from typing import Any
+
+# OpenAI / Anthropic chat-response payloads carry a dated model snapshot
+# (e.g. "gpt-5-2025-08-07", "gpt-4o-mini-2024-07-18", "claude-opus-4-7-20250219")
+# while pricing tables are usually keyed by the bare alias ("gpt-5",
+# "gpt-4o-mini", "claude-opus-4-7"). Strip the trailing dated suffix
+# and retry the lookup so the cost axis isn't silently zero whenever
+# the response model is a snapshot.
+_SNAPSHOT_TAIL = re.compile(r"-\d{4}-\d{2}-\d{2}$|-\d{8}$")
+
+
+def _resolve_pricing(model: str, pricing: dict[str, Any]) -> Any:
+    """Look up pricing for ``model``, falling back to the bare alias
+    when the recorded model is a dated snapshot. Returns whatever the
+    pricing dict carries (rich dict or legacy ``(input, output)``
+    tuple), or ``None`` if neither the snapshot nor the base name is
+    present.
+    """
+    if not model:
+        return None
+    rates = pricing.get(model)
+    if rates is not None:
+        return rates
+    base = _SNAPSHOT_TAIL.sub("", model)
+    if base != model:
+        return pricing.get(base)
+    return None
 
 
 @dataclass
@@ -198,7 +225,7 @@ def _cost_of_response(
     cached_in = float(usage.get("cached_input_tokens") or 0)
     thinking = float(usage.get("thinking_tokens") or 0)
     model = str(payload.get("model") or "")
-    rates = pricing.get(model)
+    rates = _resolve_pricing(model, pricing)
     if rates is None:
         return 0.0, input_t, output_t, cached_in, thinking
     # Rich-dict pricing (matching Rust ModelPricing).
@@ -269,7 +296,7 @@ def session_cost(
 
 def _counterfactual_cost(tokens: dict[str, float], model: str, pricing: dict[str, Any]) -> float:
     """Cost of a given token bag at a given model's pricing."""
-    rates = pricing.get(model)
+    rates = _resolve_pricing(model, pricing)
     if rates is None:
         return 0.0
     input_t = tokens.get("input_tokens", 0.0)
