@@ -8,7 +8,14 @@
 > backwards-compatible: a 0.1-only parser sees them as records of
 > unknown kind and is allowed to skip them.
 >
-> **License:** Apache-2.0 (see `LICENSE-SPEC`).
+> **License:** This specification document is licensed under the
+> Apache License, Version 2.0 (full text: [LICENSE-APACHE](LICENSE-APACHE)).
+> Apache-2.0's explicit patent grant lets any implementer produce
+> `.agentlog`-compatible tools without downstream patent risk —
+> standard practice for protocol / file-format specs (OpenTelemetry,
+> CycloneDX, SLSA all do the same). The Shadow software itself is
+> dual-licensed under MIT OR Apache-2.0; see [LICENSE](LICENSE) and
+> the README.
 >
 > **Editor:** manav8498.
 >
