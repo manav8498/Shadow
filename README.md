@@ -476,7 +476,7 @@ Shadow/
 ## License
 
 - **Code** (Rust, Python, TypeScript): dual [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE). Pick either.
-- **Spec** (`SPEC.md`): [Apache-2.0](LICENSE-SPEC) only.
+- **Spec** (`SPEC.md`): [Apache-2.0](LICENSE-APACHE) only.
 - **Name "Shadow" and logo**: see [TRADEMARK.md](TRADEMARK.md).
 
 ## Community
