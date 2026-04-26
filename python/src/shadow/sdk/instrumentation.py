@@ -276,8 +276,55 @@ def _enforce_pre_dispatch(
 # ---------------------------------------------------------------------------
 
 
+def _is_omitted(value: Any) -> bool:
+    """Return True for the OpenAI / Anthropic SDK 'unset' sentinels.
+
+    Both SDKs ship a placeholder type to distinguish "field not provided"
+    from "field is null" — ``openai.Omit``, ``openai.NotGiven`` (and
+    matching internal ``_types`` aliases), and ``anthropic.NotGiven``.
+    These leak into the kwargs dict for any optional parameter the
+    caller didn't pass, and the canonical-JSON layer in the Rust core
+    rejects them with ``ValueError: unsupported type Omit``. Strip
+    them at the translator boundary.
+    """
+    cls_name = type(value).__name__
+    if cls_name in {"Omit", "NotGiven"}:
+        return True
+    # Some SDK builds expose the same sentinels under module-private
+    # paths (e.g. openai._types.Omit). Match by qualname suffix as a
+    # safety net so the check survives SDK refactors.
+    qualname = getattr(type(value), "__qualname__", "") or ""
+    return qualname.endswith(".Omit") or qualname.endswith(".NotGiven")
+
+
+def _strip_omitted(value: Any) -> Any:
+    """Recursively drop ``Omit`` / ``NotGiven`` sentinels from a value.
+
+    Dict keys whose value is omitted are dropped entirely. List items
+    that are omitted are filtered out. Anything else passes through.
+    """
+    if _is_omitted(value):
+        return _OMIT_MARKER
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for k, v in value.items():
+            cleaned = _strip_omitted(v)
+            if cleaned is _OMIT_MARKER:
+                continue
+            out[k] = cleaned
+        return out
+    if isinstance(value, list):
+        cleaned_list = [_strip_omitted(v) for v in value]
+        return [v for v in cleaned_list if v is not _OMIT_MARKER]
+    return value
+
+
+_OMIT_MARKER = object()
+
+
 def _anthropic_req_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     """anthropic.messages.create(**kwargs) → Shadow chat_request payload."""
+    kwargs = _strip_omitted(kwargs)
     messages = [dict(m) for m in kwargs.get("messages", [])]
     system = kwargs.get("system")
     if system is not None:
@@ -311,6 +358,7 @@ def _anthropic_resp(response: Any, latency_ms: int) -> dict[str, Any]:
 
 def _openai_req_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     """openai.chat.completions.create(**kwargs) → Shadow chat_request payload."""
+    kwargs = _strip_omitted(kwargs)
     messages = [dict(m) for m in kwargs.get("messages", [])]
     params: dict[str, Any] = {}
     for src, dst in (
@@ -367,6 +415,7 @@ def _openai_resp(response: Any, latency_ms: int) -> dict[str, Any]:
 
 def _openai_responses_req_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
     """openai.responses.create(**kwargs) → Shadow chat_request payload."""
+    kwargs = _strip_omitted(kwargs)
     messages: list[dict[str, Any]] = []
     instructions = kwargs.get("instructions")
     if isinstance(instructions, str) and instructions:
