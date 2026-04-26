@@ -824,6 +824,12 @@ def diff_cmd(
             p_diff = policy_diff(b, c, rules)
             console.print("")
             console.print(render_policy_diff(p_diff))
+            # Persist the structured policy result on the report so
+            # `--output-json` carries it through to consumers (CI gate
+            # scripts, PR-comment renderers, etc.). Without this the
+            # policy info was terminal-only and a programmatic reader
+            # couldn't see which rules fired or where.
+            report["policy_diff"] = p_diff.to_dict()
 
         if harness_diff_flag:
             from shadow.harness_diff_render import render_terminal as render_harness_terminal
