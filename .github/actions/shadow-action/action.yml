@@ -136,27 +136,14 @@ runs:
           echo "fail-on=never; not gating merge."
           exit 0
         fi
-        # Re-run shadow diff with --fail-on to surface the gate decision
-        # as a non-zero exit. The comment was already posted above, so
-        # blocked PRs still see the explanation. Passes through every
-        # opt-in surface from the report run so the gate sees the same
-        # axes the comment shows.
-        PRICING_ARG=""
-        if [[ -n "${{ inputs.pricing }}" ]]; then
-          PRICING_ARG="--pricing ${{ inputs.pricing }}"
-        fi
-        POLICY_ARG=""
+        # `shadow gate` reads the report.json the comment step already
+        # produced and applies --fail-on without re-running the diff.
+        # Avoids paying for a second full traversal when judges or
+        # large traces are involved.
+        POLICY_ARGS=""
         if [[ -n "${{ inputs.policy }}" ]]; then
-          POLICY_ARG="--policy ${{ inputs.policy }}"
+          POLICY_ARGS="--policy ${{ inputs.policy }} --baseline ${{ inputs.baseline }} --candidate ${{ inputs.candidate }}"
         fi
-        EXTRA_ARGS=""
-        if [[ "${{ inputs.harness-diff }}" == "true" ]]; then
-          EXTRA_ARGS="$EXTRA_ARGS --harness-diff"
-        fi
-        if [[ "${{ inputs.multimodal-diff }}" == "true" ]]; then
-          EXTRA_ARGS="$EXTRA_ARGS --multimodal-diff"
-        fi
-        shadow diff "${{ inputs.baseline }}" "${{ inputs.candidate }}" \
-          $PRICING_ARG $POLICY_ARG $EXTRA_ARGS \
+        shadow gate .shadow-action/report.json \
           --fail-on "${{ inputs.fail-on }}" \
-          > /dev/null
+          $POLICY_ARGS
