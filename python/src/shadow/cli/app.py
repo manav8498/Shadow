@@ -893,47 +893,130 @@ def diff_cmd(
         # Merge-gate: exit non-zero when the worst signal exceeds the
         # caller's --fail-on threshold. The PR comment / output JSON
         # are still produced first; the failure is a separate concern.
-        diff_rank = {"none": 0, "minor": 1, "moderate": 2, "severe": 3}
-        policy_rank = {"info": 1, "warning": 2, "error": 3}
-        fail_on_rank = {"never": 99, "minor": 1, "moderate": 2, "severe": 3}
-        threshold = fail_on_rank.get(fail_on)
-        if threshold is None:
-            valid = ", ".join(k for k in fail_on_rank if k != "never")
-            err_console.print(f"[red]error[/]: --fail-on must be one of {valid}, never")
-            raise typer.Exit(code=2)
-        if threshold < 99:
-            rows = report.get("rows") or []
-            worst_axis = max(
-                (diff_rank.get(r.get("severity", "none"), 0) for r in rows),
-                default=0,
-            )
-            worst_policy = 0
-            if policy_file is not None:
-                # p_diff was computed in the policy block above when
-                # policy_file is set; recompute defensively here so the
-                # gate works even if that block changed shape.
-                from shadow.hierarchical import load_policy as _load_policy
-                from shadow.hierarchical import policy_diff as _policy_diff
+        try:
+            _apply_gate(report, fail_on, baseline=b, candidate=c, policy_file=policy_file)
+        except typer.Exit:
+            raise
+    except typer.Exit:
+        raise
+    except ShadowError as e:
+        _fail(e)
+    except Exception as e:
+        _fail(e)
 
-                _raw: Any
-                if policy_file.suffix.lower() in (".yaml", ".yml"):
-                    _raw = yaml.safe_load(policy_file.read_text())
-                else:
-                    _raw = json.loads(policy_file.read_text())
-                _rules = _load_policy(_raw)
-                _gate_diff = _policy_diff(b, c, _rules)
-                # Regressions count toward the gate; fixes do not.
-                for v in getattr(_gate_diff, "regressions", []) or []:
-                    sev = getattr(v, "severity", "info")
-                    worst_policy = max(worst_policy, policy_rank.get(sev, 1))
-            worst = max(worst_axis, worst_policy)
-            if worst >= threshold:
-                err_console.print(
-                    f"[red]fail[/]: worst signal severity {worst} >= "
-                    f"--fail-on threshold {fail_on} ({threshold}); "
-                    f"exiting 1 to gate the merge."
-                )
-                raise typer.Exit(code=1)
+
+_DIFF_RANK = {"none": 0, "minor": 1, "moderate": 2, "severe": 3}
+_POLICY_RANK = {"info": 1, "warning": 2, "error": 3}
+_FAIL_ON_RANK = {"never": 99, "minor": 1, "moderate": 2, "severe": 3}
+
+
+def _apply_gate(
+    report: dict[str, Any],
+    fail_on: str,
+    *,
+    baseline: list[dict[str, Any]] | None = None,
+    candidate: list[dict[str, Any]] | None = None,
+    policy_file: Path | None = None,
+) -> None:
+    """Shared gate logic: exit non-zero when the worst signal exceeds
+    ``fail_on``. ``baseline`` / ``candidate`` are required only when
+    ``policy_file`` is set; otherwise the gate runs purely from the
+    saved report's ``rows``.
+    """
+    threshold = _FAIL_ON_RANK.get(fail_on)
+    if threshold is None:
+        valid = ", ".join(k for k in _FAIL_ON_RANK if k != "never")
+        err_console.print(f"[red]error[/]: --fail-on must be one of {valid}, never")
+        raise typer.Exit(code=2)
+    if threshold >= 99:
+        return
+    rows = report.get("rows") or []
+    worst_axis = max(
+        (_DIFF_RANK.get(r.get("severity", "none"), 0) for r in rows),
+        default=0,
+    )
+    worst_policy = 0
+    if policy_file is not None:
+        if baseline is None or candidate is None:
+            err_console.print(
+                "[red]error[/]: --policy gating needs the original baseline "
+                "and candidate trace records (pass --baseline and --candidate)"
+            )
+            raise typer.Exit(code=2)
+        from shadow.hierarchical import load_policy as _load_policy
+        from shadow.hierarchical import policy_diff as _policy_diff
+
+        if policy_file.suffix.lower() in (".yaml", ".yml"):
+            _raw = yaml.safe_load(policy_file.read_text())
+        else:
+            _raw = json.loads(policy_file.read_text())
+        _rules = _load_policy(_raw)
+        _gate_diff = _policy_diff(baseline, candidate, _rules)
+        for v in getattr(_gate_diff, "regressions", []) or []:
+            sev = getattr(v, "severity", "info")
+            worst_policy = max(worst_policy, _POLICY_RANK.get(sev, 1))
+    worst = max(worst_axis, worst_policy)
+    if worst >= threshold:
+        err_console.print(
+            f"[red]fail[/]: worst signal severity {worst} >= "
+            f"--fail-on threshold {fail_on} ({threshold}); "
+            f"exiting 1 to gate the merge."
+        )
+        raise typer.Exit(code=1)
+
+
+@app.command("gate")
+def gate_cmd(
+    report_json: Annotated[
+        Path,
+        typer.Argument(help="Path to a report.json produced by `shadow diff --output-json`."),
+    ],
+    fail_on: Annotated[
+        str,
+        typer.Option(
+            "--fail-on",
+            help="Exit 1 when the worst signal hits this level: minor / moderate / severe / never.",
+        ),
+    ] = "severe",
+    policy_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--policy",
+            help=(
+                "Optional policy YAML to also gate on. Requires --baseline and --candidate "
+                "since policy regressions are recomputed from the original traces."
+            ),
+        ),
+    ] = None,
+    baseline: Annotated[
+        Path | None,
+        typer.Option("--baseline", help="Baseline trace (required when --policy is set)."),
+    ] = None,
+    candidate: Annotated[
+        Path | None,
+        typer.Option("--candidate", help="Candidate trace (required when --policy is set)."),
+    ] = None,
+) -> None:
+    """Apply --fail-on to a saved diff report without re-running the diff.
+
+    Designed for CI flows that already have a report.json from
+    `shadow diff --output-json`: avoids the second full diff invocation
+    just to check the merge gate. With --policy, also gates on policy
+    regressions recomputed from the original traces.
+    """
+    try:
+        report = json.loads(report_json.read_text())
+        b: list[dict[str, Any]] | None = None
+        c: list[dict[str, Any]] | None = None
+        if policy_file is not None:
+            if baseline is None or candidate is None:
+                err_console.print("[red]error[/]: --policy requires --baseline and --candidate.")
+                raise typer.Exit(code=2)
+            from shadow import _core
+
+            b = _core.parse_agentlog(baseline.read_bytes())
+            c = _core.parse_agentlog(candidate.read_bytes())
+        _apply_gate(report, fail_on, baseline=b, candidate=c, policy_file=policy_file)
     except typer.Exit:
         raise
     except ShadowError as e:
