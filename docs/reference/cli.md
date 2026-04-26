@@ -93,6 +93,23 @@ Nine-axis behavioural diff. Key flags:
   tier uses cosine similarity over recorded embeddings when both
   sides have them. Identical `blob_id` short-circuits.
 
+## `shadow gate <report.json>`
+
+Apply `--fail-on` to a saved `report.json` (produced by `shadow diff
+--output-json`) without re-running the diff. Designed for CI flows
+that already produced the report for the PR comment and want to
+gate the merge as a separate, cheap step:
+
+```bash
+shadow diff base.agentlog cand.agentlog --output-json report.json
+shadow gate report.json --fail-on severe
+```
+
+With `--policy <yaml>`, the gate also recomputes policy regressions
+from the original traces (passed via `--baseline` / `--candidate`)
+and counts them toward the threshold. Without `--policy`, it gates
+purely on axis severity and is fast.
+
 ## `shadow bisect <config_a> <config_b> --traces <trace>`
 
 LASSO-over-corners causal attribution. `--backend anthropic|openai`
