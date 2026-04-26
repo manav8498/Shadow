@@ -70,6 +70,51 @@ impl ModelPricing {
 /// Pricing table keyed by `chat_response.payload.model`.
 pub type Pricing = HashMap<String, ModelPricing>;
 
+/// Look up pricing for a model name with a fallback that strips a
+/// trailing dated snapshot suffix (`gpt-5-2025-08-07` →`gpt-5`,
+/// `claude-opus-4-7-20250219` → `claude-opus-4-7`). Provider SDKs
+/// almost always return the dated snapshot in chat-response bodies,
+/// while pricing tables are usually keyed by the bare alias.
+fn lookup_with_snapshot_fallback<'a>(
+    pricing: &'a Pricing,
+    model: &str,
+) -> Option<&'a ModelPricing> {
+    if let Some(p) = pricing.get(model) {
+        return Some(p);
+    }
+    if let Some(base) = strip_snapshot_tail(model) {
+        return pricing.get(base);
+    }
+    None
+}
+
+/// If `model` ends with a dated snapshot tail (`-YYYY-MM-DD` or `-YYYYMMDD`),
+/// return the prefix without it. Otherwise None.
+fn strip_snapshot_tail(model: &str) -> Option<&str> {
+    let bytes = model.as_bytes();
+    // Try -YYYY-MM-DD (length 11).
+    if bytes.len() > 11 && bytes[bytes.len() - 11] == b'-' {
+        let tail = &bytes[bytes.len() - 10..];
+        if tail.len() == 10
+            && tail[..4].iter().all(u8::is_ascii_digit)
+            && tail[4] == b'-'
+            && tail[5..7].iter().all(u8::is_ascii_digit)
+            && tail[7] == b'-'
+            && tail[8..10].iter().all(u8::is_ascii_digit)
+        {
+            return Some(&model[..model.len() - 11]);
+        }
+    }
+    // Try -YYYYMMDD (length 9).
+    if bytes.len() > 9 && bytes[bytes.len() - 9] == b'-' {
+        let tail = &bytes[bytes.len() - 8..];
+        if tail.len() == 8 && tail.iter().all(u8::is_ascii_digit) {
+            return Some(&model[..model.len() - 9]);
+        }
+    }
+    None
+}
+
 pub(crate) fn cost_of(r: &Record, pricing: &Pricing) -> Option<f64> {
     let model = r.payload.get("model")?.as_str()?;
     let usage = r.payload.get("usage")?;
@@ -103,7 +148,7 @@ pub(crate) fn cost_of(r: &Record, pricing: &Pricing) -> Option<f64> {
     {
         return Some(0.0);
     }
-    let Some(p) = pricing.get(model) else {
+    let Some(p) = lookup_with_snapshot_fallback(pricing, model) else {
         return Some(0.0);
     };
     let cached_rate = if p.cached_input > 0.0 {
@@ -161,7 +206,7 @@ fn pair_is_priced(br: &Record, cr: &Record, pricing: &Pricing) -> bool {
         r.payload
             .get("model")
             .and_then(|m| m.as_str())
-            .is_some_and(|m| pricing.contains_key(m))
+            .is_some_and(|m| lookup_with_snapshot_fallback(pricing, m).is_some())
     }
     model_in_table(br, pricing) && model_in_table(cr, pricing)
 }
@@ -503,5 +548,55 @@ mod tests {
         let stat_b = compute(&pairs_batched, &pricing, Some(1));
         let stat_n = compute(&pairs_normal, &pricing, Some(1));
         assert!((stat_b.baseline_median - stat_n.baseline_median * 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn snapshot_tail_strips_iso_dates() {
+        assert_eq!(strip_snapshot_tail("gpt-5-2025-08-07"), Some("gpt-5"));
+        assert_eq!(
+            strip_snapshot_tail("gpt-4o-mini-2024-07-18"),
+            Some("gpt-4o-mini"),
+        );
+        // Anthropic-style packed YYYYMMDD.
+        assert_eq!(
+            strip_snapshot_tail("claude-opus-4-7-20250219"),
+            Some("claude-opus-4-7"),
+        );
+        // No tail.
+        assert_eq!(strip_snapshot_tail("gpt-5"), None);
+        assert_eq!(strip_snapshot_tail("gpt-4o-mini"), None);
+        // False positives not stripped (model name happens to end in digits).
+        assert_eq!(strip_snapshot_tail("o1"), None);
+    }
+
+    #[test]
+    fn cost_resolves_dated_snapshot_to_bare_alias() {
+        // Real-world bug: chat_response carries `gpt-5-2025-08-07` but
+        // pricing.json is keyed by `gpt-5`. Without the fallback the cost
+        // axis silently flagged `no_pricing` and reported zero delta.
+        let mut pricing = Pricing::new();
+        pricing.insert(
+            "gpt-5".to_string(),
+            ModelPricing {
+                input: 0.000010,
+                output: 0.000040,
+                cached_input: 0.0,
+                cached_write_5m: 0.0,
+                cached_write_1h: 0.0,
+                reasoning: 0.0,
+                batch_discount: 0.0,
+            },
+        );
+        let r = response("gpt-5-2025-08-07", 100, 50);
+        let cost = cost_of(&r, &pricing).unwrap();
+        // 100 * 1e-5 + 50 * 4e-5 = 0.001 + 0.002 = 0.003
+        assert!((cost - 0.003).abs() < 1e-9, "got {}", cost);
+        // pair_is_priced must also see the snapshot as priced.
+        let pairs = [(&r, &r)];
+        let stat = compute(&pairs, &pricing, Some(42));
+        assert!(
+            !stat.flags.contains(&Flag::NoPricing),
+            "pair_is_priced should accept dated snapshots"
+        );
     }
 }
