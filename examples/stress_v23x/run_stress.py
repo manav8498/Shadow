@@ -465,7 +465,10 @@ def stress_mcp_replay_1000_call_recording() -> None:
 
 def stress_mcp_replay_repeated_call_ordering() -> None:
     """Repeated calls return recorded responses in original order, then
-    fall back to the last recorded response."""
+    fall back to the last recorded response. Pinned to strict=False
+    because the strict default (added with the strict-overflow fix)
+    raises on over-consumption — that path is covered by the unit
+    tests; this stress test exercises the permissive fallback."""
     idx = RecordingIndex(
         calls=[
             MCPCall(method="tools/list", params={}, response={"v": 1}),
@@ -473,7 +476,7 @@ def stress_mcp_replay_repeated_call_ordering() -> None:
             MCPCall(method="tools/list", params={}, response={"v": 3}),
         ]
     )
-    sess = ReplayClientSession(idx)
+    sess = ReplayClientSession(idx, strict=False)
     seq = [sess.list_tools() for _ in range(5)]
     report(
         "ordering preserved then last-recorded fallback",
