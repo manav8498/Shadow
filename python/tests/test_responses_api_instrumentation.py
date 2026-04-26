@@ -244,3 +244,57 @@ def test_responses_api_tool_schema_translated(tmp_path: Path) -> None:
     req = records[1]["payload"]
     assert req["tools"][0]["name"] == "search"
     assert req["tools"][0]["input_schema"]["properties"]["q"]["type"] == "string"
+
+
+def test_responses_api_omit_sentinels_are_stripped(tmp_path: Path) -> None:
+    """Real-world bug from openai-agents dogfood: client.responses.create
+    receives openai.Omit / NotGiven sentinels for unset optional params,
+    which crashed the canonicaliser ("ValueError: unsupported type Omit").
+    The translator now drops them before hashing."""
+
+    class _OmitSentinel:
+        """Stand-in for openai.Omit — same name, no special behaviour."""
+
+        def __repr__(self) -> str:  # pragma: no cover — debug aid
+            return "Omit()"
+
+    # Ensure the sentinel matches the translator's name-based check.
+    _OmitSentinel.__name__ = "Omit"
+
+    responses_cls, _ = _install_fake_openai_responses()
+    out = tmp_path / "t.agentlog"
+    try:
+        with Session(output_path=out):
+            client = responses_cls()
+            client.create(
+                model="gpt-5",
+                input="hi",
+                instructions=_OmitSentinel(),
+                # Nested Omit inside a list and dict — recursive strip.
+                tools=[
+                    {
+                        "type": "function",
+                        "name": "noop",
+                        "description": _OmitSentinel(),
+                        "parameters": {
+                            "type": "object",
+                            "default": _OmitSentinel(),
+                        },
+                    }
+                ],
+                temperature=_OmitSentinel(),
+                max_output_tokens=_OmitSentinel(),
+            )
+    finally:
+        _cleanup()
+    records = _core.parse_agentlog(out.read_bytes())
+    req = records[1]["payload"]
+    # Omitted instructions never made it to messages as a system role.
+    assert all(m.get("role") != "system" for m in req["messages"])
+    # params has no temperature / max_tokens entries (both were Omit).
+    assert "temperature" not in req["params"]
+    assert "max_tokens" not in req["params"]
+    # Tool description didn't get a stringified Omit.
+    tool = req["tools"][0]
+    assert "description" not in tool or tool["description"] == ""
+    assert "default" not in tool["input_schema"]
