@@ -9,7 +9,7 @@ build-backend = "maturin"
 # the CLI stays `shadow`, and the repo stays Shadow — only the
 # `pip install` name is different.
 name = "shadow-diff"
-version = "2.4.2"
+version = "2.4.3"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
 # Dual-licensed to match the Rust community convention (tokio, serde,
 # ruff, uv). MIT keeps embedding frictionless; Apache-2.0 adds an
@@ -142,6 +142,13 @@ manifest-path = "../crates/shadow-core/Cargo.toml"
 module-name = "shadow._core"
 features = ["extension"]
 python-source = "src"
+# Explicitly include the dual-license files in the sdist so PyPI's
+# validator can find them at the expected path (LICENSE-File entries
+# in PKG-INFO must resolve inside the distribution archive).
+include = [
+    { path = "LICENSE-APACHE", format = "sdist" },
+    { path = "LICENSE-MIT", format = "sdist" },
+]
 
 [tool.ruff]
 line-length = 100

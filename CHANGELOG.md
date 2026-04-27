@@ -6,6 +6,14 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.4.3] - 2026-04-27
+
+Patch on top of 2.4.2. No new features — only the sdist fix.
+
+### Fixed
+
+- **sdist upload to PyPI failed with `400 License-File LICENSE-APACHE does not exist`** because maturin auto-discovered `python/LICENSE-APACHE` for PKG-INFO metadata but did not bundle the file into the tarball archive at `shadow_diff-2.4.3/LICENSE-APACHE`. Added explicit `[tool.maturin] include` entries scoped to `format = "sdist"` so the files land at the expected path inside the archive.
+
 ## [2.4.2] - 2026-04-27
 
 Distribution patch. Adds a Python source distribution (sdist) to the PyPI release so `pip install shadow-diff` works on platforms without a published wheel.
