@@ -202,3 +202,96 @@ def test_invalid_otlp_raises_config_error() -> None:
 
     with pytest.raises(ShadowConfigError):
         otel_to_agentlog(json.loads('{"not-otlp": true}'))
+
+
+def test_tool_call_roundtrip_is_lossless() -> None:
+    """Regression: production audit found that exporting an agentlog
+    with tool_call/tool_result records to OTel and importing back
+    dropped the tool-use structure entirely — produced false
+    trajectory and conformance regressions on tool-heavy agents.
+
+    Now the export carries `gen_ai.tool.arguments` and
+    `gen_ai.tool.result` attributes on the tool span, and the import
+    detects tool spans (`gen_ai.tool.name` attr or
+    `gen_ai.tool.call <name>` span name) and reconstructs both
+    records.
+    """
+    from shadow.importers import otel_to_agentlog
+    from shadow.otel import agentlog_to_otel
+
+    original = [
+        {
+            "version": "0.1",
+            "id": "sha256:m",
+            "kind": "metadata",
+            "ts": "2026-04-27T00:00:00Z",
+            "parent": None,
+            "payload": {"sdk": {"name": "shadow", "version": "2.4.1"}},
+        },
+        {
+            "version": "0.1",
+            "id": "sha256:req",
+            "kind": "chat_request",
+            "ts": "2026-04-27T00:00:01Z",
+            "parent": "sha256:m",
+            "payload": {
+                "model": "gpt-5",
+                "messages": [{"role": "user", "content": "search hello"}],
+                "params": {},
+            },
+        },
+        {
+            "version": "0.1",
+            "id": "sha256:resp",
+            "kind": "chat_response",
+            "ts": "2026-04-27T00:00:02Z",
+            "parent": "sha256:req",
+            "payload": {
+                "model": "gpt-5",
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "tool_use",
+                "latency_ms": 1000,
+                "usage": {"input_tokens": 5, "output_tokens": 3, "thinking_tokens": 0},
+            },
+        },
+        {
+            "version": "0.1",
+            "id": "sha256:tc",
+            "kind": "tool_call",
+            "ts": "2026-04-27T00:00:03Z",
+            "parent": "sha256:resp",
+            "payload": {
+                "tool_name": "lookup",
+                "tool_call_id": "call_abc",
+                "arguments": {"q": "hello world", "limit": 5},
+            },
+        },
+        {
+            "version": "0.1",
+            "id": "sha256:tr",
+            "kind": "tool_result",
+            "ts": "2026-04-27T00:00:04Z",
+            "parent": "sha256:tc",
+            "payload": {
+                "tool_call_id": "call_abc",
+                "output": "found 3 hits",
+                "is_error": False,
+                "latency_ms": 50,
+            },
+        },
+    ]
+
+    otlp = agentlog_to_otel(original)
+    back = otel_to_agentlog(otlp)
+
+    kinds = [r["kind"] for r in back]
+    assert kinds == ["metadata", "chat_request", "chat_response", "tool_call", "tool_result"]
+
+    tc_back = next(r for r in back if r["kind"] == "tool_call")
+    tr_back = next(r for r in back if r["kind"] == "tool_result")
+
+    assert tc_back["payload"]["tool_name"] == "lookup"
+    assert tc_back["payload"]["arguments"] == {"q": "hello world", "limit": 5}
+    assert tr_back["payload"]["output"] == "found 3 hits"
+    assert tr_back["payload"]["latency_ms"] == 50
+    assert tr_back["payload"]["is_error"] is False

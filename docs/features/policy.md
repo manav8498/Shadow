@@ -38,7 +38,33 @@ rules:
     severity: error
 ```
 
-Operators: `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`, `not_contains`. Paths are dotted into the per-pair context: `request.*` (model, messages, params, tools), `response.*` (content, stop_reason, latency_ms, usage), plus aliases `model` (== `request.model`) and `stop_reason` (== `response.stop_reason`).
+Operators: `==`, `!=`, `>`, `>=`, `<`, `<=`, `in`, `not_in`, `contains`, `not_contains`. Paths are dotted into the per-pair context: `request.*` (model, messages, params, tools), `response.*` (content, stop_reason, latency_ms, usage), plus aliases `model` (== `request.model`) and `stop_reason` (== `response.stop_reason`). Numeric segments resolve as list indices (`request.messages.1.content`), so a rule can target a specific message position without enumerating every shape.
+
+## Redaction interacts with `forbidden_text` / `must_include_text`
+
+The Shadow SDK's redaction layer runs **before records are written to disk**. By the time the policy engine sees a trace, an email like `jane@example.com` has been replaced with `[REDACTED:email]` (and similar markers for phone numbers, credit cards, API keys, AWS access key IDs, GitHub tokens). A rule like
+
+```yaml
+- id: never-leak-jane
+  kind: forbidden_text
+  params: { text: "jane@example.com" }
+```
+
+…will silently never fire, because the literal string is gone from the trace. **Two ways to write a PII gate that actually works:**
+
+1. **Match against the redaction marker.** If you want the rule to fire whenever the agent leaks *any* email through to a chat response, use the marker as the forbidden text:
+
+   ```yaml
+   - id: never-leak-emails
+     kind: forbidden_text
+     params: { text: "[REDACTED:email]" }
+   ```
+
+   This catches every email the redactor caught — which is the whole point of the redactor.
+
+2. **Disable redaction for the trace and gate against raw text.** Pass `redactor=None` to `Session(...)` if you want the policy to see unredacted PII. Only do this in trusted environments where the trace itself is treated as sensitive: it defeats the redaction guarantee.
+
+The first option is the default-safe pattern and is what production gates should use.
 
 ## Stateful and RAG-aware rules
 

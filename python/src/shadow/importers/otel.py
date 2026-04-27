@@ -144,50 +144,167 @@ def otel_to_agentlog(data: dict[str, Any]) -> list[dict[str, Any]]:
     ]
     last_parent = meta_id
 
-    chat_spans = [s for s in spans if _is_chat_span(s)]
-    for span in chat_spans:
-        attrs = _attrs_as_dict(span.get("attributes", []))
-        events = span.get("events", []) or []
-        # v1.37+ inference-details event can carry the messages attached to
-        # the span as a side-channel. Merge its attributes on top of the
-        # span's attribute bag so downstream extractors don't care which
-        # side carried them.
-        for ev in events:
-            if ev.get("name") == "gen_ai.client.inference.operation.details":
-                for k, v in _attrs_as_dict(ev.get("attributes", []) or []).items():
-                    attrs.setdefault(k, v)
-
-        start_ts = _nano_to_iso(span.get("startTimeUnixNano"))
-        end_ts = _nano_to_iso(span.get("endTimeUnixNano"))
-        req_payload = _span_to_request_payload(span, attrs, events)
-        req_id = _core.content_id(req_payload)
-        records.append(
-            _envelope(
-                "chat_request",
-                req_id,
-                start_ts,
-                last_parent,
-                req_payload,
-                otel_span_id=span.get("spanId", ""),
-                otel_trace_id=span.get("traceId", ""),
+    # Walk spans in order; emit tool_call + tool_result for tool spans
+    # and chat_request + chat_response for chat spans. Without the tool-
+    # span branch, exported tool spans were silently dropped on import,
+    # producing false trajectory / latency / conformance regressions on
+    # any tool-heavy agent.
+    for span in spans:
+        if _is_chat_span(span):
+            attrs = _attrs_as_dict(span.get("attributes", []))
+            events = span.get("events", []) or []
+            # v1.37+ inference-details event can carry the messages attached
+            # to the span as a side-channel. Merge its attributes on top of
+            # the span's attribute bag so downstream extractors don't care
+            # which side carried them.
+            for ev in events:
+                if ev.get("name") == "gen_ai.client.inference.operation.details":
+                    for k, v in _attrs_as_dict(ev.get("attributes", []) or []).items():
+                        attrs.setdefault(k, v)
+            start_ts = _nano_to_iso(span.get("startTimeUnixNano"))
+            end_ts = _nano_to_iso(span.get("endTimeUnixNano"))
+            req_payload = _span_to_request_payload(span, attrs, events)
+            req_id = _core.content_id(req_payload)
+            records.append(
+                _envelope(
+                    "chat_request",
+                    req_id,
+                    start_ts,
+                    last_parent,
+                    req_payload,
+                    otel_span_id=span.get("spanId", ""),
+                    otel_trace_id=span.get("traceId", ""),
+                )
             )
-        )
-        resp_payload = _span_to_response_payload(span, attrs, events, start_ts, end_ts)
-        resp_id = _core.content_id(resp_payload)
-        records.append(
-            _envelope(
-                "chat_response",
-                resp_id,
-                end_ts,
-                req_id,
-                resp_payload,
-                otel_span_id=span.get("spanId", ""),
-                otel_trace_id=span.get("traceId", ""),
+            resp_payload = _span_to_response_payload(span, attrs, events, start_ts, end_ts)
+            resp_id = _core.content_id(resp_payload)
+            records.append(
+                _envelope(
+                    "chat_response",
+                    resp_id,
+                    end_ts,
+                    req_id,
+                    resp_payload,
+                    otel_span_id=span.get("spanId", ""),
+                    otel_trace_id=span.get("traceId", ""),
+                )
             )
-        )
-        last_parent = resp_id
+            last_parent = resp_id
+        elif _is_tool_span(span):
+            tool_records, last_parent = _tool_span_to_records(span, last_parent)
+            records.extend(tool_records)
 
     return records
+
+
+def _is_tool_span(span: dict[str, Any]) -> bool:
+    """A standalone tool-call span emitted by Shadow's OTel exporter
+    or by GenAI-conventions-aligned auto-instrumenters.
+
+    Recognised when the span carries `gen_ai.tool.name` OR has a name
+    starting with `gen_ai.tool.call`. Both forms are produced by the
+    `agentlog_to_otel` exporter; some third-party instrumenters emit
+    only the name prefix.
+    """
+    attrs = _attrs_as_dict(span.get("attributes", []))
+    if "gen_ai.tool.name" in attrs:
+        return True
+    name = str(span.get("name", ""))
+    return name.startswith("gen_ai.tool.call") or name.startswith("gen_ai.execute_tool")
+
+
+def _tool_span_to_records(
+    span: dict[str, Any], last_parent: str
+) -> tuple[list[dict[str, Any]], str]:
+    """Reconstruct a (tool_call, tool_result) record pair from one
+    tool-call span. Returns the new records and the new last_parent
+    (the result's id, so the next span chains under it).
+
+    Roundtrip-friendly: pulls arguments from `gen_ai.tool.arguments`
+    (Shadow exporter convention) and result content from
+    `gen_ai.tool.result` (preferred) falling back to span events. If
+    neither is set the records still produce — they just carry empty
+    arguments and output, which is honest about what the OTel input
+    actually contained.
+    """
+    import json as _json
+
+    attrs = _attrs_as_dict(span.get("attributes", []))
+    name = str(attrs.get("gen_ai.tool.name") or _strip_tool_call_name_prefix(span.get("name", "")))
+    call_id = str(attrs.get("gen_ai.tool.call_id") or attrs.get("gen_ai.tool.id") or "")
+    if not call_id:
+        # Synthesize from spanId so tool_call.tool_call_id ↔ tool_result
+        # pairs match deterministically across import + export.
+        call_id = f"otel-{span.get('spanId', '')}"
+    raw_args = attrs.get("gen_ai.tool.arguments")
+    arguments: Any = {}
+    if isinstance(raw_args, str) and raw_args.strip():
+        try:
+            arguments = _json.loads(raw_args)
+        except _json.JSONDecodeError:
+            arguments = {"_raw": raw_args}
+    elif isinstance(raw_args, dict | list):
+        arguments = raw_args
+
+    raw_result = attrs.get("gen_ai.tool.result")
+    output: Any = ""
+    if isinstance(raw_result, str) and raw_result.strip():
+        try:
+            output = _json.loads(raw_result)
+        except _json.JSONDecodeError:
+            output = raw_result
+    elif isinstance(raw_result, dict | list):
+        output = raw_result
+
+    is_error = bool(attrs.get("gen_ai.tool.is_error", False))
+    latency_ms = int(attrs.get("shadow.latency_ms") or 0)
+    start_ts = _nano_to_iso(span.get("startTimeUnixNano"))
+    end_ts = _nano_to_iso(span.get("endTimeUnixNano"))
+
+    call_payload = {
+        "tool_name": name,
+        "tool_call_id": call_id,
+        "arguments": arguments,
+    }
+    call_id_hash = _core.content_id(call_payload)
+    out: list[dict[str, Any]] = [
+        _envelope(
+            "tool_call",
+            call_id_hash,
+            start_ts,
+            last_parent,
+            call_payload,
+            otel_span_id=span.get("spanId", ""),
+            otel_trace_id=span.get("traceId", ""),
+        )
+    ]
+    result_payload = {
+        "tool_call_id": call_id,
+        "output": output,
+        "is_error": is_error,
+        "latency_ms": latency_ms,
+    }
+    result_id = _core.content_id(result_payload)
+    out.append(
+        _envelope(
+            "tool_result",
+            result_id,
+            end_ts,
+            call_id_hash,
+            result_payload,
+            otel_span_id=span.get("spanId", ""),
+            otel_trace_id=span.get("traceId", ""),
+        )
+    )
+    return out, result_id
+
+
+def _strip_tool_call_name_prefix(span_name: str) -> str:
+    """`gen_ai.tool.call <name>` → `<name>`."""
+    for prefix in ("gen_ai.tool.call ", "gen_ai.execute_tool "):
+        if span_name.startswith(prefix):
+            return span_name[len(prefix) :]
+    return span_name
 
 
 # ---- span collection ------------------------------------------------------
