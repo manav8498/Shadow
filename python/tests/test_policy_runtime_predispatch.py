@@ -340,3 +340,102 @@ def test_repeated_blocked_calls_do_not_pollute_enforcer_state(tmp_path: Path) ->
         # mutate it. So an evaluate() now should still surface the
         # violation if a real call had been recorded.
         assert len(enforcer._known) == 0
+
+
+def test_wrap_tools_auto_records_successful_calls(tmp_path: Path) -> None:
+    """Default auto_record=True makes a successful tool call visible
+    to subsequent sequential-rule checks. Without this the user had to
+    call s.record_tool_call() manually, and a `must_call_before`
+    policy would silently fail to enforce ordering even when the
+    caller did the right thing in the right order."""
+    policy_yaml = (
+        "version: '1'\n"
+        "rules:\n"
+        "  - id: confirm-before-refund\n"
+        "    kind: must_call_before\n"
+        "    severity: error\n"
+        "    params: {first: confirm_amount, then: issue_refund}\n"
+    )
+    pol_path = tmp_path / "policy.yaml"
+    pol_path.write_text(policy_yaml)
+    enforcer = PolicyEnforcer.from_policy_file(pol_path)
+
+    confirm_calls: list[Any] = []
+    refund_calls: list[Any] = []
+
+    def confirm_amount(amount: int) -> str:
+        confirm_calls.append(amount)
+        return "confirmed"
+
+    def issue_refund(amount: int) -> str:
+        refund_calls.append(amount)
+        return f"refunded ${amount}"
+
+    with EnforcedSession(
+        enforcer=enforcer,
+        output_path=tmp_path / "trace.agentlog",
+        tags={"env": "t"},
+        auto_instrument=False,
+    ) as s:
+        guarded = s.wrap_tools({"confirm_amount": confirm_amount, "issue_refund": issue_refund})
+        # Calling confirm first then refund must succeed — auto-record
+        # makes the confirm call visible to the must_call_before rule
+        # so refund passes.
+        confirm_result = guarded["confirm_amount"](42)
+        refund_result = guarded["issue_refund"](42)
+
+    assert confirm_result == "confirmed"
+    assert refund_result == "refunded $42"
+    assert confirm_calls == [42]
+    assert refund_calls == [42]
+
+
+def test_wrap_tools_auto_record_off_preserves_old_behaviour(tmp_path: Path) -> None:
+    """auto_record=False keeps the historical 'caller records
+    explicitly' behaviour: tool_call records aren't appended, so a
+    must_call_before rule that depends on them will not see the
+    confirm call and will block the refund."""
+    policy_yaml = (
+        "version: '1'\n"
+        "rules:\n"
+        "  - id: confirm-before-refund\n"
+        "    kind: must_call_before\n"
+        "    severity: error\n"
+        "    params: {first: confirm_amount, then: issue_refund}\n"
+    )
+    pol_path = tmp_path / "policy.yaml"
+    pol_path.write_text(policy_yaml)
+    enforcer = PolicyEnforcer(
+        list(_load_yaml_rules(pol_path)),
+        on_violation="replace",
+    )
+
+    def confirm_amount(amount: int) -> str:
+        return "confirmed"
+
+    def issue_refund(amount: int) -> str:
+        return f"refunded ${amount}"
+
+    with EnforcedSession(
+        enforcer=enforcer,
+        output_path=tmp_path / "trace.agentlog",
+        tags={"env": "t"},
+        auto_instrument=False,
+    ) as s:
+        guarded = s.wrap_tools(
+            {"confirm_amount": confirm_amount, "issue_refund": issue_refund},
+            auto_record=False,
+        )
+        guarded["confirm_amount"](42)
+        # auto_record=False means confirm call is not recorded; the
+        # must_call_before rule fires and refund is blocked.
+        result = guarded["issue_refund"](42)
+        assert "blocked" in str(result).lower()
+
+
+def _load_yaml_rules(path: Path):
+    import yaml
+
+    from shadow.hierarchical import load_policy
+
+    return load_policy(yaml.safe_load(path.read_text()))
