@@ -473,11 +473,7 @@ class GuardedTool:
             arguments["args"] = list(args)
         try:
             self._session.record_tool_call(self.name, tool_call_id, arguments)
-            output: str | dict[str, Any]
-            if isinstance(result, dict):
-                output = result
-            else:
-                output = str(result)
+            output: str | dict[str, Any] = result if isinstance(result, dict) else str(result)
             self._session.record_tool_result(tool_call_id, output, is_error=is_error)
         except Exception as e:  # never let recording break the user's tool call
             log.warning(
