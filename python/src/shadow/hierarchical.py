@@ -1345,11 +1345,26 @@ def _check_rule_per_session(
         # one session so behavior matches the trace-scoped path.
         return _check_single_rule(rule, [], tool_calls, responses)
 
+    # Bounds-guard both accesses. Two ways tool_calls and responses can
+    # drift from session_of_pair's length:
+    #   1. tool_calls carry an absolute pair_index that may point past the
+    #      end of the (filtered or candidate-trace) responses list — e.g.
+    #      when a candidate drops a tool turn relative to the baseline.
+    #   2. responses can be longer than session_of_pair after a `when:`
+    #      filter recomputes the response set without recomputing
+    #      session_of_pair on the same axis. Either case used to raise
+    #      IndexError; now mismatched indices fall outside any session
+    #      and are skipped.
+    n = len(session_of_pair)
     num_sessions = max(session_of_pair) + 1
     out: list[PolicyViolation] = []
     for s_idx in range(num_sessions):
-        s_tool_calls = [tc for tc in tool_calls if session_of_pair[tc[0]] == s_idx]
-        s_responses = [r for i, r in enumerate(responses) if session_of_pair[i] == s_idx]
+        s_tool_calls = [
+            tc for tc in tool_calls if 0 <= tc[0] < n and session_of_pair[tc[0]] == s_idx
+        ]
+        s_responses = [
+            r for i, r in enumerate(responses) if i < n and session_of_pair[i] == s_idx
+        ]
         if not s_tool_calls and not s_responses:
             continue
         out.extend(_check_single_rule(rule, [], s_tool_calls, s_responses))
