@@ -1110,6 +1110,12 @@ def _parse_pricing_table(raw: dict[str, Any]) -> dict[str, Any]:
     """
     out: dict[str, Any] = {}
     for model, value in raw.items():
+        # Skip metadata keys (e.g. "_comment", "_updated", "_version"). The
+        # in-tree pricing.json uses underscore-prefixed top-level keys for
+        # documentation; without this skip, every user pointing --pricing at
+        # the canonical file got "must be [input, output] or a dict".
+        if isinstance(model, str) and model.startswith("_"):
+            continue
         if isinstance(value, list | tuple) and len(value) == 2:
             out[model] = (float(value[0]), float(value[1]))
         elif isinstance(value, dict):
