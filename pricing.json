@@ -51,7 +51,49 @@
     "reasoning": 0.000008,
     "batch_discount": 0.5
   },
+  "gpt-4.1-mini": {
+    "input": 0.0000004,
+    "output": 0.0000016,
+    "cached_input": 0.0000001,
+    "reasoning": 0.0000016,
+    "batch_discount": 0.5
+  },
+  "gpt-4.1-nano": {
+    "input": 0.0000001,
+    "output": 0.0000004,
+    "cached_input": 0.000000025,
+    "reasoning": 0.0000004,
+    "batch_discount": 0.5
+  },
   "gpt-5": {
+    "input": 0.000010,
+    "output": 0.000040,
+    "cached_input": 0.0000025,
+    "reasoning": 0.000060,
+    "batch_discount": 0.5
+  },
+  "gpt-5-mini": {
+    "input": 0.000001,
+    "output": 0.000004,
+    "cached_input": 0.00000025,
+    "reasoning": 0.000006,
+    "batch_discount": 0.5
+  },
+  "gpt-5-nano": {
+    "input": 0.0000002,
+    "output": 0.0000008,
+    "cached_input": 0.00000005,
+    "reasoning": 0.0000012,
+    "batch_discount": 0.5
+  },
+  "gpt-5-pro": {
+    "input": 0.000020,
+    "output": 0.000080,
+    "cached_input": 0.000005,
+    "reasoning": 0.000100,
+    "batch_discount": 0.5
+  },
+  "gpt-5-codex": {
     "input": 0.000010,
     "output": 0.000040,
     "cached_input": 0.0000025,
@@ -63,6 +105,34 @@
     "output": 0.000060,
     "cached_input": 0.0000075,
     "reasoning": 0.000060,
+    "batch_discount": 0.5
+  },
+  "o1-pro": {
+    "input": 0.000150,
+    "output": 0.000600,
+    "cached_input": 0.000075,
+    "reasoning": 0.000600,
+    "batch_discount": 0.5
+  },
+  "o3": {
+    "input": 0.000010,
+    "output": 0.000040,
+    "cached_input": 0.0000025,
+    "reasoning": 0.000040,
+    "batch_discount": 0.5
+  },
+  "o3-mini": {
+    "input": 0.0000011,
+    "output": 0.0000044,
+    "cached_input": 0.00000055,
+    "reasoning": 0.0000044,
+    "batch_discount": 0.5
+  },
+  "o4-mini": {
+    "input": 0.0000011,
+    "output": 0.0000044,
+    "cached_input": 0.000000275,
+    "reasoning": 0.0000044,
     "batch_discount": 0.5
   }
 }
