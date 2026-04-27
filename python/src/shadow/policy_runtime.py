@@ -314,11 +314,13 @@ class EnforcedSession(Session):
     def wrap_tools(
         self,
         tools: dict[str, Callable[..., Any]],
+        *,
+        auto_record: bool = True,
     ) -> dict[str, GuardedTool]:
         """Convenience: wrap a tool registry against this session's
         enforcer. Equivalent to ``wrap_tools(tools, self._enforcer,
-        session=self)``."""
-        return wrap_tools(tools, self._enforcer, session=self)
+        session=self, auto_record=auto_record)``."""
+        return wrap_tools(tools, self._enforcer, session=self, auto_record=auto_record)
 
 
 # ---- pre-dispatch tool-call enforcement --------------------------------
@@ -347,12 +349,14 @@ class GuardedTool:
        - ``replace``: returns a placeholder (custom builder if set)
        - ``warn``: logs and calls the underlying function anyway
 
-    The wrapper does NOT itself record the ``tool_call`` /
-    ``tool_result`` pair — that's the caller's job, via
-    :meth:`Session.record_tool_call` and :meth:`record_tool_result`.
-    Recording on success keeps Shadow's content-addressing pure (the
-    real tool-result content-id ends up in the trace, not a synthesised
-    probe id).
+    By default, after a successful (allowed) call the wrapper records
+    both the ``tool_call`` and ``tool_result`` onto ``session`` so
+    subsequent ``must_call_before`` / ``must_call_once`` checks see the
+    call. Earlier versions left this as the caller's job and
+    sequential-rule policies silently failed when the caller forgot.
+    Pass ``auto_record=False`` to restore the old behaviour
+    (records-provider mode keeps the old behaviour automatically since
+    no ``Session`` is available to record onto).
     """
 
     def __init__(
@@ -364,6 +368,7 @@ class GuardedTool:
         session: Session | None = None,
         records_provider: Callable[[], list[dict[str, Any]]] | None = None,
         blocked_replacement: Any = None,
+        auto_record: bool = True,
     ) -> None:
         self.name = name
         self.fn = fn
@@ -373,6 +378,7 @@ class GuardedTool:
         self._blocked_replacement = (
             blocked_replacement if blocked_replacement is not None else _DEFAULT_BLOCKED_TOOL_RETURN
         )
+        self._auto_record = auto_record
         if session is None and records_provider is None:
             raise ValueError(
                 "GuardedTool needs either a `session` to read records from "
@@ -424,7 +430,9 @@ class GuardedTool:
         probe_record = self._build_probe(args, kwargs)
         verdict = self._enforcer.probe([*records, probe_record])
         if verdict.allow:
-            return self.fn(*args, **kwargs)
+            result = self.fn(*args, **kwargs)
+            self._record_call(args, kwargs, result, is_error=False)
+            return result
 
         if self._enforcer.on_violation == "raise":
             raise PolicyViolationError(verdict.violations)
@@ -435,7 +443,9 @@ class GuardedTool:
                 self.name,
                 verdict.reason,
             )
-            return self.fn(*args, **kwargs)
+            result = self.fn(*args, **kwargs)
+            self._record_call(args, kwargs, result, is_error=False)
+            return result
         # replace mode: return the placeholder. We do NOT call the real
         # tool. Callers can supply a richer replacement via the
         # `blocked_replacement` constructor arg.
@@ -446,6 +456,39 @@ class GuardedTool:
         )
         return self._blocked_replacement
 
+    def _record_call(
+        self, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any, *, is_error: bool
+    ) -> None:
+        """Append `tool_call` + `tool_result` to the session so subsequent
+        sequential-rule checks (must_call_before, must_call_once) see
+        this dispatch as having happened. No-op when auto_record is off
+        or when there's no Session to record onto."""
+        if not self._auto_record or self._session is None:
+            return
+        import uuid
+
+        tool_call_id = f"guarded-{uuid.uuid4().hex[:12]}"
+        arguments = dict(kwargs)
+        if args:
+            arguments["args"] = list(args)
+        try:
+            self._session.record_tool_call(self.name, tool_call_id, arguments)
+            output: str | dict[str, Any]
+            if isinstance(result, dict):
+                output = result
+            else:
+                output = str(result)
+            self._session.record_tool_result(tool_call_id, output, is_error=is_error)
+        except Exception as e:  # never let recording break the user's tool call
+            log.warning(
+                "shadow.policy_runtime: auto-record failed for `%s`: %s; "
+                "the tool call returned successfully but won't be visible "
+                "to subsequent sequential-rule checks. Pass "
+                "auto_record=False to silence this.",
+                self.name,
+                e,
+            )
+
 
 def wrap_tools(
     tools: dict[str, Callable[..., Any]],
@@ -454,6 +497,7 @@ def wrap_tools(
     session: Session | None = None,
     records_provider: Callable[[], list[dict[str, Any]]] | None = None,
     blocked_replacement: Any = None,
+    auto_record: bool = True,
 ) -> dict[str, GuardedTool]:
     """Wrap a tool registry with pre-dispatch policy enforcement.
 
@@ -473,6 +517,14 @@ def wrap_tools(
     ``blocked_replacement`` overrides the default placeholder string
     that ``replace`` mode hands back when a call is blocked.
 
+    ``auto_record`` (default True) makes each successful call append
+    a ``tool_call`` + ``tool_result`` to ``session`` so subsequent
+    sequential-rule checks (``must_call_before``, ``must_call_once``)
+    see the dispatch. Pass ``False`` for the historical
+    "caller records explicitly" semantics — only useful when the host
+    is already recording the same call through a different code path
+    (framework adapters that emit their own tool records).
+
     Returns a dict mirroring the input — caller dispatches with
     ``guarded[name](*args, **kwargs)``.
     """
@@ -484,6 +536,7 @@ def wrap_tools(
             session=session,
             records_provider=records_provider,
             blocked_replacement=blocked_replacement,
+            auto_record=auto_record,
         )
         for name, fn in tools.items()
     }
