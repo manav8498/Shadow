@@ -1133,11 +1133,26 @@ def _eval_condition(cond: ConditionExpr, context: dict[str, Any]) -> bool:
 
 
 def _lookup_path(ctx: dict[str, Any], path: str) -> Any:
-    """Walk a dotted path into a nested mapping. Returns None if missing."""
+    """Walk a dotted path into a nested mapping. Returns None if missing.
+
+    Numeric segments resolve as list indices when the current node is a
+    sequence — so ``request.messages.1.content`` walks into the second
+    element of ``messages``. Without this, every ``when:`` clause that
+    targeted a specific message / tool / content block silently
+    evaluated to None and never fired.
+    """
     cur: Any = ctx
     for part in path.split("."):
         if isinstance(cur, dict):
             cur = cur.get(part)
+        elif isinstance(cur, list | tuple):
+            try:
+                idx = int(part)
+            except ValueError:
+                return None
+            if idx < 0 or idx >= len(cur):
+                return None
+            cur = cur[idx]
         else:
             return None
         if cur is None:
