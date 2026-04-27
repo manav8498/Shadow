@@ -427,11 +427,18 @@ class GuardedTool:
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         records = self._records_so_far()
+        # Snapshot the session length BEFORE the tool function runs.
+        # If the function calls session.record_tool_call() itself
+        # (legacy / framework-adapter pattern), we'll see the session
+        # length grow and skip our own auto-record to avoid duplicate
+        # tool_call / tool_result records that would inflate
+        # must_call_once counts and break cost attribution.
+        pre_call_len = len(self._session._records) if self._session is not None else None
         probe_record = self._build_probe(args, kwargs)
         verdict = self._enforcer.probe([*records, probe_record])
         if verdict.allow:
             result = self.fn(*args, **kwargs)
-            self._record_call(args, kwargs, result, is_error=False)
+            self._record_call(args, kwargs, result, is_error=False, pre_call_len=pre_call_len)
             return result
 
         if self._enforcer.on_violation == "raise":
@@ -444,7 +451,7 @@ class GuardedTool:
                 verdict.reason,
             )
             result = self.fn(*args, **kwargs)
-            self._record_call(args, kwargs, result, is_error=False)
+            self._record_call(args, kwargs, result, is_error=False, pre_call_len=pre_call_len)
             return result
         # replace mode: return the placeholder. We do NOT call the real
         # tool. Callers can supply a richer replacement via the
@@ -457,13 +464,35 @@ class GuardedTool:
         return self._blocked_replacement
 
     def _record_call(
-        self, args: tuple[Any, ...], kwargs: dict[str, Any], result: Any, *, is_error: bool
+        self,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        result: Any,
+        *,
+        is_error: bool,
+        pre_call_len: int | None,
     ) -> None:
         """Append `tool_call` + `tool_result` to the session so subsequent
         sequential-rule checks (must_call_before, must_call_once) see
         this dispatch as having happened. No-op when auto_record is off
-        or when there's no Session to record onto."""
+        or when there's no Session to record onto.
+
+        If ``pre_call_len`` is supplied and the session length grew
+        during ``self.fn`` execution, the tool function (or some hook
+        inside it) recorded the call itself. Skip auto-record so we
+        don't append duplicates that would inflate count-based rules
+        (must_call_once) and cost attribution. This preserves the
+        old "caller records explicitly" pattern as a no-op auto-record.
+        """
         if not self._auto_record or self._session is None:
+            return
+        if pre_call_len is not None and len(self._session._records) > pre_call_len:
+            # The user (or a downstream hook) already recorded this call.
+            log.debug(
+                "shadow.policy_runtime: tool `%s` already recorded by "
+                "the function itself; skipping auto-record.",
+                self.name,
+            )
             return
         import uuid
 
