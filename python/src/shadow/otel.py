@@ -30,6 +30,7 @@ records deterministically linked.
 from __future__ import annotations
 
 import datetime
+import json
 from typing import Any
 
 from shadow import __version__
@@ -181,10 +182,27 @@ def _tool_span(
         _attr("gen_ai.tool.name", call_payload.get("tool_name", "")),
         _attr("gen_ai.tool.call_id", call_payload.get("tool_call_id", "")),
     ]
+    # Carry arguments + output as JSON-encoded attribute strings so a
+    # roundtrip through OTel can rebuild the original tool_call /
+    # tool_result records. Without this, importing back dropped the
+    # tool_use structure entirely and produced false trajectory and
+    # conformance regressions on tool-heavy agents. Names are aligned
+    # with opentelemetry-instrumentation-openai-agents-v2 conventions
+    # (gen_ai.tool.arguments / gen_ai.tool.result) where they exist.
+    if call_payload.get("arguments") is not None:
+        attrs.append(
+            _attr("gen_ai.tool.arguments", json.dumps(call_payload["arguments"], default=str))
+        )
     if result is not None:
         attrs.append(_attr("gen_ai.tool.is_error", bool(result_payload.get("is_error", False))))
         if "latency_ms" in result_payload:
             attrs.append(_attr("shadow.latency_ms", int(result_payload["latency_ms"])))
+        if "output" in result_payload:
+            output = result_payload["output"]
+            if isinstance(output, str):
+                attrs.append(_attr("gen_ai.tool.result", output))
+            else:
+                attrs.append(_attr("gen_ai.tool.result", json.dumps(output, default=str)))
     status = {"code": 1} if result is not None else {"code": 2}
     if result is not None and result_payload.get("is_error"):
         status = {"code": 2}
