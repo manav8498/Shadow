@@ -330,3 +330,26 @@ def test_pricing_table_skips_underscore_prefixed_metadata_keys() -> None:
     assert "_updated" not in out
     assert "gpt-4o-mini" in out
     assert "claude-haiku" in out
+
+
+def test_load_pricing_file_round_trips_repo_pricing(tmp_path: Path) -> None:
+    """Regression: the in-tree pricing.json carries _comment and
+    _updated metadata. The MCP server's shadow_diff handler used to
+    raw-json-load the same file and crash inside the Rust core
+    because _comment is a string, not a ModelPricing. Now both CLI
+    and MCP go through load_pricing_file."""
+    import json as _json
+
+    from shadow.cli.app import load_pricing_file
+
+    raw = {
+        "_comment": "doc note",
+        "_updated": "2026-04",
+        "gpt-4o-mini": {"input": 0.00000015, "output": 0.0000006},
+    }
+    src = tmp_path / "pricing.json"
+    src.write_text(_json.dumps(raw))
+    out = load_pricing_file(src)
+    assert "_comment" not in out
+    assert "_updated" not in out
+    assert "gpt-4o-mini" in out

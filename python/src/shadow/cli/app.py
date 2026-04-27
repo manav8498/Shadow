@@ -747,8 +747,7 @@ def diff_cmd(
         c = _core.parse_agentlog(candidate.read_bytes())
         price_map: dict[str, tuple[float, float]] | None = None
         if pricing is not None:
-            raw = json.loads(pricing.read_text())
-            price_map = _parse_pricing_table(raw)
+            price_map = load_pricing_file(pricing)
         report = _core.compute_diff_report(b, c, price_map, seed)
         if semantic is SemanticMode.embeddings:
             report = _apply_embeddings_semantic(report, baseline=b, candidate=c, seed=seed)
@@ -1094,6 +1093,18 @@ def _generate_explanation(report: dict[str, Any], *, backend_name: str, model: s
             if isinstance(text, str):
                 parts.append(text)
     return "\n".join(parts).strip()
+
+
+def load_pricing_file(path: Path) -> dict[str, Any]:
+    """Read a pricing JSON file from disk and parse it through the
+    metadata-aware loader. Single helper so every consumer (CLI diff,
+    CLI mine, CLI certify, MCP server) shares the same parser and
+    silent _comment / _updated / _version skip behaviour. Without
+    this, the MCP server's shadow_diff handler raw-loaded the same
+    pricing.json the CLI accepted and crashed on the _comment key.
+    """
+    raw = json.loads(path.read_text())
+    return _parse_pricing_table(raw)
 
 
 def _parse_pricing_table(raw: dict[str, Any]) -> dict[str, Any]:
@@ -1969,7 +1980,7 @@ def mine_cmd(
             parsed_traces.append(_core.parse_agentlog(path.read_bytes()))
         price_map: dict[str, Any] | None = None
         if pricing is not None:
-            price_map = json.loads(pricing.read_text())
+            price_map = load_pricing_file(pricing)
         result = do_mine(
             parsed_traces,
             max_cases=max_cases,
@@ -2113,8 +2124,7 @@ def certify_cmd(
             baseline_records = _core.parse_agentlog(baseline.read_bytes())
         price_map: dict[str, tuple[float, float]] | None = None
         if pricing is not None:
-            raw = json.loads(pricing.read_text())
-            price_map = _parse_pricing_table(raw)
+            price_map = load_pricing_file(pricing)
         cert = build_certificate(
             trace=trace_records,
             agent_id=agent_id,
