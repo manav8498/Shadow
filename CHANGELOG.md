@@ -6,6 +6,25 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-04-27
+
+Patch release. All bug fixes from two external audit rounds. No new features, no API breaks (the auto-record default change in `wrap_tools` is backwards-compat-detected by the dedup logic).
+
+### Fixed
+
+- **`when:` policy clauses with list-index path segments returned None.** `request.messages.1.content` walked into the dict but stopped at the list. Numeric segments now resolve as list indices.
+- **Bundled `pricing.json` crashed `--pricing` and the MCP `shadow_diff` handler** because the `_comment` and `_updated` documentation keys aren't model entries. The CLI parser, `shadow mine`, `shadow certify`, and the MCP server now share a single `load_pricing_file()` helper that skips underscore-prefixed metadata keys.
+- **Session-scoped policy rules raised `IndexError`** when a candidate trace had different length from baseline (dropped tool turn, etc.). `_check_rule_per_session` now bounds-guards both indexed accesses.
+- **Embeddings backend left stale BM25 recommendations.** When `--semantic embeddings` lowered the semantic axis from severe to minor, the report still carried the original "severe BM25" recommendation. New `_refresh_after_axis_swap` drops stale axis recommendations, recomputes drill-down `dominant_axis` / `regression_score`, and clears `first_divergence` when its axis was swapped. Same fix applied to `--judge` axis swaps.
+- **Bisect terminal labels showed `?`** because the renderer read `row['label']` and `row['category']` but the unified attribution schema stores the delta name under `row['delta']`. Renderer now falls through `label → delta → category`.
+- **`wrap_tools` didn't auto-record successful tool calls**, causing `must_call_before` rules to silently fail when the caller didn't manually invoke `s.record_tool_call(...)`. Auto-record is now the default; the wrapper detects when the tool function recorded itself and skips to avoid duplicate records (preserves backwards compat with framework adapters and existing user code).
+- **Pricing data coverage gap.** Added 9 missing OpenAI 2025-2026 model entries (`gpt-4.1-mini`, `gpt-4.1-nano`, `gpt-5-pro`, `gpt-5-nano`, `gpt-5-codex`, `o1-pro`, `o3`, `o3-mini`, `o4-mini`). Combined with the snapshot-tail fallback shipped in 2.4.0, dated snapshots like `gpt-4.1-mini-2025-04-14` now resolve cleanly to the bare alias.
+
+### Added
+
+- 7 new regression tests pinning the above fixes.
+- `load_pricing_file()` public helper in `shadow.cli.app` so other consumers don't reinvent the parser.
+
 ## [2.4.0] - 2026-04-25
 
 The two final roadmap items shipped — every entry in ROADMAP's "What's next" is now in "Shipping today." ROADMAP.md is deleted; remaining work is tracked as GitHub issues against this repo.
