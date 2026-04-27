@@ -1362,9 +1362,7 @@ def _check_rule_per_session(
         s_tool_calls = [
             tc for tc in tool_calls if 0 <= tc[0] < n and session_of_pair[tc[0]] == s_idx
         ]
-        s_responses = [
-            r for i, r in enumerate(responses) if i < n and session_of_pair[i] == s_idx
-        ]
+        s_responses = [r for i, r in enumerate(responses) if i < n and session_of_pair[i] == s_idx]
         if not s_tool_calls and not s_responses:
             continue
         out.extend(_check_single_rule(rule, [], s_tool_calls, s_responses))
