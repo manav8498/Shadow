@@ -311,3 +311,22 @@ def test_diff_output_json_contains_policy_diff(tmp_path: Path) -> None:
     assert not pd["candidate_violations"], "candidate had FY2026, expected clean"
     assert len(pd["fixes"]) == 1
     assert pd["fixes"][0]["rule_id"] == "no-stale"
+
+
+def test_pricing_table_skips_underscore_prefixed_metadata_keys() -> None:
+    """Regression: in-tree pricing.json carries _comment / _updated keys
+    as documentation. _parse_pricing_table used to raise
+    'pricing entry for _comment must be ...' against any such file."""
+    from shadow.cli.app import _parse_pricing_table
+
+    raw = {
+        "_comment": "this is a documentation note",
+        "_updated": "2026-04",
+        "gpt-4o-mini": {"input": 0.00000015, "output": 0.0000006},
+        "claude-haiku": [0.0000008, 0.000004],
+    }
+    out = _parse_pricing_table(raw)
+    assert "_comment" not in out
+    assert "_updated" not in out
+    assert "gpt-4o-mini" in out
+    assert "claude-haiku" in out

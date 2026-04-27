@@ -1075,3 +1075,52 @@ def testload_policy_rejects_forbidden_text_without_text_param() -> None:
     }
     with pytest.raises(ShadowConfigError, match="forbidden_text.*missing required param 'text'"):
         load_policy(bad)
+
+
+def test_lookup_path_resolves_numeric_segments_as_list_indices() -> None:
+    """Regression: when: clauses targeting list elements like
+    `request.messages.1.content` returned None because _lookup_path
+    only walked dicts. Numeric segments now resolve as list indices."""
+    from shadow.hierarchical import _lookup_path
+
+    ctx = {
+        "request": {
+            "messages": [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "hi there"},
+            ]
+        }
+    }
+    assert _lookup_path(ctx, "request.messages.0.role") == "system"
+    assert _lookup_path(ctx, "request.messages.1.content") == "hi there"
+    # out-of-range index returns None instead of raising
+    assert _lookup_path(ctx, "request.messages.99.role") is None
+    # non-numeric segment on a list returns None (not crash)
+    assert _lookup_path(ctx, "request.messages.foo.role") is None
+    # dict paths still work
+    assert _lookup_path(ctx, "request.messages")[0]["role"] == "system"
+
+
+def test_check_rule_per_session_bounds_guards_drifted_lengths() -> None:
+    """Regression: session-scoped rules used to crash with IndexError
+    when a tool_call's pair_index pointed past the end of
+    session_of_pair (common when a candidate dropped a tool turn)."""
+    from shadow.hierarchical import PolicyRule, _check_rule_per_session
+
+    rule = PolicyRule(
+        id="r",
+        kind="no_call",
+        params={"tool": "foo"},
+        severity="error",
+        description="",
+        scope="session",
+        when=(),
+    )
+    # tool_call points to pair index 5; session_of_pair only has 3 entries.
+    tool_calls: list[tuple[int, str, dict[str, Any]]] = [(5, "foo", {})]
+    responses: list[dict[str, Any]] = [{"payload": {}} for _ in range(3)]
+    session_of_pair = [0, 0, 0]
+    # Must not raise IndexError. The tool_call falls outside any known
+    # session and is silently skipped.
+    out = _check_rule_per_session(rule, tool_calls, responses, session_of_pair)
+    assert out == []

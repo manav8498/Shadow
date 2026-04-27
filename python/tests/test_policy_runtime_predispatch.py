@@ -439,3 +439,45 @@ def _load_yaml_rules(path: Path):
     from shadow.hierarchical import load_policy
 
     return load_policy(yaml.safe_load(path.read_text()))
+
+
+def test_wrap_tools_auto_record_skipped_when_user_records_explicitly(
+    tmp_path: Path,
+) -> None:
+    """Backwards-compat check: if the tool function calls
+    session.record_tool_call() itself (the legacy pattern that some
+    framework adapters and existing user code rely on), auto-record
+    must DETECT this and skip — otherwise the trace ends up with two
+    tool_call records for one dispatch, inflating must_call_once
+    counts and cost attribution."""
+    from shadow.hierarchical import load_policy
+
+    rules = load_policy([{"id": "co", "kind": "must_call_once", "params": {"tool": "foo"}}])
+    enforcer = PolicyEnforcer(rules, on_violation="replace")
+
+    captured_session: list[Any] = []
+
+    def foo_manual(x: int) -> int:
+        # Tool function records the call itself (legacy pattern).
+        s = captured_session[0]
+        s.record_tool_call("foo", "manual-1", {"x": x})
+        s.record_tool_result("manual-1", f"manual:{x * 2}")
+        return x * 2
+
+    with EnforcedSession(
+        enforcer=enforcer,
+        output_path=tmp_path / "trace.agentlog",
+        tags={"env": "t"},
+        auto_instrument=False,
+    ) as s:
+        captured_session.append(s)
+        guarded = s.wrap_tools({"foo": foo_manual})
+        guarded["foo"](5)
+        # Exactly one tool_call record for `foo` — auto-record detected
+        # the manual record and skipped, no duplicate.
+        n_tool_calls = sum(
+            1
+            for r in s._records
+            if r.get("kind") == "tool_call" and r["payload"].get("tool_name") == "foo"
+        )
+        assert n_tool_calls == 1, f"expected 1 tool_call, got {n_tool_calls}"
