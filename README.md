@@ -7,7 +7,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1%20%2B%20v0.2%20kinds-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-2.4.1-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.4.2-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -33,10 +33,32 @@ Shadow treats agent behavior as a thing you can test in CI, the same way you tes
 
 The report lands in the PR comment. No dashboard, no separate login, no trace upload. Traces stay on your disk.
 
-## Try it in sixty seconds
+## Install
+
+**Step 1.** Check you have Python 3.11 or newer:
+
+```bash
+python3 --version    # 3.11.x or higher
+```
+
+**Step 2.** Install Shadow from PyPI:
 
 ```bash
 pip install shadow-diff
+```
+
+That's it. `shadow --help` should now work, and `shadow quickstart` runs the demo. No clone, no Rust toolchain, no separate setup step — pre-built wheels ship for Linux x86_64, macOS arm64 (Apple Silicon), and Windows x86_64.
+
+**On other platforms** (Intel Mac, ARM Linux, older glibc, Alpine, FreeBSD), pip falls back to the source distribution and builds the Rust core locally. Install Rust first:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+pip install shadow-diff
+```
+
+## Try it in sixty seconds
+
+```bash
 shadow quickstart
 shadow diff shadow-quickstart/fixtures/baseline.agentlog \
             shadow-quickstart/fixtures/candidate.agentlog

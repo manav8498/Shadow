@@ -90,6 +90,33 @@ jobs:
           if-no-files-found: ignore
 
   # ----------------------------------------------------------------------
+  # Python sdist — single source distribution that pip falls back to on
+  # platforms without a published wheel (Intel Mac, ARM Linux, older
+  # glibc, Alpine, FreeBSD). Requires Rust on the user's machine to
+  # build, but unblocks `pip install shadow-diff` everywhere.
+  # ----------------------------------------------------------------------
+  python-sdist:
+    name: build python sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install maturin
+        run: pip install maturin==1.13.1
+      - name: Build sdist
+        run: |
+          cd python
+          maturin sdist --out dist/
+          ls -la dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-sdist
+          path: python/dist/*.tar.gz
+
+  # ----------------------------------------------------------------------
   # TypeScript package (npm)
   # ----------------------------------------------------------------------
   ts-package:
@@ -165,7 +192,7 @@ jobs:
   # ----------------------------------------------------------------------
   sign-and-release:
     name: sigstore-sign + gh release
-    needs: [python-wheel, ts-package, rust-crate]
+    needs: [python-wheel, python-sdist, ts-package, rust-crate]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -178,7 +205,7 @@ jobs:
 
       - name: Sign every artifact (keyless via OIDC)
         run: |
-          find release-artifacts -type f \( -name "*.whl" -o -name "*.tgz" -o -name "*.crate" \) | while read f; do
+          find release-artifacts -type f \( -name "*.whl" -o -name "*.tar.gz" -o -name "*.tgz" -o -name "*.crate" \) | while read f; do
             cosign sign-blob --yes "$f" --output-signature "$f.sig" --output-certificate "$f.crt"
           done
 
@@ -187,6 +214,7 @@ jobs:
         with:
           subject-path: |
             release-artifacts/**/*.whl
+            release-artifacts/**/*.tar.gz
             release-artifacts/**/*.tgz
             release-artifacts/**/*.crate
 
@@ -205,8 +233,8 @@ jobs:
   # Requires one-time setup on pypi.org — see docs/PYPI-PUBLISHING.md.
   # ----------------------------------------------------------------------
   publish-pypi:
-    name: publish Python wheels to PyPI
-    needs: [python-wheel, sign-and-release]
+    name: publish Python wheels + sdist to PyPI
+    needs: [python-wheel, python-sdist, sign-and-release]
     # Only run on real tag pushes. workflow_dispatch is for dry runs
     # that must never accidentally publish.
     if: startsWith(github.ref, 'refs/tags/v')
@@ -231,13 +259,22 @@ jobs:
           path: wheels
           merge-multiple: true
 
-      - name: Collect wheels into dist/
+      - name: Download sdist
+        uses: actions/download-artifact@v4
+        with:
+          name: python-sdist
+          path: sdist
+
+      - name: Collect wheels + sdist into dist/
         run: |
           mkdir -p dist
           # Only copy .whl files; the SBOM .json files ride alongside
           # the artifacts but don't belong on PyPI.
           find wheels -name "*.whl" -exec cp {} dist/ \;
-          echo "Wheels to publish:"
+          # Include the source distribution so pip can fall back to
+          # building from source on platforms without a published wheel.
+          find sdist -name "*.tar.gz" -exec cp {} dist/ \;
+          echo "Artifacts to publish:"
           ls -la dist/
 
       - name: Publish to PyPI

@@ -6,6 +6,19 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-04-27
+
+Distribution patch. Adds a Python source distribution (sdist) to the PyPI release so `pip install shadow-diff` works on platforms without a published wheel.
+
+### Added
+
+- **Python sdist on PyPI.** The release workflow now runs `maturin sdist` and uploads the resulting `.tar.gz` alongside the per-OS wheels. Pre-built wheels still cover Linux x86_64, macOS arm64, and Windows x86_64. On other platforms (Intel Mac, ARM Linux, older glibc, Alpine, FreeBSD) pip transparently falls back to the sdist and builds the Rust core locally — Rust must be on PATH.
+- **README install section.** Two-step pip install instructions, plus a separate note for unsupported-platform users with the `rustup` one-liner.
+
+### Fixed
+
+- **`pip install shadow-diff` failing with "No matching distribution found"** on platforms outside the three published wheel targets. The sdist fallback above closes that gap.
+
 ## [2.4.1] - 2026-04-27
 
 Patch release. All bug fixes from two external audit rounds. No new features, no API breaks (the auto-record default change in `wrap_tools` is backwards-compat-detected by the dedup logic).
