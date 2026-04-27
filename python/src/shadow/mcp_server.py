@@ -79,7 +79,9 @@ async def _handle_diff(arguments: dict[str, Any]) -> dict[str, Any]:
     if pricing:
         pricing_path = Path(pricing).expanduser().resolve()
         if pricing_path.is_file():
-            price_map = json.loads(pricing_path.read_text())
+            from shadow.cli.app import load_pricing_file
+
+            price_map = load_pricing_file(pricing_path)
 
     report = _core.compute_diff_report(baseline, candidate, price_map, seed)
 
