@@ -1193,7 +1193,10 @@ def _refresh_after_axis_swap(
                 "severity": sev,
                 "action": "review",
                 "turn": 0,
-                "message": f"Review the candidate: {axis} axis shifted with severity {new_severity}.",
+                "message": (
+                    f"Review the candidate: {axis} axis shifted "
+                    f"with severity {new_severity}."
+                ),
                 "rationale": (
                     f"Aggregate signal recomputed after axis swap "
                     f"({axis}: delta {delta:+.3f}, CI [{ci_low:+.3f}, {ci_high:+.3f}])."
