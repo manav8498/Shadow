@@ -84,7 +84,7 @@ def render_attribution_markdown(result: dict[str, Any], *, max_rows_per_axis: in
         out.append("| delta | est. share | 95% bootstrap CI | selection freq | qualifier |")
         out.append("|---|---:|---|---:|---|")
         for row in rows[:max_rows_per_axis]:
-            label = str(row.get("label") or row.get("category") or "?")
+            label = str(row.get("label") or row.get("delta") or row.get("category") or "?")
             share = _format_share(row, markdown=True)
             ci = _format_ci(row)
             sel_freq = _format_selection_frequency(row)
@@ -98,7 +98,7 @@ def render_attribution_markdown(result: dict[str, Any], *, max_rows_per_axis: in
 
 
 def _format_row(row: dict[str, Any]) -> str:
-    label = str(row.get("label") or row.get("category") or "?")
+    label = str(row.get("label") or row.get("delta") or row.get("category") or "?")
     share = _format_share(row)
     ci = _format_ci(row)
     sel_freq = _format_selection_frequency(row)
