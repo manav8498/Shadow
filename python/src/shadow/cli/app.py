@@ -1156,7 +1156,94 @@ def _apply_embeddings_semantic(
         return report
     new_row = recompute_semantic_axis(baseline, candidate, embedder, seed=seed)
     new_rows = [new_row if r.get("axis") == "semantic" else r for r in report.get("rows", [])]
-    return {**report, "rows": new_rows}
+    report = {**report, "rows": new_rows}
+    return _refresh_after_axis_swap(report, "semantic", new_row)
+
+
+def _refresh_after_axis_swap(
+    report: dict[str, Any], axis: str, new_row: dict[str, Any]
+) -> dict[str, Any]:
+    """Drop stale recommendations / drill-down entries that referred to
+    ``axis`` before the swap, and add a fresh aggregate recommendation
+    if the new row's severity warrants one.
+
+    Without this, an embeddings-backed semantic recompute that *lowered*
+    severity from severe to minor would leave the original
+    "Review semantic axis: severe" recommendation untouched in the
+    report — directly contradicting the new row. Same for any per-pair
+    drill-down score on the swapped axis, which is still based on the
+    pre-swap (BM25-on-semantic, sanity-on-judge) computation.
+    """
+    rank = {"none": 0, "minor": 1, "moderate": 2, "severe": 3}
+    new_severity = str(new_row.get("severity", "none"))
+
+    # 1) Drop recommendations whose `axis` field matches the swapped axis.
+    recs = [r for r in (report.get("recommendations") or []) if r.get("axis") != axis]
+
+    # 2) If the swapped axis is still moderate or worse, add a fresh
+    #    aggregate-level recommendation reflecting the post-swap numbers.
+    if rank.get(new_severity, 0) >= rank["moderate"]:
+        delta = float(new_row.get("delta", 0.0))
+        ci_low = float(new_row.get("ci95_low", 0.0))
+        ci_high = float(new_row.get("ci95_high", 0.0))
+        sev = "error" if new_severity == "severe" else "warning"
+        recs.insert(
+            0,
+            {
+                "severity": sev,
+                "action": "review",
+                "turn": 0,
+                "message": f"Review the candidate: {axis} axis shifted with severity {new_severity}.",
+                "rationale": (
+                    f"Aggregate signal recomputed after axis swap "
+                    f"({axis}: delta {delta:+.3f}, CI [{ci_low:+.3f}, {ci_high:+.3f}])."
+                ),
+                "axis": axis,
+                "confidence": 0.8,
+            },
+        )
+
+    # 3) Strip the swapped-axis entry from every drill-down pair's
+    #    axis_scores. Recompute dominant_axis + regression_score from the
+    #    remaining entries so per-pair output is consistent with the new
+    #    aggregate row. Pairs that had the swapped axis as dominant get a
+    #    new dominant axis from whatever's left.
+    drill_down = report.get("drill_down") or []
+    new_drill: list[dict[str, Any]] = []
+    for pair in drill_down:
+        scores = [s for s in (pair.get("axis_scores") or []) if s.get("axis") != axis]
+        if not scores:
+            continue
+        # regression_score = sum of normalized_delta across remaining axes
+        regression_score = sum(float(s.get("normalized_delta", 0.0)) for s in scores)
+        # dominant_axis = highest absolute normalized_delta
+        dominant = max(
+            scores,
+            key=lambda s: abs(float(s.get("normalized_delta", 0.0))),
+            default=None,
+        )
+        new_drill.append(
+            {
+                **pair,
+                "axis_scores": scores,
+                "regression_score": regression_score,
+                "dominant_axis": dominant.get("axis") if dominant else "",
+            }
+        )
+
+    # 4) If the first divergence's dominant axis was the swapped one,
+    #    drop it — we don't have a clean way to re-pick without a full
+    #    pair-level recompute.
+    first_div = report.get("first_divergence")
+    if isinstance(first_div, dict) and first_div.get("axis") == axis:
+        first_div = None
+
+    return {
+        **report,
+        "recommendations": recs,
+        "drill_down": new_drill,
+        "first_divergence": first_div,
+    }
 
 
 def _apply_judge(
@@ -1191,7 +1278,8 @@ def _apply_judge(
     scores = asyncio.run(_run())
     new_row = aggregate_scores(scores, seed=seed)
     new_rows = [new_row if r.get("axis") == "judge" else r for r in report.get("rows", [])]
-    return {**report, "rows": new_rows}
+    report = {**report, "rows": new_rows}
+    return _refresh_after_axis_swap(report, "judge", new_row)
 
 
 def _load_judge_config(path: Path) -> dict[str, Any]:
