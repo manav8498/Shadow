@@ -9,7 +9,7 @@ abstract: >-
   and LASSO-over-corners causal attribution with Meinshausen-Bühlmann
   stability selection — all runnable locally with no cloud dependency.
 type: software
-version: 2.4.0
+version: 2.4.1
 date-released: 2026-04-24
 license:
   - MIT
@@ -30,7 +30,7 @@ authors:
 preferred-citation:
   type: software
   title: "Shadow: Git-native behavioral diff and shadow deployment for LLM agents"
-  version: 2.4.0
+  version: 2.4.1
   year: 2026
   url: "https://github.com/manav8498/Shadow"
   authors:
