@@ -1896,9 +1896,7 @@ def _unigram_precision(response: str, chunks: list[str]) -> float:
     return len(overlap) / len(response_tokens)
 
 
-def _check_ltl_formula(
-    rule: PolicyRule, records: list[dict[str, Any]]
-) -> list[PolicyViolation]:
+def _check_ltl_formula(rule: PolicyRule, records: list[dict[str, Any]]) -> list[PolicyViolation]:
     """Evaluate a raw LTL formula against the trace.
 
     Params:
@@ -1921,7 +1919,9 @@ def _check_ltl_formula(
     """
     raw = rule.params.get("formula")
     if not isinstance(raw, str) or not raw.strip():
-        return [_whole_trace_violation(rule, "ltl_formula rule requires a non-empty `formula` param")]
+        return [
+            _whole_trace_violation(rule, "ltl_formula rule requires a non-empty `formula` param")
+        ]
 
     try:
         from shadow.ltl import check_trace

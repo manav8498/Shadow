@@ -114,9 +114,7 @@ class TestHealthyCanaryTypeI:
         m = _make_monitor(seed=1)
         healthy = generate_cohort("baseline", n_sessions=50, seed=2)
         verdict = _stream(m, healthy)
-        assert not verdict.alarm, (
-            f"Healthy canary triggered false alarm: {verdict.summary()}"
-        )
+        assert not verdict.alarm, f"Healthy canary triggered false alarm: {verdict.summary()}"
 
     def test_healthy_canary_no_msprt_h1(self):
         m = _make_monitor(seed=1)
@@ -124,9 +122,7 @@ class TestHealthyCanaryTypeI:
         verdict = _stream(m, healthy)
         # No axis should reject under H0 with healthy canary
         for axis, dec in verdict.sprt_decisions.items():
-            assert dec != "h1", (
-                f"mSPRT[{axis}] falsely rejected H0 on healthy canary"
-            )
+            assert dec != "h1", f"mSPRT[{axis}] falsely rejected H0 on healthy canary"
 
     def test_healthy_canary_no_ltl_violations(self):
         m = _make_monitor(seed=1)
@@ -144,9 +140,7 @@ class TestHealthyCanaryTypeI:
         alarms = 0
         for trial in range(m_trials):
             m = _make_monitor(seed=trial * 7 + 1, n_sessions=30)
-            healthy = generate_cohort(
-                "baseline", n_sessions=40, seed=trial * 7 + 2
-            )
+            healthy = generate_cohort("baseline", n_sessions=40, seed=trial * 7 + 2)
             verdict = _stream(m, healthy)
             if verdict.alarm:
                 alarms += 1
@@ -154,9 +148,7 @@ class TestHealthyCanaryTypeI:
         # Three alarm channels (mSPRT-latency, mSPRT-verbosity, conformal-drift),
         # all at α=0.05. Bonferroni upper bound ≈ 0.15, but they share the
         # same data. Allow generous slack for finite trials.
-        assert rate < 0.30, (
-            f"Empirical false-positive rate {rate:.3f} too high"
-        )
+        assert rate < 0.30, f"Empirical false-positive rate {rate:.3f} too high"
 
     def test_healthy_canary_breach_count_near_expected(self):
         """Conformal breach count under H0 should be ≈ (1-coverage) × n.
@@ -171,9 +163,7 @@ class TestHealthyCanaryTypeI:
         # Don't break on alarm — we want to see total breach count.
         for axis, count in m._breach_count.items():
             # 50 sessions × (1-0.90) = 5 expected. Allow up to ~15 by chance.
-            assert count <= 20, (
-                f"breach count for {axis!r} is {count} on healthy canary"
-            )
+            assert count <= 20, f"breach count for {axis!r} is {count} on healthy canary"
 
 
 # ===========================================================================
@@ -199,9 +189,7 @@ class TestDriftingCanaryDetection:
         drifting = generate_cohort("drifting", n_sessions=50, seed=3)
         verdict = _stream(m, drifting)
         # 1.5x latency drift should be caught fast given σ̂ from 150-record warmup
-        assert verdict.n_sessions <= 10, (
-            f"mSPRT took {verdict.n_sessions} sessions to catch drift"
-        )
+        assert verdict.n_sessions <= 10, f"mSPRT took {verdict.n_sessions} sessions to catch drift"
 
     def test_drifting_detection_robust_across_seeds(self):
         """mSPRT should fire on drifting canaries for varied seeds."""
@@ -209,16 +197,12 @@ class TestDriftingCanaryDetection:
         catches = 0
         for trial in range(n_trials):
             m = _make_monitor(seed=trial * 5 + 1)
-            drifting = generate_cohort(
-                "drifting", n_sessions=50, seed=trial * 5 + 3
-            )
+            drifting = generate_cohort("drifting", n_sessions=50, seed=trial * 5 + 3)
             verdict = _stream(m, drifting)
             if verdict.alarm:
                 catches += 1
         # Power should be very high — 1.5x latency is a clear signal.
-        assert catches >= 9, (
-            f"Only {catches}/{n_trials} drifting trials triggered alarm"
-        )
+        assert catches >= 9, f"Only {catches}/{n_trials} drifting trials triggered alarm"
 
 
 # ===========================================================================
@@ -277,9 +261,9 @@ class TestPolicyViolatingCanary:
             }
         ]
         verdict = m.observe_session(records)
-        assert "verify-before-transfer" not in verdict.ltl_violations, (
-            "WeakUntil regression: rule fired on a session that called neither tool"
-        )
+        assert (
+            "verify-before-transfer" not in verdict.ltl_violations
+        ), "WeakUntil regression: rule fired on a session that called neither tool"
 
 
 # ===========================================================================
@@ -375,9 +359,9 @@ class TestCLIDemo:
             text=True,
             timeout=60,
         )
-        assert proc.returncode == 0, (
-            f"Demo exited {proc.returncode}; stdout:\n{proc.stdout[-1500:]}"
-        )
+        assert (
+            proc.returncode == 0
+        ), f"Demo exited {proc.returncode}; stdout:\n{proc.stdout[-1500:]}"
 
     def test_run_canary_output_contains_pass_verdict(self):
         import subprocess

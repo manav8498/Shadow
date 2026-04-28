@@ -65,6 +65,7 @@ def _log_scale(value: float, scale: float) -> float:
         return 0.0
     return min(1.0, math.log(value + 1.0) / math.log(scale + 1.0))
 
+
 _STOP_END_TURN = "end_turn"
 _STOP_TOOL_USE = "tool_use"
 _STOP_CONTENT_FILTER = "content_filter"

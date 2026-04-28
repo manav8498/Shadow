@@ -119,6 +119,7 @@ _DIM_NAMES = [
 # Result dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PolicyViolationSummary:
     rule_id: str
@@ -138,7 +139,7 @@ class AuditResult:
     hotelling_df2: int
 
     # --- SPRT latency stream ---
-    sprt_decision: str          # "h1" | "h0" | "continue"
+    sprt_decision: str  # "h1" | "h0" | "continue"
     sprt_turns_to_decision: int | None
 
     # --- LTL policy violations ---
@@ -182,6 +183,7 @@ class AuditResult:
 # ---------------------------------------------------------------------------
 # I/O helpers
 # ---------------------------------------------------------------------------
+
 
 def load_records(path: str | Path) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
@@ -237,6 +239,7 @@ def _per_axis_calibration_scores(
 # ---------------------------------------------------------------------------
 # Main audit function
 # ---------------------------------------------------------------------------
+
 
 def run_audit(
     baseline_path: str | Path,
@@ -309,7 +312,9 @@ def run_audit(
     dim_deltas: dict[str, float] = {}
     for dim_idx, dim_name in enumerate(_DIM_NAMES):
         if dim_idx < baseline_mat.shape[1] and dim_idx < candidate_mat.shape[1]:
-            d = float(np.mean(candidate_mat[:, dim_idx]) - np.mean(baseline_mat[:, dim_idx]))
+            d = float(
+                np.mean(candidate_mat[:, dim_idx]) - np.mean(baseline_mat[:, dim_idx])
+            )
             dim_deltas[dim_name] = round(d, 6)
 
     # ------------------------------------------------------------------
@@ -352,13 +357,15 @@ def run_audit(
         if rule.id in by_rule:
             vlist = by_rule[rule.id]
             pair_indices = [v.pair_index for v in vlist if v.pair_index is not None]
-            policy_summaries.append(PolicyViolationSummary(
-                rule_id=rule.id,
-                severity=rule.severity,
-                description=rule.description,
-                n_violations=len(vlist),
-                first_turn=min(pair_indices) if pair_indices else None,
-            ))
+            policy_summaries.append(
+                PolicyViolationSummary(
+                    rule_id=rule.id,
+                    severity=rule.severity,
+                    description=rule.description,
+                    n_violations=len(vlist),
+                    first_turn=min(pair_indices) if pair_indices else None,
+                )
+            )
 
     # ------------------------------------------------------------------
     # 4. Conformal coverage
@@ -402,15 +409,21 @@ def render_report(result: AuditResult) -> str:
     lines.append("=" * 72)
 
     # Overall verdict
-    verdict = "PASS — no critical issues detected." if result.is_safe() \
+    verdict = (
+        "PASS — no critical issues detected."
+        if result.is_safe()
         else "FAIL — regression detected. Do NOT promote to production."
+    )
     lines.append(f"\n  Verdict: {verdict}\n")
 
     # 1. Fingerprint drift
     lines.append("  [1] BEHAVIORAL FINGERPRINT (Hotelling T²)")
     lines.append(f"      Drift detected : {result.fingerprint_drift_detected}")
-    p_str = f"{result.hotelling_p_value:.4f}" if math.isfinite(result.hotelling_p_value) \
+    p_str = (
+        f"{result.hotelling_p_value:.4f}"
+        if math.isfinite(result.hotelling_p_value)
         else str(result.hotelling_p_value)
+    )
     lines.append(f"      p-value        : {p_str}  (df2={result.hotelling_df2})")
     lines.append("      Per-axis deltas (candidate - baseline):")
     for dim, delta in sorted(result.dimension_deltas.items(), key=lambda x: -abs(x[1])):
@@ -436,10 +449,14 @@ def render_report(result: AuditResult) -> str:
         )
         for v in sorted_viols:
             icon = _SEV_ICON.get(v.severity, v.severity.upper())
-            turn_str = f"turn {v.first_turn}" if v.first_turn is not None else "whole trace"
+            turn_str = (
+                f"turn {v.first_turn}" if v.first_turn is not None else "whole trace"
+            )
             lines.append(f"      [{icon}] {v.rule_id}")
             lines.append(f"              {v.description}")
-            lines.append(f"              First violation: {turn_str}  ({v.n_violations} total)")
+            lines.append(
+                f"              First violation: {turn_str}  ({v.n_violations} total)"
+            )
 
     # 4. Conformal
     lines.append("")
@@ -448,7 +465,9 @@ def render_report(result: AuditResult) -> str:
         lines.append("      Not computed (insufficient data).")
     else:
         cr = result.conformal
-        lines.append(f"      Sufficient data  : {cr.sufficient_n} (n={cr.n_calibration}, n_min={cr.n_min})")
+        lines.append(
+            f"      Sufficient data  : {cr.sufficient_n} (n={cr.n_calibration}, n_min={cr.n_min})"
+        )
         lines.append(f"      Worst axis       : {cr.worst_axis}")
         lines.append("      Per-axis q_hat (max expected deviation at 90% coverage):")
         for ax in cr.axes[:5]:

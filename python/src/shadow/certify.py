@@ -290,8 +290,7 @@ def render_terminal(cert: AgentCertificate) -> str:
             n_min = conformal.get("n_min", 0)
             lines.append(
                 f"  conformal   : {cov:.0%} coverage @ {conf:.0%} PAC confidence "
-                f"(n={n_cal}, binding={worst_ax})"
-                + ("" if suf else f"  ⚠ n < n_min={n_min}")
+                f"(n={n_cal}, binding={worst_ax})" + ("" if suf else f"  ⚠ n < n_min={n_min}")
             )
             for ax_row in (conformal.get("axes") or [])[:3]:
                 lines.append(

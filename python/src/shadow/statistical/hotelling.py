@@ -164,11 +164,7 @@ def hotelling_t2(
             if t2_perm >= t2_obs:
                 count += 1
         p_value = (count + 1) / (permutations + 1)
-        f_stat = (
-            float((n1 + n2 - d - 1) / ((n1 + n2 - 2) * d) * t2_obs)
-            if df2 > 0
-            else math.nan
-        )
+        f_stat = float((n1 + n2 - d - 1) / ((n1 + n2 - 2) * d) * t2_obs) if df2 > 0 else math.nan
         return HotellingResult(
             t2=t2_obs,
             f_stat=f_stat,
@@ -215,9 +211,7 @@ def hotelling_t2(
     )
 
 
-def _t2_statistic(
-    x1: NDArray[np.float64], x2: NDArray[np.float64]
-) -> tuple[float, float]:
+def _t2_statistic(x1: NDArray[np.float64], x2: NDArray[np.float64]) -> tuple[float, float]:
     """Compute the T² statistic and the OAS shrinkage coefficient used."""
     n1 = x1.shape[0]
     n2 = x2.shape[0]
@@ -249,9 +243,7 @@ def _sample_cov(x: NDArray[np.float64]) -> NDArray[np.float64]:
     return cov.astype(np.float64)
 
 
-def _oas_shrink(
-    s: NDArray[np.float64], n: int
-) -> tuple[NDArray[np.float64], float]:
+def _oas_shrink(s: NDArray[np.float64], n: int) -> tuple[NDArray[np.float64], float]:
     """Oracle Approximating Shrinkage (OAS, Chen et al. 2010) toward μ I.
 
     Shrinks S toward (trace(S)/D) · I via the closed-form coefficient

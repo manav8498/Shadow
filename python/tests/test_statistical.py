@@ -59,11 +59,13 @@ class TestFingerprintTrace:
         assert mat.shape == (1, DIM)
 
     def test_all_values_in_unit_interval(self):
-        trace = _make_trace([
-            _make_response(stop_reason="end_turn", tool_names=["search"], output_tokens=500),
-            _make_response(stop_reason="tool_use", tool_names=["search", "fetch"]),
-            _make_response(stop_reason="content_filter"),
-        ])
+        trace = _make_trace(
+            [
+                _make_response(stop_reason="end_turn", tool_names=["search"], output_tokens=500),
+                _make_response(stop_reason="tool_use", tool_names=["search", "fetch"]),
+                _make_response(stop_reason="content_filter"),
+            ]
+        )
         mat = fingerprint_trace(trace)
         assert mat.shape == (3, DIM)
         assert np.all(mat >= 0.0 - 1e-9)
@@ -93,9 +95,7 @@ class TestFingerprintTrace:
     def test_tool_call_rate_log_scaled_discriminates(self):
         # 1 tool < 4 tools < 8 tools → strictly increasing on this axis.
         v1 = fingerprint_trace(_make_trace([_make_response(tool_names=["a"])]))[0, 0]
-        v4 = fingerprint_trace(
-            _make_trace([_make_response(tool_names=["a", "b", "c", "d"])])
-        )[0, 0]
+        v4 = fingerprint_trace(_make_trace([_make_response(tool_names=["a", "b", "c", "d"])]))[0, 0]
         v8 = fingerprint_trace(
             _make_trace([_make_response(tool_names=[f"t{i}" for i in range(8)])])
         )[0, 0]
@@ -133,10 +133,12 @@ class TestFingerprintTrace:
         assert v_small[5] < v_large[5]
 
     def test_mean_fingerprint_matches_matrix_mean(self):
-        trace = _make_trace([
-            _make_response(stop_reason="end_turn", output_tokens=100),
-            _make_response(stop_reason="tool_use", output_tokens=200),
-        ])
+        trace = _make_trace(
+            [
+                _make_response(stop_reason="end_turn", output_tokens=100),
+                _make_response(stop_reason="tool_use", output_tokens=200),
+            ]
+        )
         mat = fingerprint_trace(trace)
         mean = mean_fingerprint(trace)
         np.testing.assert_allclose(mean, mat.mean(axis=0))
@@ -454,17 +456,20 @@ class TestMultiSPRT:
 class TestFingerprintToHotelling:
     def test_same_agent_no_drift(self):
         rng = np.random.default_rng(99)
+
         # Build two traces from the same distribution.
         def _random_trace(n: int) -> list[dict]:
             responses = []
             for _ in range(n):
                 out_tokens = int(rng.integers(80, 200))
                 latency = float(rng.uniform(200, 800))
-                responses.append(_make_response(
-                    stop_reason="end_turn",
-                    output_tokens=out_tokens,
-                    latency_ms=latency,
-                ))
+                responses.append(
+                    _make_response(
+                        stop_reason="end_turn",
+                        output_tokens=out_tokens,
+                        latency_ms=latency,
+                    )
+                )
             return _make_trace(responses)
 
         x1 = fingerprint_trace(_random_trace(30))
@@ -478,25 +483,29 @@ class TestFingerprintToHotelling:
         rng = np.random.default_rng(7)
 
         def _trace_end_turn(n: int) -> list[dict]:
-            return _make_trace([
-                _make_response(
-                    stop_reason="end_turn",
-                    output_tokens=int(rng.integers(80, 200)),
-                    latency_ms=float(rng.uniform(200, 800)),
-                )
-                for _ in range(n)
-            ])
+            return _make_trace(
+                [
+                    _make_response(
+                        stop_reason="end_turn",
+                        output_tokens=int(rng.integers(80, 200)),
+                        latency_ms=float(rng.uniform(200, 800)),
+                    )
+                    for _ in range(n)
+                ]
+            )
 
         def _trace_tool_use(n: int) -> list[dict]:
-            return _make_trace([
-                _make_response(
-                    stop_reason="tool_use",
-                    tool_names=["search"],
-                    output_tokens=int(rng.integers(80, 200)),
-                    latency_ms=float(rng.uniform(200, 800)),
-                )
-                for _ in range(n)
-            ])
+            return _make_trace(
+                [
+                    _make_response(
+                        stop_reason="tool_use",
+                        tool_names=["search"],
+                        output_tokens=int(rng.integers(80, 200)),
+                        latency_ms=float(rng.uniform(200, 800)),
+                    )
+                    for _ in range(n)
+                ]
+            )
 
         x1 = fingerprint_trace(_trace_end_turn(40))
         x2 = fingerprint_trace(_trace_tool_use(40))

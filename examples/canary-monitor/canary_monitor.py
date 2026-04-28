@@ -237,9 +237,7 @@ class CanaryMonitor:
         flat_records: list[dict[str, Any]] = []
         for sess in calibration_sessions:
             flat_records.extend(sess)
-        self._baseline_mat = fingerprint_trace(
-            flat_records, self.fingerprint_config
-        )
+        self._baseline_mat = fingerprint_trace(flat_records, self.fingerprint_config)
         if self._baseline_mat.shape[0] < 10:
             raise ValueError(
                 f"calibration sessions yielded {self._baseline_mat.shape[0]} "
@@ -307,9 +305,7 @@ class CanaryMonitor:
 
     # ---- main entry point --------------------------------------------------
 
-    def observe_session(
-        self, session_records: list[dict[str, Any]]
-    ) -> CanaryVerdict:
+    def observe_session(self, session_records: list[dict[str, Any]]) -> CanaryVerdict:
         """Ingest one canary session and return the current verdict.
 
         ``session_records`` is the list of agentlog records for a single

@@ -195,6 +195,7 @@ DEMO_CANDIDATE_RECORDS: list[dict] = [
 
 # --- DevOps baseline records (5 chat_response turns, multi-tool-call per turn) ---
 
+
 def _devops_tool_block(name: str, idx: int) -> dict:
     return {"type": "tool_use", "id": f"toolu_{idx:02d}", "name": name, "input": {}}
 
@@ -345,31 +346,54 @@ def _devops_baseline_states() -> list[TraceState]:
     return [
         TraceState(
             pair_index=0,
-            tool_calls=["send_notification", "backup_database", "check_replication_lag",
-                        "run_migration", "send_notification"],
+            tool_calls=[
+                "send_notification",
+                "backup_database",
+                "check_replication_lag",
+                "run_migration",
+                "send_notification",
+            ],
             stop_reason="end_turn",
             text_content="",
         ),
         TraceState(
             pair_index=1,
-            tool_calls=["check_replication_lag", "backup_database", "run_migration",
-                        "send_notification", "check_replication_lag", "backup_database",
-                        "send_notification"],
+            tool_calls=[
+                "check_replication_lag",
+                "backup_database",
+                "run_migration",
+                "send_notification",
+                "check_replication_lag",
+                "backup_database",
+                "send_notification",
+            ],
             stop_reason="end_turn",
             text_content="",
         ),
         TraceState(
             pair_index=2,
-            tool_calls=["check_replication_lag", "request_human_approval", "backup_database",
-                        "run_migration", "send_notification", "check_replication_lag"],
+            tool_calls=[
+                "check_replication_lag",
+                "request_human_approval",
+                "backup_database",
+                "run_migration",
+                "send_notification",
+                "check_replication_lag",
+            ],
             stop_reason="end_turn",
             text_content="",
         ),
         TraceState(
             pair_index=3,
-            tool_calls=["backup_database", "request_human_approval", "pause_replication",
-                        "restore_database", "run_migration", "send_notification",
-                        "check_replication_lag"],
+            tool_calls=[
+                "backup_database",
+                "request_human_approval",
+                "pause_replication",
+                "restore_database",
+                "run_migration",
+                "send_notification",
+                "check_replication_lag",
+            ],
             stop_reason="end_turn",
             text_content="",
         ),
@@ -385,6 +409,7 @@ def _devops_baseline_states() -> list[TraceState]:
 # ===========================================================================
 # 1. TestFingerprintOnRealFixtures
 # ===========================================================================
+
 
 class TestFingerprintOnRealFixtures:
     def test_demo_baseline_fingerprint_shape(self):
@@ -404,9 +429,9 @@ class TestFingerprintOnRealFixtures:
         # for all rows. The exact value depends on how many tools were
         # called per turn, but every row must be strictly positive.
         for row_idx in range(5):
-            assert mat[row_idx, 0] > 0.0, (
-                f"row {row_idx}: expected tool_call_rate > 0, got {mat[row_idx, 0]}"
-            )
+            assert (
+                mat[row_idx, 0] > 0.0
+            ), f"row {row_idx}: expected tool_call_rate > 0, got {mat[row_idx, 0]}"
 
     def test_devops_multiple_tools_per_turn_distinct_frac(self):
         mat = fingerprint_trace(DEVOPS_BASELINE_RECORDS)
@@ -538,6 +563,7 @@ class TestFingerprintOnRealFixtures:
 # 2. TestHotellingOnRealFixtures
 # ===========================================================================
 
+
 class TestHotellingOnRealFixtures:
     def test_demo_baseline_vs_candidate_detects_drift(self):
         x1 = fingerprint_trace(DEMO_BASELINE_RECORDS)
@@ -555,8 +581,8 @@ class TestHotellingOnRealFixtures:
         # With n1=5 and n2=5..6, d=8, df2 = n1+n2-d-1 is 1 or 2 — far too low for
         # reliable inference. Inflate both samples by repeating records so that
         # n1=n2=15 → df2=21, giving the F-test real power.
-        devops_x15 = fingerprint_trace(DEVOPS_BASELINE_RECORDS * 3)   # 15 rows
-        demo_x15 = fingerprint_trace(DEMO_BASELINE_RECORDS * 5)        # 15 rows
+        devops_x15 = fingerprint_trace(DEVOPS_BASELINE_RECORDS * 3)  # 15 rows
+        demo_x15 = fingerprint_trace(DEMO_BASELINE_RECORDS * 5)  # 15 rows
         assert devops_x15.shape == (15, 8)
         assert demo_x15.shape == (15, 8)
         result = hotelling_t2(devops_x15, demo_x15, alpha=0.05)
@@ -594,9 +620,7 @@ class TestHotellingOnRealFixtures:
             x1 = rng.standard_normal((5, 8))
             x2 = rng.standard_normal((5, 8))
             result = hotelling_t2(x1, x2)
-            assert math.isfinite(result.p_value), (
-                f"p_value={result.p_value} is not finite"
-            )
+            assert math.isfinite(result.p_value), f"p_value={result.p_value} is not finite"
 
     def test_single_row_each_raises_valueerror(self):
         x1 = np.zeros((1, 8), dtype=np.float64)
@@ -608,6 +632,7 @@ class TestHotellingOnRealFixtures:
 # ===========================================================================
 # 3. TestSPRTOnRealDistributions
 # ===========================================================================
+
 
 class TestSPRTOnRealDistributions:
     def test_warmup_with_identical_scores_zero_variance(self):
@@ -656,9 +681,9 @@ class TestSPRTOnRealDistributions:
         # Once h1 is decided, further updates should keep it at h1 (absorbing)
         for _ in range(5):
             state = det.update(0.0)  # small value that would push toward h0
-            assert state.decision == "h1", (
-                "Decision changed away from h1 -- boundaries not absorbing"
-            )
+            assert (
+                state.decision == "h1"
+            ), "Decision changed away from h1 -- boundaries not absorbing"
 
     def test_sprt_n_observations_matches_total_updates(self):
         det = SPRTDetector(warmup=3)
@@ -711,6 +736,7 @@ class TestSPRTOnRealDistributions:
 # ===========================================================================
 # 4. TestLTLCheckerOnRealTraces
 # ===========================================================================
+
 
 class TestLTLCheckerOnRealTraces:
     def test_g_no_call_passes_on_baseline_for_other_tools(self):
@@ -811,6 +837,7 @@ class TestLTLCheckerOnRealTraces:
 # 5. TestLTLCompilerEdgeCases
 # ===========================================================================
 
+
 class TestLTLCompilerEdgeCases:
     def test_no_call_missing_tool_param_returns_none(self):
         assert rule_to_ltl("no_call", {}) is None
@@ -877,6 +904,7 @@ class TestLTLCompilerEdgeCases:
 # ===========================================================================
 # 6. TestHierarchicalLTLFormulaIntegration
 # ===========================================================================
+
 
 class TestHierarchicalLTLFormulaIntegration:
     def _make_record(self, tool_names: list[str], stop_reason: str, idx: int = 0) -> dict:
@@ -997,8 +1025,15 @@ class TestHierarchicalLTLFormulaIntegration:
 # ===========================================================================
 
 _SHADOW_AXES = [
-    "semantic", "trajectory", "safety", "verbosity",
-    "latency", "cost", "reasoning", "judge", "conformance",
+    "semantic",
+    "trajectory",
+    "safety",
+    "verbosity",
+    "latency",
+    "cost",
+    "reasoning",
+    "judge",
+    "conformance",
 ]
 
 
@@ -1124,6 +1159,7 @@ class TestConformalOnRealAxisRows:
 # 8. TestEndToEndIntegration
 # ===========================================================================
 
+
 class TestEndToEndIntegration:
     def test_demo_fingerprint_to_hotelling_detects_content_filter_drift(self):
         x1 = fingerprint_trace(DEMO_BASELINE_RECORDS)
@@ -1169,9 +1205,7 @@ class TestEndToEndIntegration:
         assert isinstance(formula, WeakUntil)
         states = _devops_baseline_states()
         result = check(formula, states, 0)
-        assert result is True, (
-            "must_call_before formula should pass: backup called at turn 0"
-        )
+        assert result is True, "must_call_before formula should pass: backup called at turn 0"
 
         # Also test via check_policy with PolicyRule
         rule = PolicyRule(
@@ -1200,9 +1234,9 @@ class TestEndToEndIntegration:
             TraceState(pair_index=0, tool_calls=["check_status"], stop_reason="tool_use"),
             TraceState(pair_index=1, tool_calls=["check_status"], stop_reason="end_turn"),
         ]
-        assert check(formula, states, 0) is True, (
-            "Weak-until: G(¬run_migration) holds → rule satisfied vacuously"
-        )
+        assert (
+            check(formula, states, 0) is True
+        ), "Weak-until: G(¬run_migration) holds → rule satisfied vacuously"
 
     def test_conformal_report_note_contains_axis_name(self):
         rows = [_axis_row("semantic", 0.15, 30, 0.10, 0.20)]
