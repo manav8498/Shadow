@@ -438,4 +438,194 @@ class MultiSPRT:
             det.reset()
 
 
-__all__ = ["MSPRTDetector", "MultiSPRT", "SPRTDetector", "SPRTState"]
+class MSPRTtDetector:
+    """Variance-adaptive mixture SPRT for unknown σ.
+
+    The standard :class:`MSPRTDetector` requires σ to be known (or
+    well-estimated from a long warmup) for Robbins's always-valid bound
+    to be exact. With a short warmup, plug-in σ̂ noise inflates the
+    Type-I rate.
+
+    This detector uses the **running sample variance** ``s²_n`` instead
+    of a fixed σ̂, updating the variance estimate after every observation
+    via Welford's algorithm. The mixture statistic becomes
+
+        Λ_n = sqrt(s²_n / (s²_n + n τ² s²_n)) ·
+              exp( n² (x̄_n − μ0)² τ² / (2 (s²_n + n τ² s²_n)) )
+
+    which is equivalent to running the Gaussian mSPRT statistic with
+    the most recent variance estimate. This is the practical "t-mixture
+    spirit" approach (Lai & Xing 2010): adapt to the data's actual
+    variability instead of committing to a single warmup estimate.
+
+    **Important caveats**:
+
+    1. The always-valid bound is **asymptotic**, not exact. Welford-
+       updated s²_n is consistent for σ² but not Bayesian-conjugate;
+       the running statistic is no longer a strict martingale under H0.
+       Empirical Type-I rate matches α only as warmup → ∞.
+    2. For *exact* always-valid inference under unknown σ, use the
+       Robbins-Siegmund (1973) variance-adaptive SPRT or the time-
+       uniform sub-Gaussian bound from Howard, Ramdas, McAuliffe &
+       Sekhon (2021) — both require more numerical machinery (Bessel
+       functions / nonparametric supermartingale tests) than this
+       module currently includes.
+    3. For *Type-I control* in production, the recommended path
+       remains: use :class:`MSPRTDetector` with a large warmup
+       (≥100 observations) so the plug-in σ̂ is essentially the truth.
+       This adaptive detector is for exploratory / variance-uncertain
+       use cases where the long warmup isn't available.
+
+    Parameters
+    ----------
+    alpha : float
+        Type-I error bound. P(false positive at any n) ≤ alpha
+        asymptotically.
+    tau : float
+        Prior std on δ in units of σ. Same role as in MSPRTDetector.
+    warmup : int
+        Minimum observations before the statistic starts accumulating.
+        Smaller warmup is acceptable here than for MSPRTDetector
+        because the variance adapts to new data, but ≥5 is recommended
+        so s²_n is at least loosely defined.
+    """
+
+    def __init__(
+        self,
+        alpha: float = 0.05,
+        tau: float = 1.0,
+        warmup: int = 5,
+    ) -> None:
+        if not (0 < alpha < 1):
+            raise ValueError(f"alpha must be in (0, 1); got {alpha}")
+        if tau <= 0:
+            raise ValueError(f"tau must be > 0; got {tau}")
+        if warmup < 2:
+            raise ValueError(f"warmup must be >= 2; got {warmup}")
+
+        self.alpha = alpha
+        self.tau = tau
+        self.warmup = warmup
+        self._log_threshold = math.log(1.0 / alpha)
+
+        self._reset_state()
+
+    def _reset_state(self) -> None:
+        # Welford running statistics across ALL observations (warmup + post).
+        self._n_total: int = 0
+        self._mean: float = 0.0
+        self._m2: float = 0.0  # sum of squared deviations from mean
+        # Post-warmup running mean for the test statistic numerator.
+        self._post_n: int = 0
+        self._post_sum: float = 0.0
+        # Frozen at warmup completion: μ0 reference.
+        self._mu0: float = 0.0
+        self._log_lambda: float = 0.0
+        self._decision: str = "continue"
+
+    def _welford_update(self, x: float) -> None:
+        """Online update for running mean and variance (Welford, 1962)."""
+        self._n_total += 1
+        delta = x - self._mean
+        self._mean += delta / self._n_total
+        delta2 = x - self._mean
+        self._m2 += delta * delta2
+
+    @property
+    def _running_variance(self) -> float:
+        """Sample variance (Bessel-corrected). 0 when fewer than 2 obs."""
+        if self._n_total < 2:
+            return 0.0
+        return self._m2 / (self._n_total - 1)
+
+    def update(self, score: float) -> SPRTState:
+        """Process one observation. Returns the current state.
+
+        Decisions are absorbing — once H0 is rejected, subsequent
+        updates do not change the decision.
+        """
+        x = float(score)
+        self._welford_update(x)
+
+        if self._decision != "continue":
+            return SPRTState(
+                log_lr=self._log_lambda,
+                n_observations=self._n_total,
+                decision=self._decision,
+                in_warmup=False,
+            )
+
+        if self._n_total <= self.warmup:
+            # Still in warmup: lock μ0 to the running mean, but don't
+            # accumulate the test statistic yet.
+            if self._n_total == self.warmup:
+                self._mu0 = self._mean
+            return SPRTState(
+                log_lr=0.0,
+                n_observations=self._n_total,
+                decision="continue",
+                in_warmup=True,
+            )
+
+        # Post-warmup: accumulate sum and recompute statistic.
+        self._post_n += 1
+        self._post_sum += x
+        n = self._post_n
+        x_bar = self._post_sum / n
+        sigma2 = max(self._running_variance, 1e-12)
+
+        denom = sigma2 + n * self.tau**2 * sigma2
+        log_factor = 0.5 * math.log(sigma2 / denom)
+        diff2 = (x_bar - self._mu0) ** 2
+        exp_arg = (n * n * diff2 * self.tau**2) / (2.0 * denom)
+        self._log_lambda = log_factor + exp_arg
+
+        if self._log_lambda >= self._log_threshold:
+            self._decision = "h1"
+
+        return SPRTState(
+            log_lr=self._log_lambda,
+            n_observations=self._n_total,
+            decision=self._decision,
+            in_warmup=False,
+        )
+
+    def reset(self) -> None:
+        self._reset_state()
+
+    @property
+    def decision(self) -> str:
+        return self._decision
+
+    @property
+    def n_observations(self) -> int:
+        return self._n_total
+
+    @property
+    def log_lambda(self) -> float:
+        return self._log_lambda
+
+    @property
+    def threshold(self) -> float:
+        return self._log_threshold
+
+    @property
+    def running_variance(self) -> float:
+        """Public accessor for the Welford variance estimate."""
+        return self._running_variance
+
+    def __repr__(self) -> str:
+        return (
+            f"MSPRTtDetector(alpha={self.alpha}, tau={self.tau}, "
+            f"n={self._n_total}, sigma2_hat={self._running_variance:.4f}, "
+            f"decision={self._decision!r})"
+        )
+
+
+__all__ = [
+    "MSPRTDetector",
+    "MSPRTtDetector",
+    "MultiSPRT",
+    "SPRTDetector",
+    "SPRTState",
+]

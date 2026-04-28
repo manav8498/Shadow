@@ -435,6 +435,105 @@ class TestMSPRTDetector:
         assert det_large.log_lambda > det_small.log_lambda
 
 
+# ---- MSPRTtDetector (variance-adaptive) -------------------------------------
+
+
+class TestMSPRTtDetector:
+    def test_warmup_returns_continue(self):
+        from shadow.statistical.sprt import MSPRTtDetector
+
+        det = MSPRTtDetector(alpha=0.05, tau=1.0, warmup=5)
+        for _ in range(5):
+            state = det.update(0.0)
+            assert state.in_warmup is True
+            assert state.decision == "continue"
+
+    def test_invalid_alpha_raises(self):
+        from shadow.statistical.sprt import MSPRTtDetector
+
+        with pytest.raises(ValueError, match="alpha"):
+            MSPRTtDetector(alpha=0.0)
+        with pytest.raises(ValueError, match="alpha"):
+            MSPRTtDetector(alpha=1.0)
+
+    def test_invalid_tau_raises(self):
+        from shadow.statistical.sprt import MSPRTtDetector
+
+        with pytest.raises(ValueError, match="tau"):
+            MSPRTtDetector(tau=0.0)
+
+    def test_invalid_warmup_raises(self):
+        from shadow.statistical.sprt import MSPRTtDetector
+
+        with pytest.raises(ValueError, match="warmup"):
+            MSPRTtDetector(warmup=1)
+
+    def test_running_variance_updates_per_observation(self):
+        """Welford running variance should match np.var(ddof=1) on the
+        sample at each step."""
+        from shadow.statistical.sprt import MSPRTtDetector
+
+        det = MSPRTtDetector(warmup=5)
+        values = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+        for v in values:
+            det.update(v)
+            n = det.n_observations
+            if n >= 2:
+                expected = float(np.var(values[:n], ddof=1))
+                assert abs(det.running_variance - expected) < 1e-9
+
+    def test_detects_strong_drift(self):
+        from shadow.statistical.sprt import MSPRTtDetector
+
+        rng = __import__("random").Random(0)
+        det = MSPRTtDetector(alpha=0.05, tau=1.0, warmup=10)
+        # Warmup with N(0, 1)
+        for _ in range(10):
+            det.update(rng.gauss(0, 1))
+        # Then large shift
+        for _ in range(50):
+            state = det.update(rng.gauss(5.0, 1))
+            if state.decision == "h1":
+                break
+        assert det.decision == "h1"
+
+    def test_decision_is_absorbing(self):
+        from shadow.statistical.sprt import MSPRTtDetector
+
+        rng = __import__("random").Random(1)
+        det = MSPRTtDetector(alpha=0.05, tau=1.0, warmup=5)
+        for _ in range(5):
+            det.update(rng.gauss(0, 1))
+        # Drive to h1
+        for _ in range(50):
+            det.update(10.0)
+            if det.decision == "h1":
+                break
+        assert det.decision == "h1"
+        # Subsequent observations close to mean must NOT flip the decision.
+        for _ in range(20):
+            state = det.update(0.0)
+            assert state.decision == "h1"
+
+    def test_reset_clears_all_state(self):
+        from shadow.statistical.sprt import MSPRTtDetector
+
+        det = MSPRTtDetector(warmup=3)
+        for v in [1.0, 2.0, 3.0, 4.0, 5.0]:
+            det.update(v)
+        det.reset()
+        assert det.n_observations == 0
+        assert det.decision == "continue"
+        assert det.log_lambda == 0.0
+        assert det.running_variance == 0.0
+
+    def test_threshold_is_log_one_over_alpha(self):
+        from shadow.statistical.sprt import MSPRTtDetector
+
+        det = MSPRTtDetector(alpha=0.05)
+        assert abs(det.threshold - math.log(1.0 / 0.05)) < 1e-9
+
+
 # ---- MultiSPRT --------------------------------------------------------------
 
 
