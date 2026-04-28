@@ -56,6 +56,32 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 pip install shadow-diff
 ```
 
+### Optional extras
+
+Shadow's core install is intentionally lean. Optional integrations are gated behind extras so users only pay the dependency cost they actually need:
+
+| Extra | Pulls in | Use case |
+|---|---|---|
+| `shadow-diff[anthropic]` | `anthropic` | Live Anthropic client wrapper for `shadow record` |
+| `shadow-diff[openai]` | `openai` | Live OpenAI client wrapper for `shadow record` |
+| `shadow-diff[embeddings]` | `sentence-transformers` | Real semantic-similarity axis (default uses a deterministic surrogate) |
+| `shadow-diff[otel]` | `opentelemetry-sdk` | Export traces to any OTel-compatible backend |
+| `shadow-diff[serve]` | `fastapi`, `uvicorn`, `websockets` | `shadow serve` HTTP dashboard |
+| `shadow-diff[mcp]` | `mcp` | `shadow mcp-serve` Model Context Protocol server |
+| `shadow-diff[multimodal]` | `Pillow`, `imagehash` | Image / multimodal diff |
+| `shadow-diff[sign]` | `sigstore` | Sigstore keyless signing for ABOM certificates |
+| `shadow-diff[langgraph]` | `langgraph` | LangGraph agent adapter |
+| `shadow-diff[crewai]` | `crewai` | CrewAI agent adapter |
+| `shadow-diff[ag2]` | `ag2` | AG2 / Autogen agent adapter |
+| `shadow-diff[all]` | everything above | One-shot install for trying the full feature surface |
+| `shadow-diff[dev]` | test/lint/type-check tooling | Contributing to Shadow itself |
+
+Combine extras with comma-separated form:
+
+```bash
+pip install 'shadow-diff[anthropic,openai,embeddings,otel]'
+```
+
 ## Try it in sixty seconds
 
 ```bash

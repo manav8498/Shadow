@@ -11,10 +11,7 @@ build-backend = "maturin"
 name = "shadow-diff"
 version = "2.5.0"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
-# Dual-licensed to match the Rust community convention (tokio, serde,
-# ruff, uv). MIT keeps embedding frictionless; Apache-2.0 adds an
-# explicit patent grant.
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 # LICENSE files live at the workspace root; we copy them into the Python
 # build context at wheel-build time (see justfile `build-wheel`) rather
 # than referencing them here, because PEP 639's `license-files` glob
@@ -123,6 +120,29 @@ langgraph = [
 ]
 crewai = ["crewai>=1.14,<2"]
 ag2 = ["ag2>=0.9,<2"]
+
+# Convenience meta-extra: install every optional integration. Useful for
+# 'try the full feature surface' but pulls in heavy ML deps you may not
+# need (sentence-transformers ~2GB on first download). For production
+# installs, pick the specific extras you actually use.
+all = [
+    "anthropic>=0.40,<1",
+    "openai>=1.58,<3",
+    "sentence-transformers>=3.3,<6",
+    "opentelemetry-sdk>=1.27,<2",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.32,<1",
+    "websockets>=13.1,<16",
+    "mcp>=0.9,<2",
+    "Pillow>=10,<12",
+    "imagehash>=4.3,<5",
+    "sigstore>=3.0,<4",
+    "langgraph>=1,<2",
+    "langchain-openai>=0.2,<2",
+    "crewai>=1.14,<2",
+    "ag2>=0.9,<2",
+]
+
 dev = [
     "hypothesis==6.122.1",
     "mypy==1.14.0",
