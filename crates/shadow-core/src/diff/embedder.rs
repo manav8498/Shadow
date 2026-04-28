@@ -176,12 +176,7 @@ mod tests {
     #[test]
     fn boxed_embedder_round_trip() {
         let emb = BoxedEmbedder::named(
-            |texts: &[&str]| {
-                texts
-                    .iter()
-                    .map(|t| vec![t.len() as f32, 1.0])
-                    .collect()
-            },
+            |texts: &[&str]| texts.iter().map(|t| vec![t.len() as f32, 1.0]).collect(),
             "len-embed",
         );
         let v = emb.embed(&["abc", "abcdef"]);
