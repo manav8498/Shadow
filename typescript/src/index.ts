@@ -51,3 +51,47 @@ export {
   PARENT_SPAN_ENV,
   W3C_TRACEPARENT_ENV,
 } from './tracing.js';
+export {
+  type Formula,
+  TRUE as LTL_TRUE,
+  FALSE as LTL_FALSE,
+  atom,
+  not,
+  and,
+  or,
+  implies,
+  next,
+  globallyOp,
+  finallyOp,
+  until,
+  weakUntil,
+  conj,
+  disj,
+  formulaToString,
+} from './ltl/formula.js';
+export {
+  type TraceState,
+  type EvalFn,
+  defaultEval,
+  evalAllPositions,
+  check as checkLtl,
+  traceFromRecords,
+} from './ltl/checker.js';
+export {
+  type PolicyRule,
+  type PolicyViolation,
+  type Severity,
+  type NoCallRule,
+  type MustCallBeforeRule,
+  type MustCallOnceRule,
+  type ForbiddenTextRule,
+  type MustIncludeTextRule,
+} from './policy/rules.js';
+export { checkPolicy } from './policy/check.js';
+export {
+  type GateOptions,
+  type GateResult,
+  type LtlResult,
+  gate,
+  renderGateSummary,
+} from './gate/index.js';

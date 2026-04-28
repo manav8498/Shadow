@@ -18,6 +18,15 @@ from the TS package.
 | `canonicalJson` / `contentId` | Canonical JSON serialization for content-hash IDs | `shadow._core.canonical_bytes` / `content_id` |
 | `writeAgentlog` / `parseAgentlog` | Streaming JSONL parser/writer | `shadow._core.write_agentlog` / `parse_agentlog` |
 | `tracing` | OTel trace-id / span-id helpers + W3C traceparent env propagation | `shadow.otel` (subset) |
+| LTLf (`checkLtl`, `evalAllPositions`, `traceFromRecords`, formula AST) | Bottom-up DP O(\|π\|×\|φ\|) over `chat_response` records, all 10 operators (Atom/Not/And/Or/Implies/Next/Until/WeakUntil/Globally/Finally) | `shadow.ltl.checker`, `shadow.ltl.formula` |
+| Policy (`checkPolicy`, `PolicyRule`, `PolicyViolation`) | Stateless rule eval — `no_call`, `must_call_before`, `must_call_once`, `forbidden_text`, `must_include_text` | Subset of `shadow.hierarchical.check_policy` |
+| `gate` / `renderGateSummary` | Compose policy rules + LTLf formulas into a single CI pass/fail decision | n/a (composition layer; Python users wire equivalents directly) |
+
+Decisions from the LTLf, policy, and gate APIs are **byte-identical**
+to the Python equivalents on the same fixtures — verified by
+`python/tests/test_typescript_parity.py`, which runs both
+implementations and asserts equality on the
+`(rule_id, pair_index, kind)` tuples and per-formula pass/fail.
 
 All TS APIs round-trip with the Python parser: a trace recorded by
 `@shadow/sdk` parses cleanly with `shadow._core.parse_agentlog`, and
@@ -31,7 +40,7 @@ These features live only in the Python distribution:
 |---|---|---|
 | `shadow.diff` (Rust core) | 9-axis behavioral diff | The diff engine is Rust + bootstrap CIs in scipy. Re-implementing in TS is a major undertaking with no current user demand. |
 | `shadow.statistical` | Hotelling T², SPRT, mSPRT, fingerprinting | Numerical work — node has weaker stats / linear-algebra ecosystem. |
-| `shadow.ltl` | Formal LTLf model checking | Workable in TS but no user pull. |
+| `shadow.ltl` (compiler / `must_call_before` mining) | Build LTLf formulas from natural-language constraints / mine rules from traces | The evaluator is in TS; the *compiler* / mining tooling stays Python. |
 | `shadow.conformal` | Distribution-free conformal bounds | Same. |
 | `shadow.causal` | Do-calculus attribution | Same. |
 | `shadow.judge` | LLM-as-judge framework | TS could do this; no user pull. |
