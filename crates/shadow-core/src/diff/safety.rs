@@ -17,10 +17,19 @@
 //! This axis does NOT detect tool-call divergence — "candidate skipped
 //! a tool the baseline called" surfaces on the
 //! [`crate::diff::trajectory`] axis via edit distance, which is
-//! principled and domain-free. It also does NOT detect domain-specific
-//! policy violations ("assistant should have asked for confirmation
-//! before issuing a refund", "ESI-1 must page physician"); those are
-//! the Judge axis's territory, where the rubric is user-supplied.
+//! principled and domain-free.
+//!
+//! It also does NOT detect **harmful semantic content delivered without
+//! refusal**: an agent that confidently invents medical dosages,
+//! fabricates legal citations, or gives unsafe advice will still pass
+//! this axis (the model didn't refuse, so safety_score = 1.0). Harm
+//! semantics need a domain rubric — Shadow's answer is the Judge axis
+//! (axis 8), where the user supplies an LLM-as-judge rubric. See
+//! `examples/harmful-content-judge/` for a worked example covering
+//! medical / legal / eating-disorder content. Domain-specific policy
+//! violations ("assistant should have asked for confirmation before
+//! issuing a refund", "ESI-1 must page physician") are the Judge
+//! axis's territory.
 //!
 //! The goal of keeping safety narrow: the axis must mean the same
 //! thing in every domain. A rising safety rate in a customer-support
