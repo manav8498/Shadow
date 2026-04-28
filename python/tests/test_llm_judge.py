@@ -164,6 +164,41 @@ def test_llm_judge_renders_placeholders_into_prompt() -> None:
     assert "CANDIDATE=C-TEXT" in sent
 
 
+def test_llm_judge_handles_literal_json_braces_in_rubric() -> None:
+    """Regression test: rubric with literal JSON example must not crash.
+
+    Previously the implementation called rubric.format(...), which threw
+    KeyError on every JSON key in the example. External eval flagged
+    this as a major footgun; rubric authors had no way to include JSON
+    examples without escaping every brace.
+    """
+    rubric = """Rate the candidate. Reply ONLY with JSON:
+        {"verdict": "pass" | "fail", "confidence": 0.0-1.0, "reason": "..."}
+        Example: {"verdict": "pass", "confidence": 0.9, "reason": "good"}
+
+        TASK: {task}
+        BASELINE: {baseline}
+        CANDIDATE: {candidate}
+        """
+    backend = _FakeBackend([{"verdict": "pass", "confidence": 1.0, "reason": "ok"}])
+    j = LlmJudge(
+        backend=backend,
+        rubric=rubric,
+        score_map={"pass": 1.0, "fail": 0.0},
+    )
+    # Must not raise KeyError or anything else.
+    v = asyncio.run(j.score_pair(_resp("B-TEXT"), _resp("C-TEXT"), _request("T-TEXT")))
+    assert v["score"] == 1.0
+    sent = backend.calls[0]["messages"][0]["content"]
+    # Placeholders substituted.
+    assert "TASK: T-TEXT" in sent
+    assert "BASELINE: B-TEXT" in sent
+    assert "CANDIDATE: C-TEXT" in sent
+    # Literal JSON braces preserved in the prompt.
+    assert '{"verdict": "pass" | "fail"' in sent
+    assert '{"verdict": "pass", "confidence": 0.9' in sent
+
+
 def test_llm_judge_clamps_out_of_range_confidence() -> None:
     backend = _FakeBackend([{"verdict": "pass", "confidence": 2.5, "reason": "overshoot"}])
     j = LlmJudge(
