@@ -1,4 +1,4 @@
-"""Intervention-based attribution: Average Treatment Effect (ATE).
+"""Intervention-based causal attribution (Pearl-style do-calculus).
 
 Given a baseline trace, a candidate trace, and a list of named deltas
 that distinguish the two, this module:
@@ -8,51 +8,51 @@ that distinguish the two, this module:
 2. Replays each single-delta candidate (using a user-supplied replay
    function — the module is interface-only here).
 3. Computes the resulting per-axis divergence vector.
-4. Reports the ATE per (delta, axis) pair, sorted by absolute effect.
+4. Reports the ATE per (delta, axis) pair, with optional:
+   - Bootstrap percentile CIs (Efron 1979) when ``n_bootstrap > 0``.
+   - Back-door adjustment for named confounders (Pearl 2009 §3.3).
+   - E-value sensitivity to unmeasured confounding (VanderWeele &
+     Ding 2017).
 
-Compared to LASSO (the legacy ``shadow.bisect``):
+Design notes
+------------
+- The replay function is opaque: callers wire in their own backend
+  (Rust replay, MockLLM, real LLM, recorded fixture). This module
+  never assumes anything about how a config maps to a divergence
+  vector.
+- ``n_replays`` controls noise reduction at the **point estimate**
+  level; ``n_bootstrap`` resamples the per-axis distributions to
+  produce CIs. The two are independent.
+- Back-door adjustment expects ``confounders`` to be config keys
+  whose values differ between baseline and candidate. The estimator
+  stratifies over the 2^|C| confounder combinations and averages the
+  per-stratum ATE with uniform weights. Other weighting schemes
+  (e.g., propensity-score-derived) can be layered on top by computing
+  per-stratum ATEs externally and combining them; we keep the
+  built-in estimator simple and inspectable.
+- E-value uses the VanderWeele-Ding closed form for continuous
+  outcomes via the standardized mean difference. The pooled SD
+  comes from the union of baseline and intervened replay outputs.
 
-- LASSO regresses divergence on a binary delta-presence matrix and
-  ranks deltas by coefficient. Confounders inflate scores; correlated
-  deltas split credit; the answer is descriptive, not causal.
-- Intervention-based ATE asks "what if THIS delta hadn't fired?" and
-  measures the actual effect. Confounders need explicit treatment
-  (front-door / back-door adjustment) but are no longer hidden in the
-  coefficient.
-
-For now, ATE is computed as a single-replay difference per delta.
-The production-grade variant averages multiple replays per delta
-to reduce variance — the API supports it via the ``n_replays`` arg
-but the simple version with n_replays=1 is correct on noise-free
-deterministic replays (which is the common case for Shadow's
-``MockLLM`` backend).
-
-Foundation scope
-----------------
-This module ships:
-- The API (``causal_attribution``, ``CausalAttribution``,
-  ``InterventionResult``).
-- A pluggable ``replay_fn`` parameter so callers wire in their own
-  replay backend (Rust, Python, mock, real LLM).
-- A simple n_replays=1 difference-of-means ATE estimator.
-- An end-to-end test that exercises the API on a synthetic scenario
-  with 3 real deltas + 5 noise deltas, where the algorithm correctly
-  attributes effect to the 3 real deltas.
-
-Not in scope (for follow-up work):
-- Confound-adjusted estimands (back-door / front-door).
-- Bootstrap CI on ATE estimates.
-- Integration with the ``shadow bisect`` CLI command (separate commit).
-- Optimal experiment design (which deltas to intervene on first when
-  the budget is limited).
-- Sensitivity analysis (Rosenbaum bounds for unmeasured confounding).
+References
+----------
+Pearl, J. (2009). *Causality* (2nd ed.). Cambridge University Press.
+Efron, B. (1979). "Bootstrap methods: Another look at the jackknife".
+  *Ann. Statist.* 7(1): 1-26.
+VanderWeele, T. J. & Ding, P. (2017). "Sensitivity analysis in
+  observational research: introducing the E-value". *Annals of
+  Internal Medicine* 167(4): 268-274.
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from itertools import product
 from typing import Any
+
+import numpy as np
 
 # Type aliases for clarity.
 DeltaName = str
@@ -75,13 +75,31 @@ class InterventionResult:
 
 @dataclass(frozen=True)
 class CausalAttribution:
-    """Per-(delta, axis) ATE estimate, sorted by absolute effect."""
+    """Per-(delta, axis) ATE estimate, sorted by absolute effect.
 
-    # Mapping: delta_name -> axis_name -> ATE
+    Always populated:
+      - ``ate``: point ATE per (delta, axis).
+      - ``interventions``: raw per-intervention divergence vectors.
+
+    Populated when ``n_bootstrap > 0``:
+      - ``ci_low``, ``ci_high``: bootstrap percentile CI bounds.
+
+    Populated when ``sensitivity=True``:
+      - ``e_values``: VanderWeele-Ding E-value per (delta, axis).
+    """
+
     ate: dict[DeltaName, dict[AxisName, float]] = field(default_factory=dict)
     """Average treatment effect per delta, per axis."""
     interventions: list[InterventionResult] = field(default_factory=list)
     """Raw per-intervention divergence vectors (for diagnostics)."""
+    ci_low: dict[DeltaName, dict[AxisName, float]] = field(default_factory=dict)
+    """Lower bound of the bootstrap percentile CI."""
+    ci_high: dict[DeltaName, dict[AxisName, float]] = field(default_factory=dict)
+    """Upper bound of the bootstrap percentile CI."""
+    e_values: dict[DeltaName, dict[AxisName, float]] = field(default_factory=dict)
+    """VanderWeele-Ding E-value: smallest unmeasured-confounder effect
+    that could explain away the observed ATE. ≥ 1; larger = more
+    robust to unmeasured confounding."""
 
     def top(self, axis: AxisName, k: int = 5) -> list[tuple[DeltaName, float]]:
         """Return top-k deltas by |ATE| on the given axis."""
@@ -93,13 +111,15 @@ class CausalAttribution:
         return {
             "ate": {d: dict(axes) for d, axes in self.ate.items()},
             "interventions": [iv.to_dict() for iv in self.interventions],
+            "ci_low": {d: dict(axes) for d, axes in self.ci_low.items()},
+            "ci_high": {d: dict(axes) for d, axes in self.ci_high.items()},
+            "e_values": {d: dict(axes) for d, axes in self.e_values.items()},
         }
 
 
 # A replay function takes a "config" (a dict of named deltas) and
-# returns a per-axis divergence vector relative to the baseline.
-# Callers wire this to whatever backend they use — mock, Rust replay,
-# live LLM.
+# returns a per-axis divergence vector. Callers wire this to their
+# backend — mock, Rust replay, live LLM.
 ReplayFn = Callable[[dict[DeltaName, Any]], DivergenceVector]
 
 
@@ -109,35 +129,67 @@ def causal_attribution(
     candidate_config: dict[DeltaName, Any],
     replay_fn: ReplayFn,
     n_replays: int = 1,
+    n_bootstrap: int = 0,
+    confounders: list[DeltaName] | None = None,
+    sensitivity: bool = False,
+    confidence_level: float = 0.95,
+    seed: int = 42,
     axes: list[AxisName] | None = None,
 ) -> CausalAttribution:
-    """Estimate per-delta ATE via single-delta interventions.
+    """Estimate per-delta ATE via single-delta interventions, with
+    optional bootstrap CIs, back-door adjustment, and E-value sensitivity.
 
-    For each delta where ``baseline_config[d] != candidate_config[d]``:
-
-    1. Build ``intervened_config = dict(baseline_config)`` then
-       set ``intervened_config[d] = candidate_config[d]``.
-    2. Run ``replay_fn(intervened_config)`` ``n_replays`` times and
-       average the per-axis divergence vectors.
-    3. Run ``replay_fn(baseline_config)`` ``n_replays`` times for
-       the control mean.
-    4. ATE on each axis = intervened_mean − control_mean.
+    Parameters
+    ----------
+    baseline_config, candidate_config :
+        The two configurations to compare. The set of differing keys
+        defines the deltas under attribution.
+    replay_fn :
+        Callable mapping a config dict to a per-axis divergence vector.
+    n_replays :
+        Number of independent replays per cell (control and intervention).
+        Increases noise resilience of the point estimate.
+    n_bootstrap :
+        Number of bootstrap resamples for CI computation. ``0`` (default)
+        skips CI computation entirely. ``≥200`` recommended for stable
+        95% percentile bounds.
+    confounders :
+        Optional list of config keys whose effect should be controlled
+        for via Pearl's back-door criterion. The estimator stratifies
+        over the 2^|C| combinations of confounder values (drawn from
+        ``baseline_config`` and ``candidate_config``) and averages the
+        per-stratum ATE with uniform weights.
+    sensitivity :
+        When True, compute the VanderWeele-Ding E-value per (delta, axis).
+        Requires ``n_replays ≥ 2`` for a non-degenerate pooled SD; with
+        ``n_replays = 1`` and a deterministic replay the E-value is
+        reported as 1.0 (null) when ATE = 0 and ``+inf`` otherwise.
+    confidence_level :
+        Two-sided CI level. Default 0.95.
+    seed :
+        Bootstrap RNG seed.
+    axes :
+        Optional whitelist of axis names to report. Defaults to "all
+        axes the replay function returned".
 
     Returns
     -------
-    CausalAttribution with per-(delta, axis) ATE values and the raw
-    intervention results for diagnostics.
+    :class:`CausalAttribution`
 
     Raises
     ------
     ValueError
-        If baseline_config and candidate_config have no differing
-        keys (nothing to attribute), or n_replays < 1.
+        For invalid ``n_replays``, ``n_bootstrap``, ``confidence_level``,
+        identical configs, or confounders that are not config keys / are
+        the target delta.
     """
     if n_replays < 1:
         raise ValueError(f"n_replays must be >= 1; got {n_replays}")
+    if n_bootstrap < 0:
+        raise ValueError(f"n_bootstrap must be >= 0; got {n_bootstrap}")
+    if not 0.0 < confidence_level < 1.0:
+        raise ValueError(f"confidence_level must be in (0, 1); got {confidence_level}")
 
-    # Identify the deltas (keys where baseline and candidate differ).
     differing = [k for k in candidate_config if baseline_config.get(k) != candidate_config[k]]
     if not differing:
         raise ValueError(
@@ -145,30 +197,326 @@ def causal_attribution(
             "nothing to attribute. Did you pass two identical configs?"
         )
 
-    # Control: replay the baseline n_replays times and average.
-    control_runs = [replay_fn(dict(baseline_config)) for _ in range(n_replays)]
-    control_mean = _mean_divergence(control_runs)
+    confounder_keys = list(confounders) if confounders else []
+    if confounder_keys:
+        for c in confounder_keys:
+            if c not in baseline_config or c not in candidate_config:
+                raise ValueError(
+                    f"confounder {c!r} not found in baseline_config and candidate_config"
+                )
+        # Disallow targeting a delta as its own confounder — the
+        # back-door adjustment would integrate over the very value we
+        # are trying to attribute.
+        for c in confounder_keys:
+            if c in differing and c not in [
+                k for k in differing if k not in confounder_keys
+            ]:
+                # We allow confounders that themselves differ between
+                # configs (that's the typical case — e.g. `model`
+                # changes alongside the prompt). What we forbid is
+                # asking for a confounder when the **target** delta
+                # has nothing to attribute beyond it. Detected here:
+                pass
+        # The forbidden case: confounders == differing (no remaining
+        # target delta).
+        target_deltas = [k for k in differing if k not in confounder_keys]
+        if not target_deltas:
+            raise ValueError(
+                "all differing keys were declared as confounders — "
+                "no target delta remains for attribution"
+            )
+
+    rng = np.random.default_rng(seed)
 
     interventions: list[InterventionResult] = []
     ate: dict[DeltaName, dict[AxisName, float]] = {}
+    ci_low: dict[DeltaName, dict[AxisName, float]] = {}
+    ci_high: dict[DeltaName, dict[AxisName, float]] = {}
+    e_values: dict[DeltaName, dict[AxisName, float]] = {}
 
-    for delta in differing:
-        intervened_config = dict(baseline_config)
-        intervened_config[delta] = candidate_config[delta]
-        intervention_runs = [replay_fn(intervened_config) for _ in range(n_replays)]
-        intervened_mean = _mean_divergence(intervention_runs)
+    target_deltas = [k for k in differing if k not in confounder_keys]
 
-        # ATE per axis = intervened mean − control mean.
-        all_axes = set(intervened_mean.keys()) | set(control_mean.keys())
-        if axes is not None:
-            all_axes &= set(axes)
-        per_axis_ate = {
-            ax: intervened_mean.get(ax, 0.0) - control_mean.get(ax, 0.0) for ax in all_axes
-        }
+    for delta in target_deltas:
+        per_axis_ate, per_axis_runs = _ate_for_delta(
+            target_delta=delta,
+            baseline_config=baseline_config,
+            candidate_config=candidate_config,
+            replay_fn=replay_fn,
+            n_replays=n_replays,
+            confounder_keys=confounder_keys,
+            axes=axes,
+        )
         ate[delta] = per_axis_ate
-        interventions.append(InterventionResult(delta=delta, divergence=intervened_mean))
 
-    return CausalAttribution(ate=ate, interventions=interventions)
+        # Use the last (or only) intervention run for the diagnostic record.
+        last_intervention_runs = per_axis_runs["__last_intervention__"]
+        interventions.append(
+            InterventionResult(delta=delta, divergence=_mean_divergence(last_intervention_runs))
+        )
+
+        if n_bootstrap > 0:
+            ci_low[delta], ci_high[delta] = _bootstrap_ci_per_axis(
+                per_axis_runs=per_axis_runs,
+                n_bootstrap=n_bootstrap,
+                confidence_level=confidence_level,
+                rng=rng,
+                axes_filter=axes,
+            )
+
+        if sensitivity:
+            e_values[delta] = _e_values_per_axis(
+                per_axis_runs=per_axis_runs,
+                axes_filter=axes,
+            )
+
+    return CausalAttribution(
+        ate=ate,
+        interventions=interventions,
+        ci_low=ci_low,
+        ci_high=ci_high,
+        e_values=e_values,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Internals
+# ---------------------------------------------------------------------------
+
+
+def _ate_for_delta(
+    *,
+    target_delta: DeltaName,
+    baseline_config: dict[DeltaName, Any],
+    candidate_config: dict[DeltaName, Any],
+    replay_fn: ReplayFn,
+    n_replays: int,
+    confounder_keys: list[DeltaName],
+    axes: list[AxisName] | None,
+) -> tuple[
+    dict[AxisName, float],
+    dict[str, list[DivergenceVector]],
+]:
+    """Compute the ATE for a single target delta, optionally adjusting
+    for confounders via back-door stratification.
+
+    Returns
+    -------
+    (ate_per_axis, runs_dict) where ``runs_dict`` contains the raw
+    per-stratum control / intervention replay outputs keyed for downstream
+    bootstrap CI / E-value computations:
+        - ``"control_runs__<stratum>"``  : list of control replays
+        - ``"intervention_runs__<stratum>"`` : list of intervention replays
+        - ``"__last_intervention__"`` : the last intervention run set
+          (for the diagnostic ``InterventionResult``).
+    """
+    runs: dict[str, list[DivergenceVector]] = {}
+
+    if not confounder_keys:
+        # No back-door adjustment: a single stratum.
+        control_cfg = dict(baseline_config)
+        intervened_cfg = dict(baseline_config)
+        intervened_cfg[target_delta] = candidate_config[target_delta]
+
+        control_runs = [replay_fn(dict(control_cfg)) for _ in range(n_replays)]
+        intervention_runs = [replay_fn(dict(intervened_cfg)) for _ in range(n_replays)]
+
+        runs["control_runs__base"] = control_runs
+        runs["intervention_runs__base"] = intervention_runs
+        runs["__last_intervention__"] = intervention_runs
+
+        ate = _ate_from_runs(control_runs, intervention_runs, axes)
+        return ate, runs
+
+    # Back-door adjustment: stratify over confounder combinations.
+    # Each stratum fixes the confounders to one (baseline_value,
+    # candidate_value) combination and computes a single-stratum ATE.
+    # The reported ATE is the uniform average of stratum ATEs.
+    stratum_ates: list[dict[AxisName, float]] = []
+
+    confounder_value_grids = [
+        (baseline_config[c], candidate_config[c]) for c in confounder_keys
+    ]
+    last_intervention_runs: list[DivergenceVector] = []
+
+    for stratum_idx, combo in enumerate(product(*confounder_value_grids)):
+        fixed_cfg = dict(baseline_config)
+        for c, v in zip(confounder_keys, combo):
+            fixed_cfg[c] = v
+
+        control_cfg = dict(fixed_cfg)
+        intervened_cfg = dict(fixed_cfg)
+        intervened_cfg[target_delta] = candidate_config[target_delta]
+
+        control_runs = [replay_fn(dict(control_cfg)) for _ in range(n_replays)]
+        intervention_runs = [replay_fn(dict(intervened_cfg)) for _ in range(n_replays)]
+
+        runs[f"control_runs__{stratum_idx}"] = control_runs
+        runs[f"intervention_runs__{stratum_idx}"] = intervention_runs
+        last_intervention_runs = intervention_runs
+
+        stratum_ates.append(_ate_from_runs(control_runs, intervention_runs, axes))
+
+    runs["__last_intervention__"] = last_intervention_runs
+
+    # Uniform-weighted average across strata.
+    all_axes: set[str] = set()
+    for s in stratum_ates:
+        all_axes.update(s.keys())
+    if axes is not None:
+        all_axes &= set(axes)
+
+    ate = {
+        ax: sum(s.get(ax, 0.0) for s in stratum_ates) / len(stratum_ates) for ax in all_axes
+    }
+    return ate, runs
+
+
+def _ate_from_runs(
+    control_runs: list[DivergenceVector],
+    intervention_runs: list[DivergenceVector],
+    axes: list[AxisName] | None,
+) -> dict[AxisName, float]:
+    """Per-axis ATE = mean(intervention) − mean(control)."""
+    control_mean = _mean_divergence(control_runs)
+    intervention_mean = _mean_divergence(intervention_runs)
+    all_axes = set(control_mean.keys()) | set(intervention_mean.keys())
+    if axes is not None:
+        all_axes &= set(axes)
+    return {
+        ax: intervention_mean.get(ax, 0.0) - control_mean.get(ax, 0.0) for ax in all_axes
+    }
+
+
+def _bootstrap_ci_per_axis(
+    *,
+    per_axis_runs: dict[str, list[DivergenceVector]],
+    n_bootstrap: int,
+    confidence_level: float,
+    rng: np.random.Generator,
+    axes_filter: list[AxisName] | None,
+) -> tuple[dict[AxisName, float], dict[AxisName, float]]:
+    """Percentile-bootstrap CI on the ATE.
+
+    Resamples the per-stratum control and intervention runs with
+    replacement, computes the resampled ATE on each draw, and reports
+    the (alpha/2, 1-alpha/2) percentiles across draws.
+
+    For multi-stratum (back-door-adjusted) ATEs, the resampling is done
+    within each stratum and the stratum ATEs are recombined with the
+    same uniform weights as the point estimate.
+    """
+    # Identify the strata.
+    stratum_keys = sorted(
+        {
+            k.removeprefix("control_runs__")
+            for k in per_axis_runs
+            if k.startswith("control_runs__")
+        }
+    )
+
+    # Discover all axes present.
+    all_axes: set[str] = set()
+    for k in per_axis_runs:
+        if k.startswith("control_runs__") or k.startswith("intervention_runs__"):
+            for run in per_axis_runs[k]:
+                all_axes.update(run.keys())
+    if axes_filter is not None:
+        all_axes &= set(axes_filter)
+
+    alpha = 1.0 - confidence_level
+    lo_pct = 100.0 * (alpha / 2.0)
+    hi_pct = 100.0 * (1.0 - alpha / 2.0)
+
+    # Bootstrap loop: each replicate produces one ATE-per-axis vector.
+    bootstrap_ates: dict[AxisName, list[float]] = {ax: [] for ax in all_axes}
+
+    for _ in range(n_bootstrap):
+        stratum_ates: list[dict[AxisName, float]] = []
+        for stratum in stratum_keys:
+            controls = per_axis_runs[f"control_runs__{stratum}"]
+            interventions = per_axis_runs[f"intervention_runs__{stratum}"]
+            n_c = len(controls)
+            n_i = len(interventions)
+            if n_c == 0 or n_i == 0:
+                stratum_ates.append({ax: 0.0 for ax in all_axes})
+                continue
+            c_idx = rng.integers(0, n_c, size=n_c)
+            i_idx = rng.integers(0, n_i, size=n_i)
+            c_resample = [controls[int(j)] for j in c_idx]
+            i_resample = [interventions[int(j)] for j in i_idx]
+            stratum_ates.append(_ate_from_runs(c_resample, i_resample, axes_filter))
+
+        # Average across strata for this bootstrap replicate.
+        for ax in all_axes:
+            ax_mean = sum(s.get(ax, 0.0) for s in stratum_ates) / len(stratum_ates)
+            bootstrap_ates[ax].append(ax_mean)
+
+    ci_low = {ax: float(np.percentile(vals, lo_pct)) for ax, vals in bootstrap_ates.items()}
+    ci_high = {ax: float(np.percentile(vals, hi_pct)) for ax, vals in bootstrap_ates.items()}
+    return ci_low, ci_high
+
+
+def _e_values_per_axis(
+    *,
+    per_axis_runs: dict[str, list[DivergenceVector]],
+    axes_filter: list[AxisName] | None,
+) -> dict[AxisName, float]:
+    """VanderWeele-Ding (2017) E-value for continuous outcomes.
+
+    Procedure
+    ---------
+    1. Collect all per-stratum control and intervention runs.
+    2. Compute the unstratified ATE (consistent with the back-door
+       adjusted point estimate when used with confounders).
+    3. Compute pooled SD over the union of control and intervention
+       runs.
+    4. Standardize: ``d = ATE / SD_pooled`` (Cohen's d for two
+       independent groups, equal n).
+    5. Convert to a risk-ratio-equivalent: ``RR ≈ exp(0.91 · |d|)``.
+    6. E-value ``= RR + sqrt(RR · (RR − 1))``.
+
+    Edge cases
+    ----------
+    - ``ATE = 0`` exactly → E-value = 1.0 (no confounding strength
+      needed to explain a null effect).
+    - ``SD_pooled = 0`` (deterministic outcomes) → E-value is +inf
+      when ATE ≠ 0 (any nonzero confounder effect could explain it
+      under zero-noise data).
+    """
+    # Aggregate runs across strata.
+    all_controls: list[DivergenceVector] = []
+    all_interventions: list[DivergenceVector] = []
+    for k, runs in per_axis_runs.items():
+        if k.startswith("control_runs__"):
+            all_controls.extend(runs)
+        elif k.startswith("intervention_runs__"):
+            all_interventions.extend(runs)
+
+    all_axes: set[str] = set()
+    for r in all_controls + all_interventions:
+        all_axes.update(r.keys())
+    if axes_filter is not None:
+        all_axes &= set(axes_filter)
+
+    out: dict[AxisName, float] = {}
+    for ax in all_axes:
+        c_vals = [r.get(ax, 0.0) for r in all_controls]
+        i_vals = [r.get(ax, 0.0) for r in all_interventions]
+        ate = (sum(i_vals) / len(i_vals) if i_vals else 0.0) - (
+            sum(c_vals) / len(c_vals) if c_vals else 0.0
+        )
+        if abs(ate) < 1e-12:
+            out[ax] = 1.0
+            continue
+        pooled = c_vals + i_vals
+        sd = float(np.std(pooled, ddof=1)) if len(pooled) > 1 else 0.0
+        if sd < 1e-12:
+            out[ax] = math.inf
+            continue
+        d = ate / sd
+        rr = math.exp(0.91 * abs(d))
+        out[ax] = float(rr + math.sqrt(rr * (rr - 1.0)))
+    return out
 
 
 def _mean_divergence(runs: list[DivergenceVector]) -> DivergenceVector:
