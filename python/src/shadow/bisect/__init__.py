@@ -20,7 +20,12 @@ from shadow.bisect.apply import (
     apply_config_to_request,
     build_intermediate_config,
 )
-from shadow.bisect.attribution import rank_attributions
+from shadow.bisect.attribution import (
+    AXIS_NAMES,
+    rank_attributions,
+    rank_attributions_with_ci,
+    rank_attributions_with_interactions,
+)
 from shadow.bisect.corner_scorer import (
     replay_with_config,
     score_corners,
@@ -33,6 +38,7 @@ from shadow.bisect.design import full_factorial, plackett_burman
 from shadow.bisect.runner import run_bisect
 
 __all__ = [
+    "AXIS_NAMES",
     "CONFIG_CATEGORIES",
     "Delta",
     "active_categories",
@@ -42,6 +48,8 @@ __all__ = [
     "full_factorial",
     "plackett_burman",
     "rank_attributions",
+    "rank_attributions_with_ci",
+    "rank_attributions_with_interactions",
     "replay_with_config",
     "run_bisect",
     "run_corner_bisect",

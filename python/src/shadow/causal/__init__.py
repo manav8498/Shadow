@@ -20,29 +20,36 @@ counterfactual primitives in :mod:`shadow.counterfactual_loop`
 the intervention is mechanical: substitute the single delta into the
 baseline trace, replay, measure the diff vector.
 
-**Status: foundation.** This commit ships the API + a synthetic
-ground-truth test that exercises the intervention loop. The
-production-grade implementation needs:
+**Status: production.** Ships:
 
-1. Larger-scale design matrix (currently we run 1 intervention per
-   delta; production needs averaging over multiple replays per cell
-   for noise reduction).
-2. Confound-adjusted estimands (front-door / back-door correction
-   when deltas have shared parents in the config DAG).
-3. Integration with the existing ``shadow bisect`` CLI command so
-   users opt in via ``--engine causal`` instead of LASSO.
+1. Point ATE via single-delta interventions, with ``n_replays`` for
+   noise reduction.
+2. Bootstrap percentile CIs on the ATE when ``n_bootstrap > 0``
+   (Efron 1979). The resampling is stratum-aware so back-door-adjusted
+   estimates carry honest CIs.
+3. Back-door adjustment for named confounders via uniform-weighted
+   stratification over confounder-value combinations (Pearl 2009 §3.3).
+4. E-value sensitivity to unmeasured confounding (VanderWeele &
+   Ding 2017) — reports the smallest unmeasured-confounder effect
+   that could explain away the observed ATE.
 
-The full causal engine is multi-week scope (4-8 weeks for solid
-research-grade implementation matching ICML/NeurIPS standards).
-This foundation establishes the API contract and the simplest valid
-intervention-based ATE estimator so the production work has a clear
-starting point and an end-to-end test to regress against.
+Out of scope (deferred):
+- Front-door adjustment (rare in practice; back-door covers the
+  typical agent-config confounding pattern).
+- Optimal experiment design (which deltas to intervene on first
+  under a fixed budget).
+- Rosenbaum bounds for matched designs (E-value subsumes the
+  common use case for unmatched, continuous-outcome work).
 
 References
 ----------
-Pearl, J. (2009). "Causality" (2nd ed.). Cambridge.
-Pearl, J. & Mackenzie, D. (2018). "The Book of Why."
-Hernán, M. A. & Robins, J. M. (2020). "Causal Inference: What If."
+Pearl, J. (2009). *Causality* (2nd ed.). Cambridge University Press.
+Efron, B. (1979). "Bootstrap methods: Another look at the jackknife".
+  *Ann. Statist.* 7(1): 1-26.
+VanderWeele, T. J. & Ding, P. (2017). "Sensitivity analysis in
+  observational research: introducing the E-value". *Annals of
+  Internal Medicine* 167(4): 268-274.
+Hernán, M. A. & Robins, J. M. (2020). *Causal Inference: What If*.
 """
 
 from shadow.causal.attribution import (
