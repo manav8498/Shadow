@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
 from shadow import _core
@@ -311,6 +312,23 @@ def test_diff_output_json_contains_policy_diff(tmp_path: Path) -> None:
     assert not pd["candidate_violations"], "candidate had FY2026, expected clean"
     assert len(pd["fixes"]) == 1
     assert pd["fixes"][0]["rule_id"] == "no-stale"
+
+
+def test_pricing_table_invalid_entry_error_is_clear() -> None:
+    """Regression for A-4: the previous error message said 'must be or
+    a dict' (literally — the [input, output] shape was elided in the
+    string), making it unclear what the user did wrong. New message
+    names the offending value, its type, and the two valid shapes."""
+    from shadow.cli.app import _parse_pricing_table
+    from shadow.errors import ShadowError
+
+    with pytest.raises(ShadowError) as ei:
+        _parse_pricing_table({"some-model": "0.001"})  # str is not a list or dict
+    msg = str(ei.value)
+    assert "some-model" in msg
+    assert "str" in msg
+    assert "input_price, output_price" in msg
+    assert "input" in msg and "output" in msg
 
 
 def test_pricing_table_skips_underscore_prefixed_metadata_keys() -> None:
