@@ -194,6 +194,9 @@ ignore = []
 "tests/test_statistical.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/test_conformal.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/test_canary_monitor.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/test_statistical_edge_cases.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/test_statistical_vs_reference.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/test_diff_scenarios.py" = ["RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 strict = true
