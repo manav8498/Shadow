@@ -149,7 +149,41 @@ Touching `SPEC.md` is a bigger deal than touching code. Rules:
 
 ## Releasing (maintainers only)
 
-### Versioning policy: lockstep across all components
+### API stability: SemVer commitment
+
+Shadow follows [Semantic Versioning 2.0.0](https://semver.org/) starting
+at v2.5.0. The public API in v2.x is stable: **no breaking changes
+within a major version**. A future v3.0.0 may rework public API; until
+then, anything documented in the public surface (CLI commands listed
+in `shadow --help`, importable symbols in `shadow.<module>`,
+`.agentlog` format §3-§4 of `SPEC.md`, ABOM certificate fields)
+remains backward-compatible.
+
+What "breaking" means in practice:
+
+- Renaming or removing a CLI command, flag, or environment variable
+- Removing a class/function/method from a public module
+- Changing a function signature in a way that breaks existing callers
+- Removing a record `kind`, payload field, or changing its semantics
+- Removing a certificate field or changing its type
+- Tightening a previously-permissive validator in a way that rejects
+  existing valid inputs
+
+What is NOT breaking and may change in any patch release:
+
+- Internal modules prefixed with `_` (e.g. `shadow._core`, `shadow._telemetry`)
+- Adding new optional parameters with defaults
+- Adding new CLI flags or commands
+- Adding new record kinds or optional payload fields
+- Performance characteristics
+- Error messages (format, wording)
+- Deprecated APIs (these emit `DeprecationWarning` for at least one
+  minor version before removal in the next major)
+
+For format-level changes, see `SPEC.md` §13 (Versioning and forward/back
+compatibility).
+
+
 
 Shadow ships three artifacts that share a single version number:
 
