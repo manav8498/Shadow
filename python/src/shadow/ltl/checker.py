@@ -41,6 +41,34 @@ we compute a length-|π| boolean vector ``holds[i]`` in a single pass:
 Total complexity: **O(|π| × |φ|)** where |φ| is the number of
 subformula nodes.  This is asymptotically optimal for finite-trace
 LTL without automaton compilation.
+
+Why pure Python (and when to upgrade)
+-------------------------------------
+For agent-eval workloads — typical trace length 5-100 turns, formula
+size 1-20 subformula nodes — this checker runs in well under 1 ms.
+Pure Python is fine.
+
+For long-horizon protocol verification (10K+ turn traces, complex
+nested formulas) the constant factors of Python interpretation
+dominate. The path forward is:
+
+1. **LTLf2DFA** (Brafman & De Giacomo 2019): compile the formula once
+   to a deterministic finite automaton (DFA), then evaluate the
+   trace as a single linear pass through the automaton. Asymptotic
+   complexity stays O(|π| × |φ|) but the constant drops to a single
+   table lookup per state transition.
+2. **MONA** / **spot**: mature C++ libraries that ship LTLf→DFA
+   compilation. Wrapping spot via PyO3 would give ~100× speedup for
+   long traces.
+3. **Rust port of this DP**: simpler than a spot wrapper, gives
+   ~10-20× speedup and avoids a C++ dependency.
+
+These are all **optional optimisations**. The pure-Python checker
+delivers correct results at agent-eval scale; automaton compilation
+is a deferred performance optimisation, not a correctness fix.
+Tracked as C-4 in the technical-debt plan; no current users have
+reported the pure-Python path as a bottleneck, so it is not a
+prerequisite for any current release.
 """
 
 from __future__ import annotations
