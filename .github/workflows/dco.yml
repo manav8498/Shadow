@@ -1,0 +1,85 @@
+name: DCO
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited]
+
+# Runs the DCO sign-off check on every commit in the PR. Each commit must
+# carry a `Signed-off-by:` trailer whose email matches the commit author.
+# See CONTRIBUTING.md §Developer Certificate of Origin for how contributors
+# sign their commits.
+
+jobs:
+  dco-check:
+    name: DCO sign-off
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR commits
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify every commit has a matching Signed-off-by line
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          commits=$(git rev-list "$BASE_SHA..$HEAD_SHA")
+          if [ -z "$commits" ]; then
+            echo "No commits to check."
+            exit 0
+          fi
+
+          missing=0
+          for sha in $commits; do
+            author_email=$(git show -s --format='%ae' "$sha")
+            author_name=$(git show -s --format='%an' "$sha")
+            subject=$(git show -s --format='%s' "$sha")
+
+            # Allow merge commits (parent count > 1) to skip the check.
+            parents=$(git show -s --format='%P' "$sha" | wc -w | tr -d ' ')
+            if [ "$parents" -gt 1 ]; then
+              echo "skip merge $sha — $subject"
+              continue
+            fi
+
+            sob=$(git show -s --format='%(trailers:key=Signed-off-by,valueonly,unfold)' "$sha")
+            if [ -z "$sob" ]; then
+              echo "::error::commit $sha is missing a Signed-off-by trailer"
+              echo "  author : $author_name <$author_email>"
+              echo "  subject: $subject"
+              missing=$((missing + 1))
+              continue
+            fi
+
+            expected="$author_name <$author_email>"
+            match=0
+            while IFS= read -r line; do
+              if [ "$line" = "$expected" ]; then
+                match=1
+                break
+              fi
+            done <<EOF
+          $sob
+          EOF
+
+            if [ "$match" -eq 0 ]; then
+              echo "::error::commit $sha has Signed-off-by that does not match author"
+              echo "  author    : $expected"
+              echo "  signed-off: $sob"
+              missing=$((missing + 1))
+            fi
+          done
+
+          if [ "$missing" -gt 0 ]; then
+            echo ""
+            echo "$missing commit(s) failed the DCO check."
+            echo "See CONTRIBUTING.md#developer-certificate-of-origin-dco for how to sign off."
+            exit 1
+          fi
+
+          echo "All commits carry a valid Signed-off-by."

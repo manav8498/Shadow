@@ -5,7 +5,7 @@
 # Shadow
 
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
-[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1%20%2B%20v0.2%20kinds-6f4cff.svg)](SPEC.md)
 [![version](https://img.shields.io/badge/version-2.4.3-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
@@ -497,9 +497,9 @@ Shadow/
 
 ## License
 
-- **Code** (Rust, Python, TypeScript): dual [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE). Pick either.
-- **Spec** (`SPEC.md`): [Apache-2.0](LICENSE-APACHE) only.
+- **Code and spec**: [Apache License 2.0](LICENSE).
 - **Name "Shadow" and logo**: see [TRADEMARK.md](TRADEMARK.md).
+- **Contributions**: every commit must carry a Developer Certificate of Origin sign-off (`git commit -s`). See [CONTRIBUTING.md](CONTRIBUTING.md#developer-certificate-of-origin-dco).
 
 ## Community
 
