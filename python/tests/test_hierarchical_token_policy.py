@@ -144,6 +144,38 @@ def testload_policy_rejects_unknown_kind() -> None:
         load_policy([{"id": "r", "kind": "make-coffee", "params": {}}])
 
 
+def testload_policy_accepts_apiversion() -> None:
+    """Versioned policy files load cleanly with no warnings."""
+    versioned = {
+        "apiVersion": "shadow.dev/v1alpha1",
+        "rules": [{"id": "r1", "kind": "no_call", "params": {"tool": "bad"}}],
+    }
+    rules = load_policy(versioned)
+    assert rules[0].id == "r1"
+
+
+def testload_policy_warns_when_apiversion_missing(caplog: pytest.LogCaptureFixture) -> None:
+    """Legacy un-versioned policy files load but emit a logger warning."""
+    import logging
+
+    legacy = {"rules": [{"id": "r1", "kind": "no_call", "params": {"tool": "bad"}}]}
+    with caplog.at_level(logging.WARNING, logger="shadow.hierarchical"):
+        rules = load_policy(legacy)
+    assert rules[0].id == "r1"
+    assert any("apiVersion" in rec.message for rec in caplog.records)
+
+
+def testload_policy_rejects_unknown_apiversion() -> None:
+    """Files declaring an unknown apiVersion fail loudly with a hint
+    listing the supported versions."""
+    bad = {
+        "apiVersion": "shadow.dev/v99999",
+        "rules": [{"id": "r1", "kind": "no_call", "params": {"tool": "bad"}}],
+    }
+    with pytest.raises(ShadowConfigError, match="apiVersion"):
+        load_policy(bad)
+
+
 def testload_policy_rejects_wrong_shape() -> None:
     with pytest.raises(ShadowConfigError):
         load_policy(42)

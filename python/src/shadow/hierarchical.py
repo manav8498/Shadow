@@ -791,22 +791,62 @@ _POLICY_KINDS = {
 }
 
 
+# Currently supported policy schema versions. The latest is what
+# `shadow init` writes; older versions are migrated on load with a
+# deprecation hint so authors update their files at convenience.
+_LATEST_POLICY_API_VERSION = "shadow.dev/v1alpha1"
+_SUPPORTED_POLICY_API_VERSIONS = frozenset({_LATEST_POLICY_API_VERSION})
+
+
 def load_policy(data: Any) -> list[PolicyRule]:
     """Parse a policy overlay (dict or list) into a list of rules.
 
     Accepts either:
-    - `{"rules": [ {...rule...}, ... ]}` — typical YAML overlay shape.
-    - `[ {...rule...}, ... ]` — bare rule list.
+    - `{"apiVersion": "shadow.dev/v1alpha1", "rules": [...]}` — current
+      schema (recommended; future-proof for migrations).
+    - `{"rules": [ {...rule...}, ... ]}` — legacy un-versioned form.
+      Loads with a logged warning. New policies should set
+      `apiVersion`.
+    - `[ {...rule...}, ... ]` — legacy bare rule list. Same warning.
+
+    Files with an unknown ``apiVersion`` raise :class:`ShadowConfigError`
+    with an explicit list of supported versions, so users know whether
+    they need to upgrade Shadow or their policy schema.
     """
+    import logging
+
     from shadow.errors import ShadowConfigError
 
     if isinstance(data, dict):
+        api_version = data.get("apiVersion")
+        if api_version is None:
+            logging.getLogger(__name__).warning(
+                "policy file has no `apiVersion` field; assuming "
+                "'%s'. Future versions of Shadow may require this "
+                "field — add `apiVersion: %s` to silence this warning.",
+                _LATEST_POLICY_API_VERSION,
+                _LATEST_POLICY_API_VERSION,
+            )
+        elif api_version not in _SUPPORTED_POLICY_API_VERSIONS:
+            raise ShadowConfigError(
+                f"policy file has unsupported apiVersion {api_version!r}.\n"
+                f"hint: supported versions are "
+                f"{sorted(_SUPPORTED_POLICY_API_VERSIONS)}.\n"
+                f"If your file was written by a newer Shadow, upgrade "
+                f"Shadow. If by an older Shadow, migrate the file or "
+                f"remove the apiVersion field to use the latest schema."
+            )
         raw_rules = data.get("rules")
         if not isinstance(raw_rules, list):
             raise ShadowConfigError(
                 "policy YAML must have a top-level `rules:` list (or be a list itself)"
             )
     elif isinstance(data, list):
+        logging.getLogger(__name__).warning(
+            "policy file is a bare list; consider wrapping in "
+            "{apiVersion: %s, rules: [...]} for future compatibility.",
+            _LATEST_POLICY_API_VERSION,
+        )
         raw_rules = data
     else:
         raise ShadowConfigError(
