@@ -416,9 +416,8 @@ mod tests {
     #[test]
     fn embedder_path_empty_pairs_returns_empty() {
         let pairs: Vec<(&Record, &Record)> = vec![];
-        let emb = BoxedEmbedder::new(|texts: &[&str]| {
-            texts.iter().map(|_| vec![1.0_f32; 4]).collect()
-        });
+        let emb =
+            BoxedEmbedder::new(|texts: &[&str]| texts.iter().map(|_| vec![1.0_f32; 4]).collect());
         let stat = compute_with_embedder(&pairs, &emb, Some(1));
         assert_eq!(stat.severity, Severity::None);
     }
