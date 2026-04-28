@@ -163,6 +163,16 @@ def hotelling_t2(
             t2_perm, _ = _t2_statistic(xa, xb)
             if t2_perm >= t2_obs:
                 count += 1
+        # Phipson-Smyth (2010) correction: p̂ = (b + 1) / (B + 1) where b is
+        # the count of permutations with statistic ≥ observed and B is the
+        # total number of permutations sampled. The "+1" accounts for the
+        # observed labelling itself being one of the permutations under H0,
+        # ensuring the p-value is never exactly zero (which would imply the
+        # observed cannot have arisen by chance, an over-statement) and is
+        # an unbiased estimator of the true permutation p-value.
+        # Reference: Phipson & Smyth (2010), "Permutation P-values Should
+        # Never Be Zero". Statistical Applications in Genetics and
+        # Molecular Biology 9(1).
         p_value = (count + 1) / (permutations + 1)
         f_stat = float((n1 + n2 - d - 1) / ((n1 + n2 - 2) * d) * t2_obs) if df2 > 0 else math.nan
         return HotellingResult(

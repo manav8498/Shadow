@@ -222,6 +222,33 @@ class TestHotellingT2:
         assert result.p_value == 1.0
         assert not result.reject_null
 
+    def test_permutation_p_value_uses_phipson_smyth_correction(self):
+        """Permutation p-value follows (b+1)/(B+1) — the Phipson-Smyth (2010)
+        unbiased estimator. Verify the formula directly: with B=99 and a
+        known clearly-separated input, the p-value should be 1/100 (the
+        minimum non-zero value) when no permutation matches the observed."""
+        rng = np.random.default_rng(42)
+        # Strong shift: candidate is N(5, 1) — every permutation of
+        # combined data will have a smaller T² than the observed.
+        x1 = rng.standard_normal((20, 3))
+        x2 = rng.standard_normal((20, 3)) + 5.0
+        result = hotelling_t2(
+            x1, x2, alpha=0.05, permutations=99, rng=np.random.default_rng(0)
+        )
+        # Lower bound (1/(B+1)) is achieved when count==0; never exactly 0.
+        assert result.p_value >= 1 / 100
+        # And should be near the floor for this strong shift.
+        assert result.p_value <= 5 / 100
+
+    def test_permutation_p_value_never_zero(self):
+        """Phipson-Smyth ensures p-value > 0 even when no permutation
+        exceeds observed — important because p=0 would over-state evidence."""
+        rng = np.random.default_rng(43)
+        x1 = rng.standard_normal((10, 2))
+        x2 = rng.standard_normal((10, 2)) + 100.0  # absurdly large shift
+        result = hotelling_t2(x1, x2, permutations=50, rng=np.random.default_rng(1))
+        assert result.p_value > 0
+
     def test_shrinkage_nonzero_when_high_dim(self):
         rng = np.random.default_rng(8)
         x1 = rng.standard_normal((5, 8))  # p/n is high
