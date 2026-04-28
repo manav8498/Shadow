@@ -146,6 +146,16 @@ jobs:
             --cov=shadow --cov-config=python/pyproject.toml --cov-fail-under=85 \
             --cov-report=term-missing
 
+      # Statistical-property simulations are marked @pytest.mark.slow so
+      # they don't run in the fast inner loop. Run them here on one
+      # matrix entry (Ubuntu, Python 3.12) so regressions in Type-I rate,
+      # power, or always-valid bounds are caught on every push without
+      # multiplying the matrix by all OS×Python combinations.
+      - name: pytest -m slow (statistical-property validation)
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: |
+          "${{ matrix.venv_py }}" -m pytest python/tests/test_statistical_validation.py -m slow -v
+
   python-full-extras:
     name: pytest (all optional extras installed, no skips)
     needs: python
