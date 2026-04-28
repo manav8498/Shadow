@@ -3,12 +3,10 @@ resolver = "2"
 members = ["crates/shadow-core"]
 
 [workspace.package]
-version = "2.4.3"
+version = "2.5.0"
 edition = "2021"
 rust-version = "1.95"
-# Dual-licensed per Rust community convention (tokio, serde, ruff, uv, polars).
-# Apache-2.0 adds an explicit patent grant; MIT keeps embedding friction low.
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 repository = "https://github.com/manav8498/Shadow"
 homepage = "https://github.com/manav8498/Shadow"
 authors = ["manav8498"]
