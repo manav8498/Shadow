@@ -135,11 +135,11 @@ class TestHotellingPower:
             # Values calibrated from the standard non-central F-distribution
             # power formula and verified empirically; the tolerance is
             # loose enough to absorb 100-trial Monte-Carlo variance.
-            (0.0, 50, 0.0),    # H0 → power = 0 (we just don't reject)
-            (0.1, 50, 0.0),    # tiny shift, n=50 → underpowered
-            (0.3, 50, 0.20),   # small shift, modest power
-            (0.5, 50, 0.70),   # medium shift, high power
-            (1.0, 50, 0.99),   # large shift, near-perfect
+            (0.0, 50, 0.0),  # H0 → power = 0 (we just don't reject)
+            (0.1, 50, 0.0),  # tiny shift, n=50 → underpowered
+            (0.3, 50, 0.20),  # small shift, modest power
+            (0.5, 50, 0.70),  # medium shift, high power
+            (1.0, 50, 0.99),  # large shift, near-perfect
             (0.1, 200, 0.10),  # tiny shift but more samples
             (0.3, 200, 0.85),  # small shift, lots of samples → strong
             (0.5, 200, 0.99),  # medium shift, lots of samples

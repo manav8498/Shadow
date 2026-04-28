@@ -7,7 +7,7 @@
 [![ci](https://github.com/manav8498/Shadow/actions/workflows/ci.yml/badge.svg)](https://github.com/manav8498/Shadow/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1%20%2B%20v0.2%20kinds-6f4cff.svg)](SPEC.md)
-[![version](https://img.shields.io/badge/version-2.4.3-brightgreen.svg)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-2.5.0-brightgreen.svg)](CHANGELOG.md)
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
@@ -473,7 +473,27 @@ Every example runs offline from committed fixtures. No API key required:
 | [`examples/devops-agent/`](examples/devops-agent/) | Database agent with a tool-ordering bug that unit tests would miss |
 | [`examples/er-triage/`](examples/er-triage/) | High-stakes clinical scenario with safety rules |
 | [`examples/edge-cases/`](examples/edge-cases/) | 20 adversarial probes used as a regression guard |
+| [`examples/refund-agent-audit/`](examples/refund-agent-audit/) | Statistical safety audit on a model upgrade (Hotelling T² + SPRT + LTL + conformal) |
+| [`examples/canary-monitor/`](examples/canary-monitor/) | Production canary with always-valid mSPRT and Bonferroni-corrected family-wise error |
+| [`examples/harmful-content-judge/`](examples/harmful-content-judge/) | Domain-aware harm detection where the safety axis isn't enough |
+| [`examples/production-incident-suite/`](examples/production-incident-suite/) | Five public-incident patterns (Air Canada, Avianca, NEDA, McDonald's, Replit) caught by the v2.5+ pipeline |
 | [`examples/integrations/`](examples/integrations/) | Push traces to Datadog, Splunk, or any OTel collector |
+
+## Statistical, formal, and causal primitives (v2.5+)
+
+Shadow ships a layer most LLM-eval tools don't have — empirically-validated statistical and formal-verification primitives that give the certificates real meaning. These compose with the nine-axis diff above.
+
+| Module | What it does | Reference |
+|---|---|---|
+| [`shadow.statistical`](python/src/shadow/statistical/) | Behavioral fingerprinting, Hotelling T² (with OAS shrinkage and permutation p-values), Wald + mixture SPRT, variance-adaptive `MSPRTtDetector` | [docs/theory/sprt.md](docs/theory/sprt.md), [docs/theory/hotelling.md](docs/theory/hotelling.md) |
+| [`shadow.ltl`](python/src/shadow/ltl/) | Finite-trace LTLf model checking with bottom-up DP (O(\|π\|×\|φ\|)); `WeakUntil` for "must-call-before" rules; YAML compiler | [docs/theory/ltl.md](docs/theory/ltl.md) |
+| [`shadow.conformal`](python/src/shadow/conformal.py) | Distribution-free split conformal (`conformal_calibrate`); Adaptive Conformal Inference (`ACIDetector`, Gibbs & Candès 2021) for distribution shift | [docs/theory/conformal.md](docs/theory/conformal.md) |
+| [`shadow.causal`](python/src/shadow/causal/) | Pearl-style do-calculus attribution (foundation) — replaces the LASSO-based bisect with intervention-based ATE | [docs/theory/causal.md](docs/theory/causal.md) |
+| [`shadow.diff_py`](python/src/shadow/diff_py/) | Scenario-aware multi-case diff: partition by `meta.scenario_id`, run per-scenario diffs without spurious "dropped turns" |  |
+| [`shadow.policy_suggest`](python/src/shadow/policy_suggest/) | Mine baseline traces for `must_call_before` patterns; suggest policies the operator approves before adding |  |
+| [`shadow.storage`](python/src/shadow/storage/) | Pluggable Storage interface (FileStore + InMemoryStore in OSS; cloud backends plug in) |  |
+
+The validation suite at [`python/tests/test_statistical_validation.py`](python/tests/test_statistical_validation.py) (run with `pytest -m slow`) empirically verifies Type-I rate, power across an effect-size × n grid, the always-valid bound under continuous peeking, and conformal coverage on heavy-tailed held-out data.
 
 ## CLI reference
 

@@ -6,47 +6,176 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
-### Fixed
+Comprehensive technical-debt cleanup pass on top of v2.5.0.
+Closes 50+ specific items identified in the post-v2.5.0 audit and
+external real-world stress evaluation.
 
-- `shadow.judge.LlmJudge` rubrics now accept literal `{}` (e.g. JSON
-  examples) without crashing on `KeyError`. Switched the placeholder
-  validator from `string.Formatter().parse` (which raised `ValueError`
-  on any literal `{`) to a regex over identifier-only patterns, and
-  the renderer from `str.format` to `str.replace`. Reported by
-  external real-world stress evaluation.
-- CLI pricing-table validation error now names the offending key, the
-  actual type, and both valid shapes (list[float, float] or dict with
-  named keys). Previous message ("must be or a dict") truncated the
-  list shape and was actively confusing.
-- Python `pyproject.toml`, workspace `Cargo.toml`, and
-  `typescript/package.json` license fields all consolidated to
-  `Apache-2.0` (was a mix of `MIT OR Apache-2.0`). Matches the
-  project-wide license policy.
+### Added — new public modules
+
+- **`shadow.diff_py`** — scenario-aware multi-case diff. Partition
+  records by `meta.scenario_id` and run per-scenario diffs so
+  multi-incident regression suites no longer collapse into spurious
+  "dropped turns" messages. Backward-compatible: traces without
+  scenario_ids fall into a single `__default__` bucket.
+- **`shadow.causal`** — Pearl-style do-calculus attribution
+  (foundation). Replaces the LASSO-based bisection with single-delta
+  intervention ATE estimates. Ground-truth test verifies 3 real
+  deltas + 5 noise → algorithm correctly attributes.
+- **`shadow.policy_suggest`** — mine baseline traces for
+  `must_call_before` patterns. Pure-derivable ordering invariants
+  only; the operator approves suggestions before adding to YAML.
+- **`shadow.storage`** — pluggable `Storage` Protocol (FileStore +
+  InMemoryStore). Foundation for cloud-backed Postgres / S3 /
+  ClickHouse stores; existing call sites continue to use the Rust
+  core directly and migrate incrementally.
+- **`shadow._telemetry`** — opt-in anonymous usage telemetry
+  (default off, CI auto-skip, SHADOW_TELEMETRY=off override).
+  18 tests verify privacy-preserving defaults.
+
+### Added — new statistical / formal primitives
+
+- **`shadow.statistical.MSPRTtDetector`** — variance-adaptive mixture
+  SPRT (Welford running variance). Practical 't-mixture spirit'
+  (Lai & Xing 2010) for the unknown-σ case where a long warmup
+  isn't available. Asymptotic always-valid bound; exact unknown-σ
+  variant deferred to a future release.
+- **`shadow.conformal.ACIDetector`** — Adaptive Conformal Inference
+  (Gibbs & Candès 2021). Online α adaptation that converges to the
+  target miscoverage rate at O(1/(γT)) under arbitrary distribution
+  shift — no exchangeability assumption.
+- **`shadow.statistical.FingerprintConfig`** — configurable scales
+  (token_scale, latency_scale_ms, max_tool_calls) for long-context
+  / thinking-mode agents that would saturate the default scales.
+- **Hotelling T² `permutations` argument** — Monte-Carlo p-value
+  via label permutations (Phipson-Smyth 2010 corrected) for cases
+  where the F-approximation under shrinkage is unreliable.
+
+### Added — new examples
+
+- **`examples/production-incident-suite/`** — canonical real-world
+  stress eval. Five public-incident patterns (Air Canada, Avianca,
+  NEDA/Tessa, McDonald's, Replit) encoded as scenario builders;
+  audit pipeline must catch each one. 32 tests cover per-scenario
+  coverage, multi-scenario diff sectioning, false-positive freedom,
+  causal attribution accuracy, and CLI exit code.
+- **`examples/harmful-content-judge/`** — domain-aware harm detector
+  for content the narrow safety axis can't catch (medical
+  misinformation, fake legal citations, eating-disorder advice).
+  Reusable `build_harm_judge(backend)` helper.
+
+### Added — verification and proof
+
+- **`docs/theory/`** — primary-source references for every primitive
+  (Hotelling, SPRT, conformal, LTL, causal). Designed so a reader
+  with stats / formal-methods background can verify Shadow's claims
+  in under five minutes per page.
+- **`benchmarks/v25_primitives_perf.py`** — wall-time budgets per
+  primitive with 3× safety margin. Confirms current pure-Python LTL
+  runs at 5K-turn DP in 2.5ms, well within agent-eval scale.
+- **Statistical validation suite expanded**: power curves across
+  8 (effect-size × n) cells, Wilson CI on Type-I tolerance, hand-
+  derived OAS reference cross-validation (1e-6 agreement, 20 seeds),
+  18 NaN/Inf edge-case tests, 4 Hypothesis property tests on the
+  agentlog parser/writer roundtrip.
+- **`@pytest.mark.slow` runs in CI** on Ubuntu/3.12 every push.
+
+### Added — operator UX
+
+- **Risk-scored PR comments** — `shadow report --format github-pr`
+  prepends a tiered (CRITICAL / ERROR / WARNING / INFO) summary
+  header with plain-language phrasing of axis severities and
+  recommendations, ahead of the per-axis table.
+- **Policy YAML `apiVersion` field** — `shadow.dev/v1alpha1`
+  forward-compatibility marker. Files without an apiVersion load
+  with a deprecation warning; unknown apiVersions raise with an
+  explicit hint listing supported versions.
+- **`shadow-diff[all]` meta-extra** — single-shot install of every
+  optional integration. README `Install` section gains an
+  "Optional extras" table documenting every gate.
 
 ### Changed
 
-- `shadow.conformal.build_conformal_coverage` renamed to
-  `build_parametric_estimate` — the original name was misleading
-  because the function synthesizes a Gaussian calibration set rather
-  than computing a distribution-free conformal bound. The old name
-  remains as a `DeprecationWarning` alias and will be removed in v3.0.
-- TypeScript SDK bumped 2.2.0 → 2.5.0 to match Python wheel; npm
+- **`shadow.conformal.build_conformal_coverage` → `build_parametric_estimate`**.
+  The old name was misleading: the function synthesizes a Gaussian
+  calibration set rather than computing a distribution-free conformal
+  bound. The old name remains as a `DeprecationWarning` alias and
+  will be removed in v3.0.
+- **`shadow.statistical.fingerprint.tool_call_rate`** is now
+  log-scaled (was a clipped count). 1 vs 4 vs 8 tool calls per turn
+  now discriminate properly on this dimension.
+- **`shadow.ltl` checker** rewritten as bottom-up dynamic programming
+  with truth-vectors. Genuinely O(|π| × |φ|) — the previous memoized
+  recursion was O(|π|³) on Until despite the docstring claim.
+- **`must_call_before` rule kind** now compiles to weak-until
+  `(¬B) W A` instead of strong-until `(¬B) U A`. A trace that fires
+  neither A nor B is now correctly treated as vacuously safe.
+- **Wald SPRT decisions are absorbing**. Once a boundary is crossed
+  the detector stops accumulating; previously the log-LR continued
+  past the decision and could flip back.
+- **TypeScript SDK 2.2.0 → 2.5.0** to match Python wheel; npm
   `vitest` bumped 2.x → 3.2.4 to clear 5 moderate dev-dep advisories.
-- Rust crate `shadow-core` bumped 2.4.3 → 2.5.0 to match Python wheel.
-- Versioning policy formalized: all three components (Python wheel,
-  Rust crate, TypeScript SDK) bump together on every release. See
-  `CONTRIBUTING.md` § Releasing.
+- **Rust crate `shadow-core` 2.4.3 → 2.5.0** to match Python wheel.
+- **License consolidated to Apache-2.0** across all three components
+  (was a mix of `MIT OR Apache-2.0`).
+- **Versioning policy formalized**: all three components (Python
+  wheel, Rust crate, TypeScript SDK) bump together on every release.
+  Documented in `CONTRIBUTING.md`.
+- **API stability committed**: SemVer 2.0.0 starting at v2.5.0.
+  No breaking changes within v2.x. Specific list of what counts as
+  "breaking" vs "additive" in `CONTRIBUTING.md`.
 
-### Added
+### Fixed
 
-- `shadow-diff[all]` meta-extra installs every optional integration
-  in one go (anthropic, openai, embeddings, otel, serve, mcp,
-  multimodal, sign, langgraph, crewai, ag2). README `Install` section
-  gains an "Optional extras" table documenting every gate.
-- `shadow.statistical.hotelling.hotelling_t2` permutation p-value
-  formula `(b+1)/(B+1)` documented as the Phipson-Smyth (2010)
-  unbiased estimator with regression tests for the 1/(B+1) lower
-  bound and the never-zero invariant.
+- **`shadow.judge.LlmJudge` rubrics accept literal `{}`** without
+  crashing on `KeyError`. Switched the placeholder validator from
+  `string.Formatter().parse` to a regex over identifier-only patterns.
+  Reported by external real-world stress evaluation.
+- **CLI pricing-table validation error** now names the offending key,
+  the actual type, and both valid shapes (list[float, float] or
+  dict with named keys). Previous message ("must be or a dict")
+  truncated the list shape.
+- **`shadow.conformal._quantile`** no longer returns NaN on
+  +Inf scores. The naive linear-interpolation form `inf × 0` is
+  NaN; we now branch to return the endpoint directly when frac == 0
+  or lo == hi. Caught by NaN/Inf edge-case test.
+- **Permutation Hotelling p-value** documented as Phipson-Smyth
+  (2010) corrected `(b+1)/(B+1)` with regression tests for the
+  1/(B+1) lower bound and the never-zero invariant.
+
+### Documentation
+
+- **CHANGELOG v2.5.0 entry rewritten** to accurately reflect what
+  shipped (the original was written early in the development cycle
+  and contained inaccurate citations).
+- **Safety axis docstring** (`crates/shadow-core/src/diff/safety.rs`)
+  explicitly directs users to the Judge axis + harmful-content-judge
+  example for harmful semantic content the refusal-only safety axis
+  can't catch.
+- **mSPRT plug-in σ̂ caveat** documented in module docstring.
+  Wald + mSPRT bounds are exact under known σ; with plug-in σ̂ from
+  finite warmup, they are asymptotic with O(1/√warmup) slack.
+- **LTL automaton-compilation deferral** documented with rationale
+  + perf benchmark proving pure-Python is fine at current scale.
+- **TypeScript SDK parity boundary** documented in
+  `typescript/PARITY.md` — intentionally narrower than Python.
+- **Mypy override block** comment now explains why
+  `shadow.enterprise.*`, `shadow.serve.*`, `shadow.mcp_server`,
+  `shadow.adapters.*`, `shadow.tools.sandbox`, `shadow.certify_sign`
+  stay overridden (optional-extras gating, not an oversight).
+
+### Operations
+
+- **Pre-commit hooks** (`.pre-commit-config.yaml`) mirror CI gates
+  so contributors catch lint/format issues before pushing.
+- **DCO sign-off check** at `.github/workflows/dco.yml` rejects
+  commits without a `Signed-off-by` trailer matching the author.
+- **Branch protection** documented; admin bypass kept on for solo
+  development with explicit re-tighten-with-collaborators path.
+- **Apache 2.0 license** + trademark / CLA decisions documented.
+- **`@shadow/sdk` npm publish** path gated on NPM_TOKEN secret;
+  idempotent reruns via `npm view package@version` check.
+- **Windows `cp1252` codec crash on Unicode** in CLI demos fixed
+  via `sys.stdout.reconfigure(encoding="utf-8")`.
 
 ## [2.5.0] - 2026-04-27
 

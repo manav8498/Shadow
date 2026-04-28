@@ -26,9 +26,7 @@ import pytest
 from shadow.statistical.hotelling import hotelling_t2
 
 
-def _reference_hotelling_t2_with_oas(
-    x1: np.ndarray, x2: np.ndarray
-) -> tuple[float, float, int]:
+def _reference_hotelling_t2_with_oas(x1: np.ndarray, x2: np.ndarray) -> tuple[float, float, int]:
     """Reference implementation: textbook Hotelling T² + OAS shrinkage.
 
     Implements the same algorithm shadow.statistical.hotelling does,
