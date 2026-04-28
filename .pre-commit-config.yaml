@@ -1,0 +1,64 @@
+# Pre-commit hook configuration. Run automatically on every git commit
+# (after `pre-commit install`) so lint / format issues are caught locally
+# before they reach CI.
+#
+# Setup (one-time, per contributor):
+#
+#     pip install pre-commit       # or `pipx install pre-commit`
+#     pre-commit install           # installs the git hook
+#
+# Manual run on the whole repo:
+#
+#     pre-commit run --all-files
+#
+# Update hook versions:
+#
+#     pre-commit autoupdate
+#
+# Hooks here mirror the gates `just ci` enforces, so a clean local run
+# means CI will be green for the same files.
+
+repos:
+  # Generic hygiene: trailing whitespace, EOF newline, large files,
+  # merge conflicts, broken YAML.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(.*\.agentlog|crates/.*/src/.*\.rs)$
+      - id: end-of-file-fixer
+        exclude: ^(.*\.agentlog)$
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  # Python lint + format. Mirrors CI's:
+  #   ruff check     python/ examples/
+  #   ruff format    --check python/ examples/
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        files: ^(python|examples)/
+        args: [--fix]
+      - id: ruff-format
+        files: ^(python|examples)/
+
+  # DCO sign-off check — fail commits without a Signed-off-by trailer.
+  # Mirrors .github/workflows/dco.yml on the server side.
+  - repo: local
+    hooks:
+      - id: dco-signoff
+        name: DCO sign-off (Signed-off-by trailer must match author)
+        entry: bash -c 'msg=$(cat "$1"); author_name=$(git var GIT_AUTHOR_IDENT | sed "s/ <.*//"); author_email=$(git var GIT_AUTHOR_IDENT | sed "s/.*<\\(.*\\)>.*/\\1/"); expected="Signed-off-by: $author_name <$author_email>"; echo "$msg" | grep -qF "$expected" || { echo "ERROR: missing or mismatched Signed-off-by trailer."; echo "expected: $expected"; echo "use: git commit -s"; exit 1; }' --
+        language: system
+        stages: [commit-msg]
+
+# mypy is intentionally NOT in pre-commit. It is slow (>10s on this repo)
+# and would make every commit feel sluggish. CI runs mypy --strict on
+# every push, which is the right place. Run `just lint` locally before
+# pushing if you want the full strictness.

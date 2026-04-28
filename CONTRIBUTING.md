@@ -42,7 +42,29 @@ just ci            # what CI runs, everything above + coverage gates
 ```
 
 Before opening a PR, `just ci` must pass locally. CI will re-run the same
-matrix across Ubuntu + macOS × Python 3.11 + 3.12.
+matrix across Ubuntu + macOS × Windows × Python 3.11 + 3.12 + 3.13.
+
+### Pre-commit hooks (recommended)
+
+A `.pre-commit-config.yaml` is checked into the repo. It runs the same
+ruff lint, ruff format, basic hygiene, and DCO sign-off checks that CI
+enforces — locally, on every `git commit`. Install once:
+
+```bash
+pip install pre-commit            # or: pipx install pre-commit
+pre-commit install                # installs the git hook in .git/hooks/
+pre-commit install --hook-type commit-msg   # for the DCO sign-off check
+```
+
+After that, every commit auto-runs the hooks and blocks if any fail.
+To run on the whole repo manually:
+
+```bash
+pre-commit run --all-files
+```
+
+mypy is intentionally not in pre-commit (too slow for the inner loop);
+use `just lint` to get full strict mypy locally before pushing.
 
 ## Working on each layer
 
