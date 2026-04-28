@@ -84,9 +84,7 @@ def _response(
     if text:
         content.append({"type": "text", "text": text})
     for j, name in enumerate(tools or []):
-        content.append(
-            {"type": "tool_use", "id": f"t{idx}_{j}", "name": name, "input": {}}
-        )
+        content.append({"type": "tool_use", "id": f"t{idx}_{j}", "name": name, "input": {}})
     return _record(
         idx,
         kind="chat_response",

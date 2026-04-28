@@ -208,9 +208,7 @@ def causal_attribution(
         # back-door adjustment would integrate over the very value we
         # are trying to attribute.
         for c in confounder_keys:
-            if c in differing and c not in [
-                k for k in differing if k not in confounder_keys
-            ]:
+            if c in differing and c not in [k for k in differing if k not in confounder_keys]:
                 # We allow confounders that themselves differ between
                 # configs (that's the typical case — e.g. `model`
                 # changes alongside the prompt). What we forbid is
@@ -333,14 +331,12 @@ def _ate_for_delta(
     # The reported ATE is the uniform average of stratum ATEs.
     stratum_ates: list[dict[AxisName, float]] = []
 
-    confounder_value_grids = [
-        (baseline_config[c], candidate_config[c]) for c in confounder_keys
-    ]
+    confounder_value_grids = [(baseline_config[c], candidate_config[c]) for c in confounder_keys]
     last_intervention_runs: list[DivergenceVector] = []
 
     for stratum_idx, combo in enumerate(product(*confounder_value_grids)):
         fixed_cfg = dict(baseline_config)
-        for c, v in zip(confounder_keys, combo):
+        for c, v in zip(confounder_keys, combo, strict=True):
             fixed_cfg[c] = v
 
         control_cfg = dict(fixed_cfg)
@@ -365,9 +361,7 @@ def _ate_for_delta(
     if axes is not None:
         all_axes &= set(axes)
 
-    ate = {
-        ax: sum(s.get(ax, 0.0) for s in stratum_ates) / len(stratum_ates) for ax in all_axes
-    }
+    ate = {ax: sum(s.get(ax, 0.0) for s in stratum_ates) / len(stratum_ates) for ax in all_axes}
     return ate, runs
 
 
@@ -382,9 +376,7 @@ def _ate_from_runs(
     all_axes = set(control_mean.keys()) | set(intervention_mean.keys())
     if axes is not None:
         all_axes &= set(axes)
-    return {
-        ax: intervention_mean.get(ax, 0.0) - control_mean.get(ax, 0.0) for ax in all_axes
-    }
+    return {ax: intervention_mean.get(ax, 0.0) - control_mean.get(ax, 0.0) for ax in all_axes}
 
 
 def _bootstrap_ci_per_axis(
@@ -407,11 +399,7 @@ def _bootstrap_ci_per_axis(
     """
     # Identify the strata.
     stratum_keys = sorted(
-        {
-            k.removeprefix("control_runs__")
-            for k in per_axis_runs
-            if k.startswith("control_runs__")
-        }
+        {k.removeprefix("control_runs__") for k in per_axis_runs if k.startswith("control_runs__")}
     )
 
     # Discover all axes present.
