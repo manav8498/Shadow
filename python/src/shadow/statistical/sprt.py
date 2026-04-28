@@ -124,8 +124,8 @@ class SPRTDetector:
         self.warmup = warmup
 
         # Wald boundaries (in log-space for numerical stability).
-        self._log_a = math.log(beta / (1.0 - alpha))     # accept H0 ≤ this
-        self._log_b = math.log((1.0 - beta) / alpha)     # accept H1 ≥ this
+        self._log_a = math.log(beta / (1.0 - alpha))  # accept H0 ≤ this
+        self._log_b = math.log((1.0 - beta) / alpha)  # accept H1 ≥ this
 
         self._reset_state()
 

@@ -54,9 +54,9 @@ class TestHotellingTypeI:
         rate = rejections / n_trials
         # 95% binomial CI for empirical rejection rate at α=0.05, n=500:
         # 0.05 ± 1.96 * sqrt(0.05*0.95/500) ≈ 0.05 ± 0.019.
-        assert abs(rate - alpha) < 0.025, (
-            f"Hotelling Type-I rate {rate:.3f} far from nominal {alpha}"
-        )
+        assert (
+            abs(rate - alpha) < 0.025
+        ), f"Hotelling Type-I rate {rate:.3f} far from nominal {alpha}"
 
     def test_permutation_p_value_uniform_under_null(self):
         """Under H0, permutation p-values should be ~uniform on [0, 1]."""
@@ -66,9 +66,7 @@ class TestHotellingTypeI:
         for _ in range(n_trials):
             x1 = rng.standard_normal((10, 3))
             x2 = rng.standard_normal((10, 3))
-            res = hotelling_t2(
-                x1, x2, alpha=0.05, permutations=200, rng=rng
-            )
+            res = hotelling_t2(x1, x2, alpha=0.05, permutations=200, rng=rng)
             p_values.append(res.p_value)
         # Empirical rejection at α=0.05 should be ~5%.
         rate = sum(1 for p in p_values if p < 0.05) / n_trials
@@ -98,9 +96,7 @@ class TestHotellingPower:
             if res.reject_null:
                 rejections += 1
         power = rejections / n_trials
-        assert power > 0.80, (
-            f"Hotelling power {power:.3f} too low against 0.5σ shift on D=4 axes"
-        )
+        assert power > 0.80, f"Hotelling power {power:.3f} too low against 0.5σ shift on D=4 axes"
 
 
 # ---------------------------------------------------------------------------
@@ -125,9 +121,7 @@ class TestSPRTOperatingCharacteristic:
         warmup = 200
         false_positives = 0
         for _ in range(n_trials):
-            det = SPRTDetector(
-                alpha=alpha, beta=beta, effect_size=0.5, warmup=warmup
-            )
+            det = SPRTDetector(alpha=alpha, beta=beta, effect_size=0.5, warmup=warmup)
             for _ in range(warmup):
                 det.update(float(rng.normal(0, 1)))
             for _ in range(500):
@@ -140,9 +134,9 @@ class TestSPRTOperatingCharacteristic:
         # Asymptotic Wald guarantee with large warmup. Empirical Type-I
         # should be near α; allow modest slack for plug-in σ̂ noise and
         # Monte-Carlo error.
-        assert rate < alpha + 0.05, (
-            f"SPRT Type-I rate {rate:.3f} above α + slack with warmup={warmup}"
-        )
+        assert (
+            rate < alpha + 0.05
+        ), f"SPRT Type-I rate {rate:.3f} above α + slack with warmup={warmup}"
 
     def test_power_at_specified_alternative(self):
         """When the true effect equals the specified δ, reject at ≥ 1-β."""
@@ -154,9 +148,7 @@ class TestSPRTOperatingCharacteristic:
         warmup = 100
         true_positives = 0
         for _ in range(n_trials):
-            det = SPRTDetector(
-                alpha=alpha, beta=beta, effect_size=effect_size, warmup=warmup
-            )
+            det = SPRTDetector(alpha=alpha, beta=beta, effect_size=effect_size, warmup=warmup)
             for _ in range(warmup):
                 det.update(float(rng.normal(0, 1)))
             for _ in range(1000):
@@ -166,9 +158,7 @@ class TestSPRTOperatingCharacteristic:
             if det.decision == "h1":
                 true_positives += 1
         power = true_positives / n_trials
-        assert power > 1 - beta - 0.10, (
-            f"SPRT power {power:.3f} below 1-β={1 - beta:.2f}"
-        )
+        assert power > 1 - beta - 0.10, f"SPRT power {power:.3f} below 1-β={1 - beta:.2f}"
 
 
 # ---------------------------------------------------------------------------
@@ -204,9 +194,9 @@ class TestMSPRTAlwaysValid:
             if det.decision == "h1":
                 false_positives += 1
         rate = false_positives / n_trials
-        assert rate < alpha + 0.05, (
-            f"mSPRT Type-I rate {rate:.3f} above α + slack with warmup={warmup}"
-        )
+        assert (
+            rate < alpha + 0.05
+        ), f"mSPRT Type-I rate {rate:.3f} above α + slack with warmup={warmup}"
 
     def test_detects_real_drift(self):
         """mSPRT must detect a moderate true effect."""
@@ -225,9 +215,7 @@ class TestMSPRTAlwaysValid:
             if det.decision == "h1":
                 det_rejected += 1
         rate = det_rejected / n_trials
-        assert rate > 0.85, (
-            f"mSPRT power {rate:.3f} too low against 1σ shift"
-        )
+        assert rate > 0.85, f"mSPRT power {rate:.3f} too low against 1σ shift"
 
 
 # ---------------------------------------------------------------------------
@@ -248,9 +236,7 @@ class TestConformalCoverageValidation:
         coverages = []
         for _ in range(n_trials):
             cal_scores = list(np.abs(rng.standard_normal(n_cal)))
-            report = conformal_calibrate(
-                {"x": cal_scores}, target_coverage=target, confidence=0.95
-            )
+            report = conformal_calibrate({"x": cal_scores}, target_coverage=target, confidence=0.95)
             q_hat = report.axes[0].q_hat
             test_scores = np.abs(rng.standard_normal(n_test))
             cov = float(np.mean(test_scores <= q_hat))
@@ -258,14 +244,12 @@ class TestConformalCoverageValidation:
         mean_cov = sum(coverages) / len(coverages)
         # Marginal coverage averaged over trials should be ≥ target.
         # Conformal guarantees E[coverage] ≥ target − 1/(n_cal+1).
-        assert mean_cov >= target - 0.02, (
-            f"Mean held-out coverage {mean_cov:.3f} below target {target}"
-        )
+        assert (
+            mean_cov >= target - 0.02
+        ), f"Mean held-out coverage {mean_cov:.3f} below target {target}"
         # At most a small fraction of trials should fall below target − slack.
         below = sum(1 for c in coverages if c < target - 0.05)
-        assert below / n_trials < 0.20, (
-            f"{below}/{n_trials} trials had coverage < target − 5%"
-        )
+        assert below / n_trials < 0.20, f"{below}/{n_trials} trials had coverage < target − 5%"
 
     def test_coverage_robust_to_distribution_shape(self):
         """Conformal is distribution-free: should also cover under heavy tails."""
@@ -279,9 +263,7 @@ class TestConformalCoverageValidation:
         test_scores = np.abs(rng.standard_t(df=3, size=n_test))
         coverage = float(np.mean(test_scores <= q_hat))
         # Distribution-free guarantee: coverage ≥ 0.90 − 1/(n+1) ≈ 0.897.
-        assert coverage >= 0.85, (
-            f"Coverage on heavy-tailed test set {coverage:.3f} too low"
-        )
+        assert coverage >= 0.85, f"Coverage on heavy-tailed test set {coverage:.3f} too low"
 
     def test_pac_delta_is_valid_probability(self):
         """pac_delta is P(empirical coverage < target) under Binomial(n, target).
@@ -293,9 +275,7 @@ class TestConformalCoverageValidation:
         """
         rng = np.random.default_rng(9)
         cal_scores = list(np.abs(rng.standard_normal(200)))
-        report = conformal_calibrate(
-            {"x": cal_scores}, target_coverage=0.90, confidence=0.95
-        )
+        report = conformal_calibrate({"x": cal_scores}, target_coverage=0.90, confidence=0.95)
         ax = report.axes[0]
         assert 0.0 <= ax.pac_delta <= 1.0
         assert report.is_distribution_free is True

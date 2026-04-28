@@ -191,10 +191,7 @@ def generate_cohort(
     rng = random.Random(seed)
     out: list[list[dict[str, Any]]] = []
     for i in range(n_sessions):
-        violate = (
-            profile == "policy_violating"
-            and rng.random() < policy_violation_rate
-        )
+        violate = profile == "policy_violating" and rng.random() < policy_violation_rate
         out.append(
             generate_session(
                 profile,

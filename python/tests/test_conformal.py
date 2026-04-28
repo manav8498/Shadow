@@ -142,8 +142,15 @@ class TestBuildConformalCoverage:
 
     def test_nine_axes_all_present(self):
         axis_names = [
-            "semantic", "trajectory", "safety", "verbosity",
-            "latency", "cost", "reasoning", "judge", "conformance",
+            "semantic",
+            "trajectory",
+            "safety",
+            "verbosity",
+            "latency",
+            "cost",
+            "reasoning",
+            "judge",
+            "conformance",
         ]
         rows = [_row(name, 0.05 * (i + 1), 20) for i, name in enumerate(axis_names)]
         report = build_conformal_coverage(rows)
@@ -161,8 +168,13 @@ class TestAxisCoverage:
         report = build_conformal_coverage(rows)
         d = report.axes[0].to_dict()
         required = {
-            "axis", "n_calibration", "target_coverage",
-            "q_hat", "achieved_coverage", "pac_delta", "marginal_claim",
+            "axis",
+            "n_calibration",
+            "target_coverage",
+            "q_hat",
+            "achieved_coverage",
+            "pac_delta",
+            "marginal_claim",
         }
         assert required <= set(d)
 
@@ -238,6 +250,7 @@ class TestConformalCalibrate:
         With Gaussian scores and n=200 calibration + 1000 test, the
         marginal coverage should be very close to the target."""
         import random
+
         rng = random.Random(0)
         n_cal = 200
         cal_scores = [abs(rng.gauss(0, 1.0)) for _ in range(n_cal)]
@@ -247,13 +260,11 @@ class TestConformalCalibrate:
         test_scores = [abs(rng.gauss(0, 1.0)) for _ in range(n_test)]
         empirical = sum(1 for s in test_scores if s <= q_hat) / n_test
         # Coverage should be ≥ target − slack; in practice typically ≥ 0.88.
-        assert empirical >= 0.85, (
-            f"Held-out coverage {empirical:.3f} below target 0.90"
-        )
+        assert empirical >= 0.85, f"Held-out coverage {empirical:.3f} below target 0.90"
 
     def test_n_calibration_in_report_matches_max_axis_n(self):
         scores = {
-            "a": [1.0, 2.0, 3.0],          # n=3
+            "a": [1.0, 2.0, 3.0],  # n=3
             "b": [0.1, 0.2, 0.3, 0.4, 0.5],  # n=5
         }
         report = conformal_calibrate(scores)
@@ -292,12 +303,16 @@ class TestCertifyConformal:
 
         trace = [
             self._make_record("metadata", "m1", {}),
-            self._make_record("chat_response", "r1", {
-                "stop_reason": "end_turn",
-                "content": [{"type": "text", "text": "hello"}],
-                "model": "gpt-4o",
-                "usage": {"input_tokens": 10, "output_tokens": 5},
-            }),
+            self._make_record(
+                "chat_response",
+                "r1",
+                {
+                    "stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": "hello"}],
+                    "model": "gpt-4o",
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+            ),
         ]
         cert = build_certificate(trace=trace, agent_id="test-agent")
         assert cert.regression_suite is None
@@ -307,12 +322,16 @@ class TestCertifyConformal:
 
         trace = [
             self._make_record("metadata", "m1", {}),
-            self._make_record("chat_response", "r1", {
-                "stop_reason": "end_turn",
-                "content": [{"type": "text", "text": "hello"}],
-                "model": "gpt-4o",
-                "usage": {"input_tokens": 10, "output_tokens": 5},
-            }),
+            self._make_record(
+                "chat_response",
+                "r1",
+                {
+                    "stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": "hello"}],
+                    "model": "gpt-4o",
+                    "usage": {"input_tokens": 10, "output_tokens": 5},
+                },
+            ),
         ]
         # conformal_coverage specified but no baseline_trace — conformal is None.
         cert = build_certificate(trace=trace, agent_id="test", conformal_coverage=0.90)
@@ -331,13 +350,17 @@ class TestCertifyConformal:
     def test_build_certificate_with_conformal_embedded(self):
         from shadow.certify import build_certificate
 
-        response = self._make_record("chat_response", "r1", {
-            "stop_reason": "end_turn",
-            "content": [{"type": "text", "text": "the answer is 42"}],
-            "model": "claude-3-5-sonnet-20241022",
-            "usage": {"input_tokens": 20, "output_tokens": 10},
-            "latency_ms": 300,
-        })
+        response = self._make_record(
+            "chat_response",
+            "r1",
+            {
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "the answer is 42"}],
+                "model": "claude-3-5-sonnet-20241022",
+                "usage": {"input_tokens": 20, "output_tokens": 10},
+                "latency_ms": 300,
+            },
+        )
         baseline = [
             self._make_record("metadata", "base-m", {}),
             response,
@@ -367,7 +390,6 @@ class TestCertifyConformal:
         assert CERT_VERSION == "0.2"
 
     def test_verify_certificate_accepts_both_versions(self):
-
         # v0.1 cert (no conformal field) should still verify.
 
         from shadow.certify import AgentCertificate, _hash_payload, verify_certificate
@@ -386,13 +408,17 @@ class TestCertifyConformal:
     def test_render_terminal_shows_conformal(self):
         from shadow.certify import build_certificate, render_terminal
 
-        response = self._make_record("chat_response", "r1", {
-            "stop_reason": "end_turn",
-            "content": [{"type": "text", "text": "hello"}],
-            "model": "claude-3-5-sonnet-20241022",
-            "usage": {"input_tokens": 10, "output_tokens": 5},
-            "latency_ms": 200,
-        })
+        response = self._make_record(
+            "chat_response",
+            "r1",
+            {
+                "stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "hello"}],
+                "model": "claude-3-5-sonnet-20241022",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+                "latency_ms": 200,
+            },
+        )
         baseline = [self._make_record("metadata", "bm", {}), response]
         candidate = [self._make_record("metadata", "cm", {}), response]
         cert = build_certificate(

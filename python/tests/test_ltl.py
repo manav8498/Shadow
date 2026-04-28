@@ -400,8 +400,7 @@ class TestTraceFromRecords:
     def test_pair_index_increments(self):
         end_payload = {"stop_reason": "end_turn", "content": []}
         records = [
-            {"kind": "chat_response", "id": f"r{i}", "payload": end_payload}
-            for i in range(3)
+            {"kind": "chat_response", "id": f"r{i}", "payload": end_payload} for i in range(3)
         ]
         states = trace_from_records(records)
         assert [s.pair_index for s in states] == [0, 1, 2]
@@ -416,11 +415,13 @@ class TestCheckTrace:
         for i, tc in enumerate(tool_calls_per_turn):
             content = [{"type": "tool_use", "name": n, "input": {}} for n in tc]
             content.append({"type": "text", "text": "done"})
-            records.append({
-                "kind": "chat_response",
-                "id": f"r{i}",
-                "payload": {"stop_reason": "end_turn", "content": content},
-            })
+            records.append(
+                {
+                    "kind": "chat_response",
+                    "id": f"r{i}",
+                    "payload": {"stop_reason": "end_turn", "content": content},
+                }
+            )
         return records
 
     def test_no_violations_returns_empty(self):
@@ -448,22 +449,28 @@ class TestLtlPolicyKind:
         for i, tc in enumerate(tool_calls_per_turn):
             content = [{"type": "tool_use", "name": n, "input": {}} for n in tc]
             content.append({"type": "text", "text": "ok"})
-            records.append({
-                "kind": "chat_response",
-                "id": f"r{i}",
-                "payload": {"stop_reason": "end_turn", "content": content},
-            })
+            records.append(
+                {
+                    "kind": "chat_response",
+                    "id": f"r{i}",
+                    "payload": {"stop_reason": "end_turn", "content": content},
+                }
+            )
         return records
 
     def test_ltl_formula_no_violation(self):
         from shadow.hierarchical import check_policy, load_policy
 
-        rules = load_policy([{
-            "id": "no-delete",
-            "kind": "ltl_formula",
-            "params": {"formula": "G !tool_call:delete"},
-            "severity": "error",
-        }])
+        rules = load_policy(
+            [
+                {
+                    "id": "no-delete",
+                    "kind": "ltl_formula",
+                    "params": {"formula": "G !tool_call:delete"},
+                    "severity": "error",
+                }
+            ]
+        )
         records = self._records([["search"], ["fetch"]])
         violations = check_policy(records, rules)
         assert violations == []
@@ -471,12 +478,16 @@ class TestLtlPolicyKind:
     def test_ltl_formula_detects_violation(self):
         from shadow.hierarchical import check_policy, load_policy
 
-        rules = load_policy([{
-            "id": "no-delete",
-            "kind": "ltl_formula",
-            "params": {"formula": "G !tool_call:delete"},
-            "severity": "error",
-        }])
+        rules = load_policy(
+            [
+                {
+                    "id": "no-delete",
+                    "kind": "ltl_formula",
+                    "params": {"formula": "G !tool_call:delete"},
+                    "severity": "error",
+                }
+            ]
+        )
         records = self._records([["search"], ["delete"]])
         violations = check_policy(records, rules)
         assert any(v.rule_id == "no-delete" for v in violations)
@@ -484,12 +495,16 @@ class TestLtlPolicyKind:
     def test_ltl_formula_missing_param_whole_trace_violation(self):
         from shadow.hierarchical import check_policy, load_policy
 
-        rules = load_policy([{
-            "id": "bad",
-            "kind": "ltl_formula",
-            "params": {},  # no formula
-            "severity": "warning",
-        }])
+        rules = load_policy(
+            [
+                {
+                    "id": "bad",
+                    "kind": "ltl_formula",
+                    "params": {},  # no formula
+                    "severity": "warning",
+                }
+            ]
+        )
         records = self._records([[]])
         violations = check_policy(records, rules)
         assert len(violations) == 1
@@ -498,12 +513,16 @@ class TestLtlPolicyKind:
     def test_ltl_formula_parse_error_returns_violation(self):
         from shadow.hierarchical import check_policy, load_policy
 
-        rules = load_policy([{
-            "id": "bad-ltl",
-            "kind": "ltl_formula",
-            "params": {"formula": "G"},  # incomplete formula
-            "severity": "error",
-        }])
+        rules = load_policy(
+            [
+                {
+                    "id": "bad-ltl",
+                    "kind": "ltl_formula",
+                    "params": {"formula": "G"},  # incomplete formula
+                    "severity": "error",
+                }
+            ]
+        )
         records = self._records([[]])
         violations = check_policy(records, rules)
         assert len(violations) == 1

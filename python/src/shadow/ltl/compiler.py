@@ -169,7 +169,7 @@ def _tokenize(expr: str) -> list[str]:
         if expr[i].isspace():
             i += 1
             continue
-        if expr[i:i+2] == "->":
+        if expr[i : i + 2] == "->":
             tokens.append("->")
             i += 2
             continue
@@ -180,7 +180,7 @@ def _tokenize(expr: str) -> list[str]:
         # Keyword or atom: read until whitespace or symbol.
         j = i
         while j < len(expr) and not expr[j].isspace() and expr[j] not in "!&|()":
-            if expr[j:j+2] == "->":
+            if expr[j : j + 2] == "->":
                 break
             j += 1
         tok = expr[i:j]
@@ -192,6 +192,7 @@ def _tokenize(expr: str) -> list[str]:
 
 
 # ---- recursive descent parser ------------------------------------------------
+
 
 class _Parser:
     def __init__(self, tokens: list[str]) -> None:

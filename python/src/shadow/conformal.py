@@ -158,9 +158,7 @@ def conformal_calibrate(
     worst_axis = axis_coverages[0].axis if axis_coverages else ""
     n_calibration = max((c.n_calibration for c in axis_coverages), default=0)
     sufficient = n_calibration >= n_min
-    note = _build_note(
-        target_coverage, confidence, n_calibration, n_min, worst_axis, sufficient
-    )
+    note = _build_note(target_coverage, confidence, n_calibration, n_min, worst_axis, sufficient)
 
     return ConformalCoverageReport(
         target_coverage=target_coverage,
@@ -225,9 +223,7 @@ def build_conformal_coverage(
     worst_axis = axis_coverages[0].axis if axis_coverages else ""
     n_calibration = max((c.n_calibration for c in axis_coverages), default=0)
     sufficient = n_calibration >= n_min
-    note = _build_note(
-        target_coverage, confidence, n_calibration, n_min, worst_axis, sufficient
-    )
+    note = _build_note(target_coverage, confidence, n_calibration, n_min, worst_axis, sufficient)
     if axis_coverages:
         note = note + (
             "  (parametric estimate from summary statistics — "
@@ -248,9 +244,7 @@ def build_conformal_coverage(
     )
 
 
-def _approximate_calibration_set(
-    row: dict[str, Any], n: int, seed_offset: int = 0
-) -> list[float]:
+def _approximate_calibration_set(row: dict[str, Any], n: int, seed_offset: int = 0) -> list[float]:
     """Synthesize a Gaussian calibration set from summary statistics.
 
     Used by the parametric ``build_conformal_coverage`` fallback only.

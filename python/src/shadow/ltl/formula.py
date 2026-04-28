@@ -128,6 +128,7 @@ Formula = Atom | Not | And | Or | Implies | Next | Until | WeakUntil | Globally 
 
 # Convenience constructors for common sub-formulas.
 
+
 def atom(pred: str) -> Atom:
     return Atom(pred)
 

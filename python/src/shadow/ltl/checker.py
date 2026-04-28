@@ -102,16 +102,16 @@ def default_eval(pred: str, state: TraceState) -> bool:
     if pred == "false":
         return False
     if pred.startswith("tool_call:"):
-        name = pred[len("tool_call:"):]
+        name = pred[len("tool_call:") :]
         return name in state.tool_calls
     if pred.startswith("stop_reason:"):
-        value = pred[len("stop_reason:"):]
+        value = pred[len("stop_reason:") :]
         return state.stop_reason == value
     if pred.startswith("text_contains:"):
-        substr = pred[len("text_contains:"):]
+        substr = pred[len("text_contains:") :]
         return substr in state.text_content
     if pred.startswith("extra:"):
-        rest = pred[len("extra:"):]
+        rest = pred[len("extra:") :]
         if "=" in rest:
             k, v = rest.split("=", 1)
             return str(state.extra.get(k, "")) == v
