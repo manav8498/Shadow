@@ -6,77 +6,187 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
-## [2.5.0] - 2026-04-27
+### Fixed
 
-Feature release: behavioral fingerprinting, LTL policy verification, and
-conformal prediction coverage bounds for ABOM certificates.
+- `shadow.judge.LlmJudge` rubrics now accept literal `{}` (e.g. JSON
+  examples) without crashing on `KeyError`. Switched the placeholder
+  validator from `string.Formatter().parse` (which raised `ValueError`
+  on any literal `{`) to a regex over identifier-only patterns, and
+  the renderer from `str.format` to `str.replace`. Reported by
+  external real-world stress evaluation.
+- CLI pricing-table validation error now names the offending key, the
+  actual type, and both valid shapes (list[float, float] or dict with
+  named keys). Previous message ("must be or a dict") truncated the
+  list shape and was actively confusing.
+- Python `pyproject.toml`, workspace `Cargo.toml`, and
+  `typescript/package.json` license fields all consolidated to
+  `Apache-2.0` (was a mix of `MIT OR Apache-2.0`). Matches the
+  project-wide license policy.
+
+### Changed
+
+- `shadow.conformal.build_conformal_coverage` renamed to
+  `build_parametric_estimate` — the original name was misleading
+  because the function synthesizes a Gaussian calibration set rather
+  than computing a distribution-free conformal bound. The old name
+  remains as a `DeprecationWarning` alias and will be removed in v3.0.
+- TypeScript SDK bumped 2.2.0 → 2.5.0 to match Python wheel; npm
+  `vitest` bumped 2.x → 3.2.4 to clear 5 moderate dev-dep advisories.
+- Rust crate `shadow-core` bumped 2.4.3 → 2.5.0 to match Python wheel.
+- Versioning policy formalized: all three components (Python wheel,
+  Rust crate, TypeScript SDK) bump together on every release. See
+  `CONTRIBUTING.md` § Releasing.
 
 ### Added
 
-- **`shadow.statistical` — behavioral fingerprinting + sequential testing.**
-  New package implementing the AgentAssay (arXiv:2603.02601) approach to
-  behavioral drift detection:
-  - `fingerprint.py`: D=8 feature vector per agent turn (`tool_call_rate`,
-    `distinct_tool_frac`, `stop_end_turn`, `stop_tool_use`, `stop_other`,
-    `output_len_log`, `latency_log`, `refusal_flag`). Features are
-    log-scaled and bounded [0,1] to prevent high-variance dimensions from
-    dominating multivariate tests.
-  - `hotelling.py`: Two-sample Hotelling T² test with F-approximation and
-    Ledoit-Wolf OAS shrinkage for covariance regularization. Handles the
-    p > n regime (more features than observations) without ill-conditioning.
-  - `sprt.py`: Wald SPRT detector with online null calibration (warmup
-    period). Uses Gaussian log-likelihood ratio; stops ~50% earlier than
-    fixed-N tests at equal α/β. `MultiSPRT` runs one detector per
-    behavioral axis with union-bound early stopping.
+- `shadow-diff[all]` meta-extra installs every optional integration
+  in one go (anthropic, openai, embeddings, otel, serve, mcp,
+  multimodal, sign, langgraph, crewai, ag2). README `Install` section
+  gains an "Optional extras" table documenting every gate.
+- `shadow.statistical.hotelling.hotelling_t2` permutation p-value
+  formula `(b+1)/(B+1)` documented as the Phipson-Smyth (2010)
+  unbiased estimator with regression tests for the 1/(B+1) lower
+  bound and the never-zero invariant.
 
-- **`shadow.ltl` — formal LTL policy verification.**
-  Replaces the ad-hoc YAML rule dispatcher with decidable finite-trace LTL:
-  - `formula.py`: Immutable AST for LTL operators — `Atom`, `Not`, `And`,
-    `Or`, `Implies`, `Next`, `Until`, `Globally`, `Finally` — plus
-    convenience constructors (`g`, `f`, `x`, `u`, `conj`, `disj`).
-  - `checker.py`: Finite-trace (LTLf) model checker with memoized
-    structural recursion. O(|π| × |φ|). Built-in predicate evaluator
-    for `tool_call:<name>`, `stop_reason:<value>`, `text_contains:<substr>`,
-    `extra:<k>=<v>`.
-  - `compiler.py`: Compiles policy rule kinds to LTL formulas
-    (`no_call` → `G(¬A)`, `must_call_before` → `¬B U A`,
-    `must_call_once` → `F(A) ∧ G(A → X(G(¬A)))`, etc.) plus a
-    recursive-descent `parse_ltl` for raw LTL expression strings.
-  - New `"ltl_formula"` policy kind wired into `shadow.hierarchical`.
+## [2.5.0] - 2026-04-27
 
-- **`shadow.conformal` — coverage bounds for ABOM certificates.**
-  Distribution-free, finite-sample conformal prediction bounds:
-  - `build_conformal_coverage`: computes per-axis calibration quantiles
-    q̂ = quantile(scores, ⌈(n+1)(1−α)⌉/n) and PAC delta from the
-    Clopper-Pearson lower bound. Approximates calibration set from
-    summary statistics when individual runs are not available.
-  - `ConformalCoverageReport`: per-axis `AxisCoverage` objects with
-    `q_hat`, `achieved_coverage`, `pac_delta`, `marginal_claim`.
-    Includes `sufficient_n` flag and `n_min` recommendation.
+Feature release: behavioral fingerprinting + Hotelling T², Wald and
+mixture SPRT, finite-trace LTL policy verification with WeakUntil, and
+distribution-free conformal coverage. Two real-world example scenarios
+(refund-agent audit, canary monitor) plus a statistical-property
+validation suite that empirically verifies the claims.
 
-- **`shadow certify` now produces ABOM v0.2 certificates** with an
-  optional `conformal` section. Pass `--coverage 0.90 --confidence 0.95`
-  to embed the guarantee: "At 95% confidence, this agent's behavioral
-  deviation on the `semantic` axis will be ≤ {q_hat:.3f} on ≥90% of
-  future runs." Certificate `verify_certificate` accepts both v0.1 and
-  v0.2 formats for backward compatibility.
+### Added
+
+- **`shadow.statistical` — sequential testing and behavioral fingerprinting.**
+  - `fingerprint.py`: D=8 feature vector per response turn
+    (`tool_call_rate` log-scaled count of tool_use blocks,
+    `distinct_tool_frac`, three one-hot stop-reason features,
+    `output_len_log`, `latency_log`, `refusal_flag`). Bounded [0,1] so
+    no axis dominates multivariate tests. New `FingerprintConfig`
+    dataclass exposes `token_scale`, `latency_scale_ms`,
+    `max_tool_calls` for long-context / thinking-mode agents.
+  - `hotelling.py`: Two-sample Hotelling T² with Oracle Approximating
+    Shrinkage (OAS, Chen et al. 2010) on the pooled covariance so the
+    test does not blow up when n1+n2−2 ≤ D. Optional permutation
+    p-value via `permutations=N` argument when the F-approximation is
+    unreliable (small samples, shrinkage applied, non-normality).
+  - `sprt.py`:
+    - `SPRTDetector` — classic Wald SPRT with **absorbing decisions**.
+      Once a boundary is crossed, subsequent updates return the same
+      decision without further accumulation, preserving the (α, β)
+      bounds.
+    - `MSPRTDetector` — mixture SPRT (Robbins 1970, Johari–Pekelis–
+      Walsh 2017). Non-negative martingale under H0 with the always-
+      valid bound `P(sup_n Λ_n ≥ 1/α) ≤ α` simultaneously across all
+      sample sizes. The recommended detector for production A/B
+      monitoring with continuous peeking.
+    - `MultiSPRT` — per-axis ensemble.
+    - All detectors estimate (μ0, σ²) online from a warmup buffer.
+      Caveat: with plug-in σ̂ from finite warmup, bounds are
+      asymptotic; documented in module docstring.
+
+- **`shadow.ltl` — finite-trace LTL model checker.**
+  - `formula.py`: AST nodes `Atom`, `Not`, `And`, `Or`, `Implies`,
+    `Next`, `Until`, `WeakUntil`, `Globally`, `Finally`. Convenience
+    constructors `g`, `f`, `x`, `u`, `w`, `conj`, `disj`.
+  - `checker.py`: bottom-up dynamic-programming checker with truth-
+    vectors. Genuinely O(|π|×|φ|) — for each subformula, computes a
+    length-|π| boolean array via the recurrences
+      G(φ)[i] = φ[i] ∧ G(φ)[i+1]; G(φ)[n] = True
+      F(φ)[i] = φ[i] ∨ F(φ)[i+1]; F(φ)[n] = False
+      (φ U ψ)[i] = ψ[i] ∨ (φ[i] ∧ (φ U ψ)[i+1]); [n] = False
+      (φ W ψ)[i] = ψ[i] ∨ (φ[i] ∧ (φ W ψ)[i+1]); [n] = True
+    Public `eval_all_positions` exposes the full truth-vector for
+    callers that want it.
+  - `compiler.py`: rule kinds compile to formulas:
+      `no_call(A)` → `G(¬tool_call:A)`
+      `must_call_before(A, B)` → `(¬tool_call:B) W tool_call:A`
+        (weak-until: a trace that calls neither A nor B is vacuously
+        safe; the previous strong-until encoding misclassified those)
+      `must_call_once(A)` → `F(A) ∧ G(A → X G ¬A)`
+      `required_stop_reason(allowed)` → `F(disj over stop_reason atoms)`
+      `forbidden_text(T)` → `G(¬text_contains:T)`
+      `must_include_text(T)` → `F(text_contains:T)`
+      `ltl_formula(formula=...)` → `parse_ltl(...)`
+    Parser supports `G F X U W ! & | ->` with standard precedence.
+
+- **`shadow.conformal` — distribution-free conformal prediction.**
+  - `conformal_calibrate(per_axis_scores, ...)` — real split-conformal
+    calibration from per-run nonconformity scores. Returns
+    `ConformalCoverageReport` with `is_distribution_free=True` and the
+    PAC-certified marginal claim `P(score_{n+1} ≤ q̂) ≥ 1-α`.
+  - `build_conformal_coverage(axis_rows, ...)` — parametric fallback
+    when only summary statistics are available. Synthesizes a Gaussian
+    calibration set from `delta` and CI half-width; flagged
+    `is_distribution_free=False`.
+  - `ConformalCoverageReport.is_distribution_free` boolean discriminates
+    real vs parametric.
+  - `n_min = ⌈log(1−confidence) / log(coverage)⌉` and `pac_delta`
+    binomial CDF for the PAC threshold.
+
+- **`examples/refund-agent-audit/`** — real-world scenario auditing a
+  customer-support agent upgrade (claude-haiku-4-5 → claude-opus-4-7).
+  Catches the candidate processing a refund in the same turn as the
+  lookup and announcing "processed successfully" without confirmation.
+  Includes baseline / candidate `.agentlog` fixtures, an importable
+  `run_audit()` function, and a CLI that exits 1 when unsafe. 65 tests.
+
+- **`examples/canary-monitor/`** — production canary monitor combining
+  mSPRT for always-valid latency monitoring, WeakUntil safety policies
+  for transfer-funds verification, and conformal calibration with a
+  Bonferroni-corrected family-wise error bound across all alarm
+  channels. Continuous peeking does not inflate the false-positive rate
+  above α regardless of dashboard refresh cadence. 28 tests.
+
+- **`python/tests/test_statistical_validation.py`** — 11 simulation
+  tests under `@pytest.mark.slow` that empirically verify Type-I rate,
+  power, always-valid bound, and held-out conformal coverage
+  (including heavy-tailed t-distributions). Ships proof that the math
+  delivers the claims, not just that the code runs.
+
+### Changed
+
+- License consolidated to **Apache 2.0** (was dual MIT/Apache).
+- Contributor flow now requires **DCO sign-off** on every commit
+  (`git commit -s`), enforced by `.github/workflows/dco.yml`.
+- **Pre-commit hooks** (`.pre-commit-config.yaml`) mirror CI gates so
+  contributors catch lint/format issues before pushing.
+- **Branch protection** on `main` configured in repo settings (admin
+  bypass kept on for solo development; re-tighten with collaborators).
 
 ### Decisions
 
-- **Ledoit-Wolf OAS variant** chosen over cross-validated shrinkage
-  because it has a closed-form solution and handles the p/n > 1 case
-  gracefully without additional hyperparameters.
-- **Finite-trace LTL semantics (LTLf)** chosen over infinite-trace: `G φ`
-  is vacuously true at trace end (correct for safety properties like
-  "never call X") and `F φ` is false at trace end (requires observable
-  evidence within the recorded trace).
-- **Conformal calibration from summary statistics** uses N(|delta|, CI-
-  derived σ²) to synthesize a calibration set when individual run scores
-  are not available. Flagged as an approximation via `sufficient_n = False`
-  when n < n_min.
-- **RUF001/RUF002/RUF003 suppressed** for `statistical/`, `ltl/`, and
-  `conformal.py` via per-file-ignores — Greek letters and math operators
-  in domain-specific docstrings are intentional, not typos.
+- **OAS shrinkage** chosen over Ledoit-Wolf and cross-validated
+  shrinkage because it has a closed-form coefficient (no CV required)
+  and handles n+m−2 ≤ D gracefully. Permutation p-values available
+  for cases where the F-approximation under shrinkage is unreliable.
+- **Finite-trace LTL semantics (LTLf)** chosen over infinite-trace.
+  `G φ` is vacuously true at trace end (correct for safety properties)
+  and `F φ` is false at trace end (requires evidence within the trace).
+- **Bottom-up DP for the LTL checker** chosen over the original
+  memoized recursion because the latter was actually O(|π|³) on
+  `Until` despite the claimed O(|π|×|φ|). The DP variant is genuinely
+  linear in trace length.
+- **WeakUntil for `must_call_before`**. The previous strong-until
+  encoding `(¬B) U A` incorrectly flagged traces that called neither
+  A nor B as policy violations. Weak-until `(¬B) W A` correctly
+  treats them as vacuously safe.
+- **Plug-in σ̂ caveat for SPRT/mSPRT**. Robbins's bound is exact
+  under known σ; with plug-in σ̂ from finite warmup, the bound is
+  asymptotic. Documented in the module docstring; large warmup
+  (≥100) recommended for accurate Type-I control.
+
+### Fixed
+
+- `Cargo.toml` workspace `version` is now `2.5.0` (was 2.4.3 — drift
+  between Python wheel and Rust crate at v2.5.0 release).
+- `typescript/package.json` `version` is now `2.5.0` (was 2.2.0).
+- Windows `cp1252` codec crash on Unicode math symbols (`σ̂`, `q̂`,
+  `±`) in CLI demos: `sys.stdout.reconfigure(encoding="utf-8")` at
+  startup; subprocess test calls use `encoding="utf-8"`.
+- `python/src/shadow/hierarchical.py` line-too-long lint error.
+- Entire codebase reformatted via `ruff format` to match repo style.
 
 ## [2.4.3] - 2026-04-27
 
