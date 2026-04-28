@@ -1,18 +1,21 @@
 //! Axis 1: final-output semantic similarity.
 //!
-//! The production-grade path uses `sentence-transformers/all-MiniLM-L6-v2`
-//! from Python (see CONTRIBUTING.md). The Rust-side default is a **TF-IDF
-//! cosine similarity** over the corpus of response texts being compared.
-//! This is genuinely lexical — it reflects word-level overlap weighted by
-//! how common each token is in the corpus, so two responses that share
-//! the same rare content score high while boilerplate token overlap
-//! contributes little.
+//! Two paths are supported:
 //!
-//! TF-IDF cosine is not a semantic embedding: "I agree" and "Yes" still
-//! score 0. That's a real limitation; users who need paraphrase-robust
-//! similarity should install the `[embeddings]` extra. The TF-IDF axis
-//! is honest about what it measures (word overlap) rather than faking
-//! signal (the old hash-surrogate axis did the latter).
+//! 1. **TF-IDF cosine** (default, no extra deps) — smoothed sklearn-style
+//!    TF-IDF over the corpus of response texts being compared. Lexical:
+//!    word-level overlap weighted by token rarity. Fast, deterministic,
+//!    blind to paraphrase ("yes" vs "I agree" score 0).
+//! 2. **Pluggable [`Embedder`]** — any backend that produces dense
+//!    vectors per text. Use [`compute_with_embedder`] and pass an
+//!    [`Embedder`] impl. Suitable for ONNX runtimes, HF Inference API
+//!    clients, OpenAI/Cohere embeddings, in-house services, or a
+//!    PyO3 callback into Python `sentence-transformers`.
+//!
+//! Both paths use the same downstream cosine + paired-CI machinery, so
+//! reports from either embedder are directly comparable.
+//!
+//! [`Embedder`]: crate::diff::embedder::Embedder
 
 use std::collections::HashMap;
 
@@ -21,6 +24,7 @@ use unicode_normalization::UnicodeNormalization;
 use crate::agentlog::Record;
 use crate::diff::axes::{Axis, AxisStat};
 use crate::diff::bootstrap::{median, paired_ci};
+use crate::diff::embedder::{cosine, Embedder};
 
 /// Lowercase, NFC-normalize, split on non-alphanumeric. Empty tokens
 /// dropped. Tokens shorter than 2 chars are kept (e.g. "ok", "no").
@@ -113,6 +117,10 @@ fn response_text(r: &Record) -> String {
 }
 
 /// Compute the semantic-similarity axis using TF-IDF cosine.
+///
+/// This is the default path: no extra dependencies, deterministic,
+/// lexical. For paraphrase-robust similarity see
+/// [`compute_with_embedder`].
 pub fn compute(pairs: &[(&Record, &Record)], seed: Option<u64>) -> AxisStat {
     if pairs.is_empty() {
         return AxisStat::empty(Axis::Semantic);
@@ -143,18 +151,65 @@ pub fn compute(pairs: &[(&Record, &Record)], seed: Option<u64>) -> AxisStat {
         })
         .collect();
 
+    similarities_to_stat(&similarities, pairs.len(), seed)
+}
+
+/// Compute the semantic-similarity axis using a caller-supplied
+/// dense [`Embedder`].
+///
+/// The embedder is invoked once per side: baseline texts are embedded
+/// together, then candidate texts. Pair-wise cosine similarity is
+/// computed in Rust on the returned vectors, then folded into the
+/// usual median + paired-CI shape.
+///
+/// Mismatched dimensions or a zero-length result are treated as a
+/// no-op axis (`AxisStat::empty`) so a misconfigured embedder
+/// can't poison the rest of the report.
+pub fn compute_with_embedder(
+    pairs: &[(&Record, &Record)],
+    embedder: &dyn Embedder,
+    seed: Option<u64>,
+) -> AxisStat {
+    if pairs.is_empty() {
+        return AxisStat::empty(Axis::Semantic);
+    }
+    let baseline_texts: Vec<String> = pairs.iter().map(|(b, _)| response_text(b)).collect();
+    let candidate_texts: Vec<String> = pairs.iter().map(|(_, c)| response_text(c)).collect();
+    let baseline_refs: Vec<&str> = baseline_texts.iter().map(String::as_str).collect();
+    let candidate_refs: Vec<&str> = candidate_texts.iter().map(String::as_str).collect();
+
+    let baseline_vecs = embedder.embed(&baseline_refs);
+    let candidate_vecs = embedder.embed(&candidate_refs);
+
+    if baseline_vecs.len() != pairs.len() || candidate_vecs.len() != pairs.len() {
+        return AxisStat::empty(Axis::Semantic);
+    }
+
+    let similarities: Vec<f64> = baseline_vecs
+        .iter()
+        .zip(candidate_vecs.iter())
+        .map(|(bv, cv)| f64::from(cosine(bv, cv).clamp(0.0, 1.0)))
+        .collect();
+
+    similarities_to_stat(&similarities, pairs.len(), seed)
+}
+
+/// Shared tail: convert a per-pair similarity vector into the
+/// AxisStat used by the rest of the diff pipeline. Same shape
+/// regardless of which embedder produced the similarities.
+fn similarities_to_stat(similarities: &[f64], n_pairs: usize, seed: Option<u64>) -> AxisStat {
     let baseline_ones: Vec<f64> = (0..similarities.len()).map(|_| 1.0).collect();
     let bm = 1.0;
-    let cm = median(&similarities);
+    let cm = median(similarities);
     let delta = cm - bm;
     let ci = paired_ci(
         &baseline_ones,
-        &similarities,
+        similarities,
         |bs, cs| median(cs) - median(bs),
         0,
         seed,
     );
-    AxisStat::new_value(Axis::Semantic, bm, cm, delta, ci.low, ci.high, pairs.len())
+    AxisStat::new_value(Axis::Semantic, bm, cm, delta, ci.low, ci.high, n_pairs)
 }
 
 #[cfg(test)]
@@ -266,5 +321,105 @@ mod tests {
             score_identical > score_partial + 0.3,
             "identical={score_identical} partial={score_partial}"
         );
+    }
+
+    // ----------------------------------------------------------------
+    // Pluggable Embedder integration
+    // ----------------------------------------------------------------
+
+    use crate::diff::embedder::BoxedEmbedder;
+
+    fn fixed_embedder(
+        mapping: std::collections::HashMap<&'static str, Vec<f32>>,
+    ) -> BoxedEmbedder<impl Fn(&[&str]) -> Vec<Vec<f32>> + Send + Sync> {
+        BoxedEmbedder::named(
+            move |texts: &[&str]| {
+                texts
+                    .iter()
+                    .map(|t| mapping.get(t).cloned().unwrap_or_else(|| vec![0.0_f32; 4]))
+                    .collect()
+            },
+            "fixed",
+        )
+    }
+
+    #[test]
+    fn embedder_path_identical_vectors_score_one() {
+        let r = response("alpha");
+        let pairs = [(&r, &r)];
+        let mut m = std::collections::HashMap::new();
+        m.insert("alpha", vec![1.0_f32, 0.0, 0.0, 0.0]);
+        let emb = fixed_embedder(m);
+        let stat = compute_with_embedder(&pairs, &emb, Some(1));
+        assert!(
+            (stat.candidate_median - 1.0).abs() < 1e-6,
+            "expected median≈1.0, got {}",
+            stat.candidate_median
+        );
+    }
+
+    #[test]
+    fn embedder_path_orthogonal_vectors_score_zero() {
+        let baseline = response("alpha");
+        let candidate = response("beta");
+        let pairs = [(&baseline, &candidate); 4];
+        let mut m = std::collections::HashMap::new();
+        m.insert("alpha", vec![1.0_f32, 0.0, 0.0, 0.0]);
+        m.insert("beta", vec![0.0_f32, 1.0, 0.0, 0.0]);
+        let emb = fixed_embedder(m);
+        let stat = compute_with_embedder(&pairs, &emb, Some(1));
+        assert!(stat.candidate_median.abs() < 1e-6);
+    }
+
+    #[test]
+    fn embedder_path_paraphrase_robustness() {
+        // TF-IDF cosine assigns 0 to disjoint-vocabulary paraphrases;
+        // a neural embedder would assign ≈1. This test simulates that
+        // scenario and verifies the embedder path actually surfaces it.
+        let baseline = response("yes");
+        let candidate = response("I agree");
+        let pairs = [(&baseline, &candidate); 4];
+
+        // TF-IDF result: low similarity (no token overlap).
+        let tfidf_stat = compute(&pairs, Some(1));
+        assert!(
+            tfidf_stat.candidate_median < 0.5,
+            "TF-IDF should score these low; got {}",
+            tfidf_stat.candidate_median
+        );
+
+        // Custom embedder where both phrases map near-identical vectors.
+        let mut m = std::collections::HashMap::new();
+        m.insert("yes", vec![0.9_f32, 0.4, 0.1, 0.0]);
+        m.insert("I agree", vec![0.91_f32, 0.41, 0.09, 0.0]);
+        let emb = fixed_embedder(m);
+        let neural_stat = compute_with_embedder(&pairs, &emb, Some(1));
+        assert!(
+            neural_stat.candidate_median > 0.99,
+            "neural embedder should score paraphrases ≈1; got {}",
+            neural_stat.candidate_median
+        );
+    }
+
+    #[test]
+    fn embedder_path_dim_mismatch_returns_empty_axis() {
+        let baseline = response("a");
+        let candidate = response("b");
+        let pairs = [(&baseline, &candidate)];
+        // Embedder returns wrong number of vectors → axis is empty.
+        let emb = BoxedEmbedder::new(|_texts: &[&str]| vec![vec![1.0_f32, 0.0]]);
+        let stat = compute_with_embedder(&pairs, &emb, Some(1));
+        // Empty axis: severity::None, n_pairs=0 (the empty marker).
+        assert_eq!(stat.severity, Severity::None);
+    }
+
+    #[test]
+    fn embedder_path_empty_pairs_returns_empty() {
+        let pairs: Vec<(&Record, &Record)> = vec![];
+        let emb = BoxedEmbedder::new(|texts: &[&str]| {
+            texts.iter().map(|_| vec![1.0_f32; 4]).collect()
+        });
+        let stat = compute_with_embedder(&pairs, &emb, Some(1));
+        assert_eq!(stat.severity, Severity::None);
     }
 }

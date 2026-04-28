@@ -22,6 +22,7 @@ pub mod bootstrap;
 pub mod conformance;
 pub mod cost;
 pub mod drill_down;
+pub mod embedder;
 pub mod judge;
 pub mod latency;
 pub mod reasoning;
