@@ -1140,7 +1140,17 @@ def _parse_pricing_table(raw: dict[str, Any]) -> dict[str, Any]:
                 "batch_discount": float(value.get("batch_discount", 0.0)),
             }
         else:
-            raise ShadowError(f"pricing entry for {model!r} must be [input, output] or a dict")
+            got_repr = type(value).__name__
+            raise ShadowError(
+                f"pricing entry for {model!r} has invalid shape "
+                f"(got {got_repr}: {value!r}).\n"
+                "Expected one of:\n"
+                "  - a 2-element list/tuple [input_price, output_price], or\n"
+                "  - a dict with at least 'input' and 'output' keys "
+                "(plus optional 'cached_input', 'cached_write_5m', "
+                "'cached_write_1h', 'reasoning', 'batch_discount').\n"
+                "See pricing.json in the repo root for working examples."
+            )
     return out
 
 
