@@ -314,7 +314,13 @@ def _axis_coverage(
 
 
 def _quantile(scores: list[float], p: float) -> float:
-    """Linear-interpolation quantile, matching numpy.percentile default."""
+    """Linear-interpolation quantile, matching numpy.percentile default.
+
+    Handles +inf scores correctly: naive linear interpolation produces
+    NaN when ``frac == 0`` and ``sorted_s[hi] == inf`` (because
+    ``inf * 0 == NaN``), which silently corrupts q̂. We branch on the
+    integer-index case explicitly to preserve infinities.
+    """
     if not scores:
         return 0.0
     sorted_s = sorted(scores)
@@ -325,6 +331,11 @@ def _quantile(scores: list[float], p: float) -> float:
     lo = int(idx)
     hi = min(lo + 1, n - 1)
     frac = idx - lo
+    # If we landed exactly on an integer index (or both endpoints are
+    # the same), no interpolation is needed — return that endpoint
+    # directly. This preserves +inf and avoids the inf × 0 = NaN trap.
+    if frac == 0.0 or lo == hi:
+        return sorted_s[lo]
     return sorted_s[lo] * (1 - frac) + sorted_s[hi] * frac
 
 
