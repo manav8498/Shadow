@@ -64,7 +64,7 @@ Shadow's core install is intentionally lean. Optional integrations are gated beh
 |---|---|---|
 | `shadow-diff[anthropic]` | `anthropic` | Live Anthropic client wrapper for `shadow record` |
 | `shadow-diff[openai]` | `openai` | Live OpenAI client wrapper for `shadow record` |
-| `shadow-diff[embeddings]` | `sentence-transformers` | Real semantic-similarity axis (default uses a deterministic surrogate) |
+| `shadow-diff[embeddings]` | `sentence-transformers` | Paraphrase-robust semantic-similarity axis. The default lexical TF-IDF path stays fast and dependency-free; the pluggable `Embedder` trait in `shadow-core::diff::embedder` accepts any backend (this extra, ONNX runtime, HF Inference API, OpenAI embeddings, ...). |
 | `shadow-diff[otel]` | `opentelemetry-sdk` | Export traces to any OTel-compatible backend |
 | `shadow-diff[serve]` | `fastapi`, `uvicorn`, `websockets` | `shadow serve` HTTP dashboard |
 | `shadow-diff[mcp]` | `mcp` | `shadow mcp-serve` Model Context Protocol server |
@@ -237,7 +237,7 @@ with Session(output_path="trace.agentlog", tags={"env": "prod"}):
 
 Secrets (API keys, emails, credit cards) are redacted by default.
 
-The TypeScript SDK covers the recording side of this same workflow. The Python and TypeScript surfaces are not at full parity yet — anything that depends on the Rust core (replay, diff, bisect, certify, MCP server) lives on the Python/CLI side:
+The TypeScript SDK covers the recording side of this same workflow plus a CI-gating decision surface. Numerical analyses that depend on the Rust core (replay, diff, bisect, certify, MCP server) stay on the Python/CLI side:
 
 | Feature | Python | TypeScript |
 |---|:---:|:---:|
@@ -248,12 +248,15 @@ The TypeScript SDK covers the recording side of this same workflow. The Python a
 | OpenAI Chat Completions + Anthropic Messages auto-instrument | ✅ | ✅ |
 | OpenAI Responses API auto-instrument | ✅ | ✅ |
 | Streaming aggregation in auto-instrument | ✅ | ✅ |
-| Runtime policy enforcement (`EnforcedSession`) | ✅ | ❌ |
+| LTLf evaluator (bottom-up DP, all 10 operators) | ✅ | ✅ |
+| Policy gating (`no_call`, `must_call_before`, `must_call_once`, `forbidden_text`, `must_include_text`) | ✅ | ✅ |
+| `gate(records, { rules, ltlFormulas })` CI decision | ✅ (via `shadow.policy_runtime`) | ✅ |
+| Runtime policy enforcement (`EnforcedSession`, pre-dispatch tool guards) | ✅ | ❌ |
 | `shadow certify` / `--sign` / `verify-cert` | ✅ (CLI) | ❌ |
 | `shadow diff` / `bisect` / `replay` / `mine` | ✅ (CLI) | ❌ |
 | MCP server (`shadow mcp-serve`) | ✅ (CLI) | ❌ |
 
-The TypeScript SDK is at v2.2.x; the Python SDK is at v2.4.x. The `.agentlog` format itself is the contract — TS-recorded traces feed into Python's `shadow diff`, `shadow certify`, and the MCP server without translation. If you need replay or runtime enforcement, run those steps from the Python CLI against the TS-recorded trace.
+The Python SDK and TypeScript SDK ship lockstep at the same version. The `.agentlog` format itself is the contract — TS-recorded traces feed into Python's `shadow diff`, `shadow certify`, and the MCP server without translation. The TS gate decisions are byte-identical to the Python equivalents on the same fixtures (cross-validated by `python/tests/test_typescript_parity.py`). For deeper analyses (multi-axis diff, bisect, certify), run those from the Python CLI against the TS-recorded trace.
 
 If your agent is built on LangGraph, CrewAI, or AG2, prefer the matching adapter (next section) over auto-instrumentation. Auto-instrument patches `.create` on the underlying provider SDK, which is a moving target across SDK majors. The framework adapters hook each framework's documented extension surface, which is the more stable contract.
 
@@ -488,7 +491,7 @@ Shadow ships a layer most LLM-eval tools don't have — empirically-validated st
 | [`shadow.statistical`](python/src/shadow/statistical/) | Behavioral fingerprinting, Hotelling T² (with OAS shrinkage and permutation p-values), Wald + mixture SPRT, variance-adaptive `MSPRTtDetector` | [docs/theory/sprt.md](docs/theory/sprt.md), [docs/theory/hotelling.md](docs/theory/hotelling.md) |
 | [`shadow.ltl`](python/src/shadow/ltl/) | Finite-trace LTLf model checking with bottom-up DP (O(\|π\|×\|φ\|)); `WeakUntil` for "must-call-before" rules; YAML compiler | [docs/theory/ltl.md](docs/theory/ltl.md) |
 | [`shadow.conformal`](python/src/shadow/conformal.py) | Distribution-free split conformal (`conformal_calibrate`); Adaptive Conformal Inference (`ACIDetector`, Gibbs & Candès 2021) for distribution shift | [docs/theory/conformal.md](docs/theory/conformal.md) |
-| [`shadow.causal`](python/src/shadow/causal/) | Pearl-style do-calculus attribution (foundation) — replaces the LASSO-based bisect with intervention-based ATE | [docs/theory/causal.md](docs/theory/causal.md) |
+| [`shadow.causal`](python/src/shadow/causal/) | Pearl-style do-calculus attribution: intervention-based ATE, percentile-bootstrap CIs (Efron 1979), back-door adjustment for named confounders, VanderWeele-Ding (2017) E-value sensitivity to unmeasured confounding | [docs/theory/causal.md](docs/theory/causal.md) |
 | [`shadow.diff_py`](python/src/shadow/diff_py/) | Scenario-aware multi-case diff: partition by `meta.scenario_id`, run per-scenario diffs without spurious "dropped turns" |  |
 | [`shadow.policy_suggest`](python/src/shadow/policy_suggest/) | Mine baseline traces for `must_call_before` patterns; suggest policies the operator approves before adding |  |
 | [`shadow.storage`](python/src/shadow/storage/) | Pluggable Storage interface (FileStore + InMemoryStore in OSS; cloud backends plug in) |  |

@@ -6,6 +6,101 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+Closes the four production-grade gaps identified after the v2.6.0
+release: causal extension beyond foundation, public discoverability
+of the LASSO bootstrap-CI APIs, TypeScript gating parity, and a
+pluggable embedder interface for the semantic axis.
+
+### Added
+
+- **`shadow.causal` extensions — production-grade pipeline.**
+  `causal_attribution` now accepts `n_bootstrap`, `confounders`, and
+  `sensitivity` parameters:
+  - `n_bootstrap > 0` produces percentile-bootstrap CIs on the ATE
+    (Efron 1979). Resampling is stratum-aware so back-door-adjusted
+    estimates carry honest CIs.
+  - `confounders=[...]` triggers Pearl's back-door adjustment via
+    uniform-weighted stratification over confounder-value combinations
+    (Pearl 2009 §3.3). Verified on a synthetic interaction scenario
+    where the naive estimator returns 0.4 (one stratum) and the
+    adjusted estimator returns 0.5 (mean of {0.4, 0.6}).
+  - `sensitivity=True` computes the VanderWeele-Ding (2017) E-value
+    for continuous outcomes — the smallest unmeasured-confounder
+    effect that could explain away the observed ATE.
+  - `CausalAttribution` gains `ci_low`, `ci_high`, and `e_values`
+    fields; backward-compat preserved (existing tests using the
+    point-ATE-only API pass unchanged).
+  - Coverage validated by Monte-Carlo: 30-trial repeat on noisy
+    synthetic with known truth achieves >= 80% nominal coverage at
+    95%.
+- **TypeScript SDK gating modules.** The TS SDK ships an evaluator
+  surface so TS-only teams can gate CI without invoking Python:
+  - `src/ltl/formula.ts` — LTLf AST as a discriminated union, all 10
+    operators, constructor helpers and a deterministic stringifier.
+  - `src/ltl/checker.ts` — Bottom-up DP O(|π|×|φ|) checker, byte-for-
+    byte mirror of `shadow.ltl.checker`.
+  - `src/policy/rules.ts` + `check.ts` — Stateless rule eval for
+    `no_call`, `must_call_before`, `must_call_once`, `forbidden_text`,
+    `must_include_text`. Sorted output for stable CI diffs.
+  - `src/gate/index.ts` — Compose rules + LTLf formulas into one
+    `GateResult { passed, violations, ltlResults }`.
+    `renderGateSummary()` produces a stable CI line.
+  - Cross-language conformance verified: 9 parity tests in
+    `python/tests/test_typescript_parity.py` exercise both
+    implementations on identical fixtures and assert byte-equal
+    decisions on `(ruleId, pairIndex, kind)` tuples and per-formula
+    pass/fail. 35 new TS tests in `typescript/test/` (LTLf operators,
+    policy rule kinds, gate composition).
+- **`shadow_core::diff::embedder` — pluggable Embedder trait.** The
+  Rust semantic axis no longer locks in TF-IDF as the only path:
+  - New `Embedder` trait with `embed(texts)` + `id()`.
+  - `BoxedEmbedder` adapter wraps any `Fn(&[&str]) -> Vec<Vec<f32>>`
+    closure (use case: ONNX runtime, HF Inference API, OpenAI
+    embeddings, in-house service, PyO3 callback into Python
+    `sentence-transformers`).
+  - `compute_with_embedder(pairs, embedder, seed)` — new entry point
+    in `shadow_core::diff::semantic` that lets callers route the
+    semantic axis through a custom `Embedder`. The shared cosine
+    + median + paired-CI tail keeps embedder choice independent of
+    the rest of the pipeline.
+  - Default `compute()` path unchanged: smoothed sklearn-style TF-IDF
+    over the corpus, no extra dependencies.
+  - Tests verify swap-in works (paraphrase pair scores 0 under TF-IDF
+    but ≈1 under a custom embedder), dim-mismatch returns empty axis
+    safely, both-zero vectors return cosine 1.0.
+
+### Changed
+
+- **`shadow.bisect` re-exports.** The v2.5+ stability-selection +
+  residual-bootstrap CI APIs (`rank_attributions_with_ci`,
+  `rank_attributions_with_interactions`, `AXIS_NAMES`) are now
+  exported from the package root so `from shadow.bisect import ...`
+  surfaces the public CI surface. Already wired into
+  `corner_scorer.py` internally; this change just makes them
+  discoverable from documented import sites.
+- **`shadow.causal/__init__.py`** — status updated from "Foundation"
+  to "Production". Out-of-scope items (front-door adjustment,
+  optimal experiment design, matched-pair Rosenbaum bounds) listed
+  explicitly; replaced the prior multi-week TODO with the actual
+  shipped surface.
+- **`docs/theory/causal.md`** — full rewrite covering the new
+  pipeline (point ATE, bootstrap CIs, back-door adjustment, E-value)
+  with worked example and citation list.
+- **`typescript/PARITY.md`** — boundary statement rewritten: the
+  evaluator surface (LTLf, policy gate) is in TS now; the compiler /
+  mining tooling and rich-rule engine stay Python.
+- **`README.md`** — TS parity table refreshed with the new gating
+  rows; embeddings-extra description acknowledges the trait-based
+  Embedder; causal description acknowledges the production pipeline.
+
+### Notes
+
+- These are **additive** changes. No public API was removed,
+  renamed, or behaviourally altered. SemVer minor bump applies.
+- The wheel size and default install footprint are unchanged. The
+  `Embedder` trait does not pull in any new heavy dependencies; ONNX
+  / neural backends remain a downstream user choice.
+
 ## [2.6.0] - 2026-04-28
 
 Comprehensive technical-debt cleanup pass on top of v2.5.0.
