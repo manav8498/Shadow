@@ -30,6 +30,34 @@ from shadow.statistical.sprt import MSPRTDetector, SPRTDetector
 pytestmark = pytest.mark.slow
 
 
+def _wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """Wilson score 95% CI on a proportion k/n.
+
+    Returns (lower, upper). Used by validation tests to assert that
+    the empirical rejection rate is consistent with the nominal α at
+    the simulation's sample size — a tighter and more correct check
+    than ad-hoc ``α + 0.05`` slack.
+
+    Wilson CI is preferred over Wald (normal approximation) because
+    it remains valid near 0 and 1, and is exact-in-distribution for
+    the binomial proportion. See Brown, Cai & DasGupta (2001),
+    "Interval Estimation for a Binomial Proportion".
+    """
+    if n == 0:
+        return (0.0, 1.0)
+    p_hat = k / n
+    denom = 1 + z * z / n
+    centre = (p_hat + z * z / (2 * n)) / denom
+    half = z * math.sqrt((p_hat * (1 - p_hat) / n) + (z * z / (4 * n * n))) / denom
+    return (max(0.0, centre - half), min(1.0, centre + half))
+
+
+def _alpha_in_wilson_ci(rejections: int, n_trials: int, alpha: float, z: float = 1.96) -> bool:
+    """True iff α is inside the 95% Wilson CI on the empirical rate."""
+    lo, hi = _wilson_ci(rejections, n_trials, z=z)
+    return lo <= alpha <= hi
+
+
 # ---------------------------------------------------------------------------
 # Hotelling T² Type-I rate
 # ---------------------------------------------------------------------------
@@ -52,11 +80,12 @@ class TestHotellingTypeI:
             if res.reject_null:
                 rejections += 1
         rate = rejections / n_trials
-        # 95% binomial CI for empirical rejection rate at α=0.05, n=500:
-        # 0.05 ± 1.96 * sqrt(0.05*0.95/500) ≈ 0.05 ± 0.019.
-        assert (
-            abs(rate - alpha) < 0.025
-        ), f"Hotelling Type-I rate {rate:.3f} far from nominal {alpha}"
+        lo, hi = _wilson_ci(rejections, n_trials)
+        assert _alpha_in_wilson_ci(rejections, n_trials, alpha), (
+            f"Hotelling Type-I rate {rate:.4f} (Wilson CI [{lo:.4f}, {hi:.4f}]) "
+            f"does not include nominal α={alpha:.4f}. Rejecting too often "
+            f"or too rarely under H0."
+        )
 
     def test_permutation_p_value_uniform_under_null(self):
         """Under H0, permutation p-values should be ~uniform on [0, 1]."""
