@@ -33,7 +33,8 @@ from typing import Any
 from shadow import _core
 from shadow.errors import ShadowConfigError
 
-CERT_VERSION = "0.1"
+CERT_VERSION = "0.2"
+_CERT_VERSION_0_1 = "0.1"
 """Bumped on backwards-incompatible certificate-shape changes."""
 
 
@@ -60,7 +61,8 @@ class AgentCertificate:
     regression_suite: dict[str, Any] | None = None
     """The nine-axis severity rollup from a baseline-vs-candidate diff,
     or None if no baseline was supplied. Shape:
-    ``{"baseline_trace_id": str, "axes": [{axis, severity, delta}, ...]}``."""
+    ``{"baseline_trace_id": str, "axes": [{axis, severity, delta}, ...],
+    "conformal": {ConformalCoverageReport dict} | None}``."""
     cert_id: str = ""
     """Content-id of the rest of the certificate. Computed last; empty
     until :meth:`finalise` is called."""
@@ -82,6 +84,8 @@ def build_certificate(
     pricing: dict[str, tuple[float, float]] | None = None,
     seed: int = 42,
     released_at: datetime.datetime | None = None,
+    conformal_coverage: float | None = None,
+    conformal_confidence: float = 0.95,
 ) -> AgentCertificate:
     """Construct an :class:`AgentCertificate` from a trace.
 
@@ -90,6 +94,11 @@ def build_certificate(
     between baseline and the trace is folded into ``regression_suite``.
     ``policy_path`` is optional; when supplied, its content-id (sha256
     of its bytes) is recorded.
+
+    ``conformal_coverage`` is optional; when supplied (e.g. 0.90),
+    a conformal prediction coverage bound is computed and embedded in
+    ``regression_suite["conformal"]``. Requires ``baseline_trace``.
+    ``conformal_confidence`` is the PAC confidence level (default 0.95).
 
     The function does not perform replay — the caller is expected to
     have produced ``trace`` by recording or by calling Shadow's replay
@@ -158,16 +167,34 @@ def build_certificate(
         baseline_id = "<unknown>"
         if baseline_trace and baseline_trace[0].get("kind") == "metadata":
             baseline_id = str(baseline_trace[0]["id"])
+        axis_rows = [
+            {
+                "axis": str(row.get("axis")),
+                "severity": str(row.get("severity")),
+                "delta": row.get("delta"),
+                "n": row.get("n"),
+                "ci95_low": row.get("ci95_low"),
+                "ci95_high": row.get("ci95_high"),
+            }
+            for row in (report.get("rows") or [])
+        ]
+        conformal: dict[str, Any] | None = None
+        if conformal_coverage is not None:
+            from shadow.conformal import build_conformal_coverage
+
+            conformal_report = build_conformal_coverage(
+                axis_rows=axis_rows,
+                target_coverage=conformal_coverage,
+                confidence=conformal_confidence,
+            )
+            conformal = conformal_report.to_dict()
         regression_suite = {
             "baseline_trace_id": baseline_id,
             "axes": [
-                {
-                    "axis": str(row.get("axis")),
-                    "severity": str(row.get("severity")),
-                    "delta": row.get("delta"),
-                }
-                for row in (report.get("rows") or [])
+                {"axis": r["axis"], "severity": r["severity"], "delta": r["delta"]}
+                for r in axis_rows
             ],
+            "conformal": conformal,
         }
 
     if released_at is None:
@@ -198,11 +225,12 @@ def verify_certificate(payload: dict[str, Any]) -> tuple[bool, str]:
     """
     if not isinstance(payload, dict):
         return False, "certificate must be a JSON object"
-    if payload.get("cert_version") != CERT_VERSION:
+    supported_versions = {CERT_VERSION, _CERT_VERSION_0_1}
+    if payload.get("cert_version") not in supported_versions:
         return (
             False,
             f"unsupported cert_version {payload.get('cert_version')!r}; "
-            f"expected {CERT_VERSION!r}",
+            f"expected one of {sorted(supported_versions)}",
         )
     claimed = payload.get("cert_id")
     if not isinstance(claimed, str) or not claimed.startswith("sha256:"):
@@ -252,6 +280,24 @@ def render_terminal(cert: AgentCertificate) -> str:
         worst = _worst_severity(axes)
         lines.append(f"  baseline    : {cert.regression_suite.get('baseline_trace_id')}")
         lines.append(f"  worst axis  : {worst}")
+        conformal = cert.regression_suite.get("conformal")
+        if conformal:
+            cov = conformal.get("target_coverage", 0)
+            conf = conformal.get("confidence", 0)
+            worst_ax = conformal.get("worst_axis", "")
+            n_cal = conformal.get("n_calibration", 0)
+            suf = conformal.get("sufficient_n", False)
+            n_min = conformal.get("n_min", 0)
+            lines.append(
+                f"  conformal   : {cov:.0%} coverage @ {conf:.0%} PAC confidence "
+                f"(n={n_cal}, binding={worst_ax})"
+                + ("" if suf else f"  ⚠ n < n_min={n_min}")
+            )
+            for ax_row in (conformal.get("axes") or [])[:3]:
+                lines.append(
+                    f"    · {ax_row['axis']:<22}  q̂={ax_row['q_hat']:.4f}  "
+                    f"coverage={ax_row['achieved_coverage']:.2%}"
+                )
     else:
         lines.append("  baseline    : <not provided — no regression suite>")
     return "\n".join(lines)

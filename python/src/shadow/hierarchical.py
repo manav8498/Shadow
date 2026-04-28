@@ -786,6 +786,8 @@ _POLICY_KINDS = {
     "must_remain_consistent",
     "must_followup",
     "must_be_grounded",
+    # v2.5 — raw LTL formulas (decidable verification)
+    "ltl_formula",
 }
 
 
@@ -1518,6 +1520,9 @@ def _check_single_rule(
     if rule.kind == "must_be_grounded":
         return _check_must_be_grounded(rule, records)
 
+    if rule.kind == "ltl_formula":
+        return _check_ltl_formula(rule, records)
+
     # pragma: no cover — unreachable given load_policy validation
     return [_whole_trace_violation(rule, f"unhandled rule kind {rule.kind!r}")]
 
@@ -1889,6 +1894,64 @@ def _unigram_precision(response: str, chunks: list[str]) -> float:
         return 0.0
     overlap = response_tokens & chunk_tokens
     return len(overlap) / len(response_tokens)
+
+
+def _check_ltl_formula(
+    rule: PolicyRule, records: list[dict[str, Any]]
+) -> list[PolicyViolation]:
+    """Evaluate a raw LTL formula against the trace.
+
+    Params:
+      - ``formula`` (required): LTL formula string using the syntax from
+        :mod:`shadow.ltl.compiler`. Atoms use the ``pred:value`` convention:
+        ``tool_call:<name>``, ``stop_reason:<value>``, ``text_contains:<substr>``.
+
+    Example YAML::
+
+        - id: no-delete
+          kind: ltl_formula
+          params:
+            formula: "G !tool_call:delete_all"
+          severity: error
+
+    The model checker evaluates the formula at position 0 of the trace
+    under finite-trace LTL semantics. A failure at position 0 means the
+    formula is violated *somewhere* in the trace; the checker then finds
+    the first violating turn and reports it.
+    """
+    raw = rule.params.get("formula")
+    if not isinstance(raw, str) or not raw.strip():
+        return [_whole_trace_violation(rule, "ltl_formula rule requires a non-empty `formula` param")]
+
+    try:
+        from shadow.ltl import check_trace
+        from shadow.ltl.compiler import parse_ltl
+    except ImportError as e:  # pragma: no cover
+        return [_whole_trace_violation(rule, f"shadow.ltl not available: {e}")]
+
+    try:
+        formula = parse_ltl(raw)
+    except ValueError as e:
+        return [_whole_trace_violation(rule, f"LTL parse error: {e}")]
+
+    try:
+        violating_pairs = check_trace(formula, records)
+    except Exception as e:  # pragma: no cover
+        return [_whole_trace_violation(rule, f"LTL model checker error: {e}")]
+
+    if not violating_pairs:
+        return []
+
+    return [
+        PolicyViolation(
+            rule_id=rule.id,
+            kind=rule.kind,
+            severity=rule.severity,
+            pair_index=pair_idx,
+            detail=f"LTL formula violated: {raw}",
+        )
+        for pair_idx in violating_pairs
+    ]
 
 
 def _whole_trace_violation(rule: PolicyRule, detail: str) -> PolicyViolation:

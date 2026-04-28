@@ -6,6 +6,78 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-04-27
+
+Feature release: behavioral fingerprinting, LTL policy verification, and
+conformal prediction coverage bounds for ABOM certificates.
+
+### Added
+
+- **`shadow.statistical` — behavioral fingerprinting + sequential testing.**
+  New package implementing the AgentAssay (arXiv:2603.02601) approach to
+  behavioral drift detection:
+  - `fingerprint.py`: D=8 feature vector per agent turn (`tool_call_rate`,
+    `distinct_tool_frac`, `stop_end_turn`, `stop_tool_use`, `stop_other`,
+    `output_len_log`, `latency_log`, `refusal_flag`). Features are
+    log-scaled and bounded [0,1] to prevent high-variance dimensions from
+    dominating multivariate tests.
+  - `hotelling.py`: Two-sample Hotelling T² test with F-approximation and
+    Ledoit-Wolf OAS shrinkage for covariance regularization. Handles the
+    p > n regime (more features than observations) without ill-conditioning.
+  - `sprt.py`: Wald SPRT detector with online null calibration (warmup
+    period). Uses Gaussian log-likelihood ratio; stops ~50% earlier than
+    fixed-N tests at equal α/β. `MultiSPRT` runs one detector per
+    behavioral axis with union-bound early stopping.
+
+- **`shadow.ltl` — formal LTL policy verification.**
+  Replaces the ad-hoc YAML rule dispatcher with decidable finite-trace LTL:
+  - `formula.py`: Immutable AST for LTL operators — `Atom`, `Not`, `And`,
+    `Or`, `Implies`, `Next`, `Until`, `Globally`, `Finally` — plus
+    convenience constructors (`g`, `f`, `x`, `u`, `conj`, `disj`).
+  - `checker.py`: Finite-trace (LTLf) model checker with memoized
+    structural recursion. O(|π| × |φ|). Built-in predicate evaluator
+    for `tool_call:<name>`, `stop_reason:<value>`, `text_contains:<substr>`,
+    `extra:<k>=<v>`.
+  - `compiler.py`: Compiles policy rule kinds to LTL formulas
+    (`no_call` → `G(¬A)`, `must_call_before` → `¬B U A`,
+    `must_call_once` → `F(A) ∧ G(A → X(G(¬A)))`, etc.) plus a
+    recursive-descent `parse_ltl` for raw LTL expression strings.
+  - New `"ltl_formula"` policy kind wired into `shadow.hierarchical`.
+
+- **`shadow.conformal` — coverage bounds for ABOM certificates.**
+  Distribution-free, finite-sample conformal prediction bounds:
+  - `build_conformal_coverage`: computes per-axis calibration quantiles
+    q̂ = quantile(scores, ⌈(n+1)(1−α)⌉/n) and PAC delta from the
+    Clopper-Pearson lower bound. Approximates calibration set from
+    summary statistics when individual runs are not available.
+  - `ConformalCoverageReport`: per-axis `AxisCoverage` objects with
+    `q_hat`, `achieved_coverage`, `pac_delta`, `marginal_claim`.
+    Includes `sufficient_n` flag and `n_min` recommendation.
+
+- **`shadow certify` now produces ABOM v0.2 certificates** with an
+  optional `conformal` section. Pass `--coverage 0.90 --confidence 0.95`
+  to embed the guarantee: "At 95% confidence, this agent's behavioral
+  deviation on the `semantic` axis will be ≤ {q_hat:.3f} on ≥90% of
+  future runs." Certificate `verify_certificate` accepts both v0.1 and
+  v0.2 formats for backward compatibility.
+
+### Decisions
+
+- **Ledoit-Wolf OAS variant** chosen over cross-validated shrinkage
+  because it has a closed-form solution and handles the p/n > 1 case
+  gracefully without additional hyperparameters.
+- **Finite-trace LTL semantics (LTLf)** chosen over infinite-trace: `G φ`
+  is vacuously true at trace end (correct for safety properties like
+  "never call X") and `F φ` is false at trace end (requires observable
+  evidence within the recorded trace).
+- **Conformal calibration from summary statistics** uses N(|delta|, CI-
+  derived σ²) to synthesize a calibration set when individual run scores
+  are not available. Flagged as an approximation via `sufficient_n = False`
+  when n < n_min.
+- **RUF001/RUF002/RUF003 suppressed** for `statistical/`, `ltl/`, and
+  `conformal.py` via per-file-ignores — Greek letters and math operators
+  in domain-specific docstrings are intentional, not typos.
+
 ## [2.4.3] - 2026-04-27
 
 Patch on top of 2.4.2. No new features — only the sdist fix.
