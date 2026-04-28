@@ -33,6 +33,7 @@ from shadow.statistical.fingerprint import (
 from shadow.statistical.hotelling import HotellingResult, hotelling_t2
 from shadow.statistical.sprt import (
     MSPRTDetector,
+    MSPRTtDetector,
     MultiSPRT,
     SPRTDetector,
     SPRTState,
@@ -42,6 +43,7 @@ __all__ = [
     "BehavioralVector",
     "HotellingResult",
     "MSPRTDetector",
+    "MSPRTtDetector",
     "MultiSPRT",
     "SPRTDetector",
     "SPRTState",
