@@ -49,7 +49,9 @@ def _chat_response_record(draw: Any) -> dict[str, Any]:
         "payload": {
             "model": draw(st.sampled_from(["gpt-4", "claude-haiku", "test-model"])),
             "content": [{"type": "text", "text": draw(_text_strategy)}],
-            "stop_reason": draw(st.sampled_from(["end_turn", "tool_use", "content_filter", "stop"])),
+            "stop_reason": draw(
+                st.sampled_from(["end_turn", "tool_use", "content_filter", "stop"])
+            ),
             "latency_ms": draw(st.integers(min_value=0, max_value=120000)),
             "usage": {
                 "input_tokens": draw(st.integers(min_value=0, max_value=10000)),
