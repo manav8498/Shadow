@@ -11,7 +11,7 @@ import math
 import numpy as np
 import pytest
 
-from shadow.conformal import ConformalCoverageReport, build_conformal_coverage
+from shadow.conformal import ConformalCoverageReport, build_parametric_estimate
 from shadow.hierarchical import PolicyRule, check_policy
 from shadow.ltl.checker import TraceState, check, trace_from_records
 from shadow.ltl.compiler import parse_ltl, rule_to_ltl
@@ -1068,7 +1068,7 @@ class TestConformalOnRealAxisRows:
             _axis_row("judge", 0.14, 20, 0.10, 0.18),
             _axis_row("conformance", 0.06, 20, 0.03, 0.09),
         ]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         assert isinstance(report, ConformalCoverageReport)
         assert len(report.axes) == 9
 
@@ -1078,7 +1078,7 @@ class TestConformalOnRealAxisRows:
             _axis_row("trajectory", 0.5, 20, 0.35, 0.65),
             _axis_row("safety", 0.3, 20, 0.20, 0.40),
         ]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         assert report.worst_axis == "trajectory"
 
     def test_nan_delta_handled_gracefully(self):
@@ -1086,7 +1086,7 @@ class TestConformalOnRealAxisRows:
         rows[0]["delta"] = None  # type: ignore[assignment]
         # abs(float(None or 0.0)) = 0.0 — must not crash
         try:
-            report = build_conformal_coverage(rows)
+            report = build_parametric_estimate(rows)
             assert report.axes[0].q_hat >= 0.0
         except Exception as exc:
             pytest.fail(f"Unexpected exception with None delta: {exc}")
@@ -1096,13 +1096,13 @@ class TestConformalOnRealAxisRows:
             _axis_row("semantic", 0.1, 0),  # n=0 → skipped
             _axis_row("trajectory", 0.3, 10),
         ]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         assert len(report.axes) == 1
         assert report.axes[0].axis == "trajectory"
 
     def test_n1_gives_vacuous_bound(self):
         rows = [_axis_row("latency", 0.4, 1)]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         ax = report.axes[0]
         # n=1: calibration set is a single point [|delta|], so q_hat = |delta|
         assert ax.q_hat == pytest.approx(0.4, abs=1e-9)
@@ -1116,7 +1116,7 @@ class TestConformalOnRealAxisRows:
         n_min = math.ceil(math.log(1.0 - 0.95) / math.log(0.90))
         # n=25 → below n_min → sufficient_n=False
         rows_25 = [_axis_row("semantic", 0.1, 25, 0.05, 0.15)]
-        report_25 = build_conformal_coverage(rows_25, target_coverage=0.90, confidence=0.95)
+        report_25 = build_parametric_estimate(rows_25, target_coverage=0.90, confidence=0.95)
         if n_min > 25:
             assert report_25.sufficient_n is False
         else:
@@ -1124,20 +1124,20 @@ class TestConformalOnRealAxisRows:
 
         # n=30 → check against n_min
         rows_30 = [_axis_row("semantic", 0.1, 30, 0.05, 0.15)]
-        report_30 = build_conformal_coverage(rows_30, target_coverage=0.90, confidence=0.95)
+        report_30 = build_parametric_estimate(rows_30, target_coverage=0.90, confidence=0.95)
         if n_min <= 30:
             assert report_30.sufficient_n is True
 
     def test_q_hat_nonnegative(self):
         for delta in [0.0, 0.01, 0.5, 1.0]:
             rows = [_axis_row("semantic", delta, 10, delta * 0.5, delta * 1.5)]
-            report = build_conformal_coverage(rows)
+            report = build_parametric_estimate(rows)
             for ax in report.axes:
                 assert ax.q_hat >= 0.0
 
     def test_marginal_claim_string_format(self):
         rows = [_axis_row("latency", 0.25, 20, 0.15, 0.35)]
-        report = build_conformal_coverage(rows, target_coverage=0.90, confidence=0.95)
+        report = build_parametric_estimate(rows, target_coverage=0.90, confidence=0.95)
         ax = report.axes[0]
         claim = ax.marginal_claim
         assert "latency" in claim
@@ -1147,10 +1147,10 @@ class TestConformalOnRealAxisRows:
 
     def test_invalid_coverage_raises(self):
         with pytest.raises(ValueError):
-            build_conformal_coverage([], target_coverage=1.5)
+            build_parametric_estimate([], target_coverage=1.5)
 
     def test_empty_axis_rows_returns_empty_report(self):
-        report = build_conformal_coverage([])
+        report = build_parametric_estimate([])
         assert report.axes == []
         assert report.worst_axis == ""
 
@@ -1240,7 +1240,7 @@ class TestEndToEndIntegration:
 
     def test_conformal_report_note_contains_axis_name(self):
         rows = [_axis_row("semantic", 0.15, 30, 0.10, 0.20)]
-        report = build_conformal_coverage(rows, target_coverage=0.90, confidence=0.95)
+        report = build_parametric_estimate(rows, target_coverage=0.90, confidence=0.95)
         # n_min for (0.90, 0.95) ≈ 29, and n=30 ≥ n_min, so note mentions "Binding axis"
         assert "semantic" in report.note or "semantic" in report.worst_axis
         assert report.worst_axis == "semantic"

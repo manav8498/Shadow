@@ -173,22 +173,32 @@ def conformal_calibrate(
     )
 
 
-def build_conformal_coverage(
+def build_parametric_estimate(
     axis_rows: list[dict[str, Any]],
     target_coverage: float = 0.90,
     confidence: float = 0.95,
 ) -> ConformalCoverageReport:
-    """Parametric coverage estimate from summary statistics (NOT distribution-free).
+    """Parametric Gaussian coverage estimate from summary statistics.
 
-    Use this only when the per-run scores are unavailable (e.g. when
-    consuming an aggregated diff report).  The function reconstructs a
-    synthetic Gaussian calibration set with mean ``|delta|`` and standard
-    deviation derived from the CI half-width, then applies the same
-    quantile rule as :func:`conformal_calibrate`.
+    **This is NOT a conformal bound and NOT distribution-free.** Use it
+    only when the per-run scores have already been aggregated and you
+    have no choice but to work from summary statistics (``delta``,
+    ``ci95_low``, ``ci95_high``, ``n``).
 
-    The returned report has ``is_distribution_free=False``.  Callers
-    that require the formal distribution-free guarantee should switch
-    to :func:`conformal_calibrate` with real per-run scores.
+    The function reconstructs a synthetic Gaussian calibration set with
+    mean ``|delta|`` and standard deviation derived from the CI
+    half-width, then applies the same sample-quantile rule as
+    :func:`conformal_calibrate`.  The result is only valid to the
+    extent the underlying score distribution is well-approximated by
+    the inferred normal — heavy tails, multimodality, or non-Gaussian
+    shape will silently inflate the apparent guarantee.
+
+    The returned report has ``is_distribution_free=False`` so
+    downstream code can flag it (e.g. refuse to publish the bound on
+    an Agent Behavior Certificate).
+
+    Callers that need the formal distribution-free guarantee should
+    switch to :func:`conformal_calibrate` with real per-run scores.
     """
     if not (0 < target_coverage < 1):
         raise ValueError(f"target_coverage must be in (0,1); got {target_coverage}")
@@ -374,9 +384,39 @@ def _build_note(
     )
 
 
+def build_conformal_coverage(
+    axis_rows: list[dict[str, Any]],
+    target_coverage: float = 0.90,
+    confidence: float = 0.95,
+) -> ConformalCoverageReport:
+    """Deprecated alias for :func:`build_parametric_estimate`.
+
+    The original name was misleading — the function is parametric, not
+    conformal, so calling it ``build_conformal_coverage`` suggested a
+    distribution-free guarantee it does not deliver. The new name is
+    :func:`build_parametric_estimate`.
+
+    This alias remains for backward compatibility and emits a
+    :class:`DeprecationWarning`.  It will be removed in v3.0.
+    """
+    import warnings
+
+    warnings.warn(
+        "build_conformal_coverage() is misleading — it is a parametric "
+        "estimate, not a distribution-free conformal bound. Renamed to "
+        "build_parametric_estimate(); this alias will be removed in v3.0. "
+        "For real conformal coverage, use conformal_calibrate() with "
+        "per-run scores.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return build_parametric_estimate(axis_rows, target_coverage, confidence)
+
+
 __all__ = [
     "AxisCoverage",
     "ConformalCoverageReport",
-    "build_conformal_coverage",
+    "build_conformal_coverage",  # Deprecated alias; kept for backward compat.
+    "build_parametric_estimate",
     "conformal_calibrate",
 ]

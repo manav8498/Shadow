@@ -6,7 +6,7 @@ import pytest
 
 from shadow.conformal import (
     ConformalCoverageReport,
-    build_conformal_coverage,
+    build_parametric_estimate,
     conformal_calibrate,
 )
 
@@ -24,34 +24,34 @@ def _row(axis: str, delta: float, n: int, ci_low: float = 0.0, ci_high: float = 
     }
 
 
-# ---- build_conformal_coverage -----------------------------------------------
+# ---- build_parametric_estimate -----------------------------------------------
 
 
 class TestBuildConformalCoverage:
     def test_returns_report_type(self):
         rows = [_row("semantic", 0.05, 10)]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         assert isinstance(report, ConformalCoverageReport)
 
     def test_empty_rows_returns_empty_axes(self):
-        report = build_conformal_coverage([])
+        report = build_parametric_estimate([])
         assert report.axes == []
         assert report.worst_axis == ""
 
     def test_skips_n_zero_rows(self):
         rows = [_row("semantic", 0.05, 0), _row("trajectory", 0.10, 5)]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         assert len(report.axes) == 1
         assert report.axes[0].axis == "trajectory"
 
     def test_target_coverage_preserved(self):
         rows = [_row("semantic", 0.05, 20)]
-        report = build_conformal_coverage(rows, target_coverage=0.80)
+        report = build_parametric_estimate(rows, target_coverage=0.80)
         assert report.target_coverage == 0.80
 
     def test_confidence_preserved(self):
         rows = [_row("semantic", 0.05, 20)]
-        report = build_conformal_coverage(rows, confidence=0.99)
+        report = build_parametric_estimate(rows, confidence=0.99)
         assert report.confidence == 0.99
 
     def test_worst_axis_has_largest_q_hat(self):
@@ -59,7 +59,7 @@ class TestBuildConformalCoverage:
             _row("semantic", 0.10, 20, -0.05, 0.25),
             _row("trajectory", 0.50, 20, 0.20, 0.80),
         ]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         # trajectory has larger delta → larger q_hat → worst axis
         assert report.worst_axis == "trajectory"
 
@@ -69,56 +69,56 @@ class TestBuildConformalCoverage:
             _row("trajectory", 0.40, 20, 0.20, 0.60),
             _row("semantic", 0.10, 20, 0.05, 0.15),
         ]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         q_hats = [ax.q_hat for ax in report.axes]
         assert q_hats == sorted(q_hats, reverse=True)
 
     def test_n1_degenerate_q_hat_equals_abs_delta(self):
         rows = [_row("semantic", 0.15, 1)]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         ax = report.axes[0]
         assert abs(ax.q_hat - 0.15) < 1e-9
 
     def test_sufficient_n_flag_when_n_below_n_min(self):
         rows = [_row("semantic", 0.05, 2)]
-        report = build_conformal_coverage(rows, target_coverage=0.95, confidence=0.99)
+        report = build_parametric_estimate(rows, target_coverage=0.95, confidence=0.99)
         # n_min at 95% coverage, 99% confidence is ceil(log(0.01)/log(0.95)) ≈ 90
         assert report.n_min > 2
         assert not report.sufficient_n
 
     def test_sufficient_n_flag_when_n_above_n_min(self):
         rows = [_row("semantic", 0.05, 200)]
-        report = build_conformal_coverage(rows, target_coverage=0.80, confidence=0.80)
+        report = build_parametric_estimate(rows, target_coverage=0.80, confidence=0.80)
         # n_min at 80% coverage, 80% conf is small
         assert report.sufficient_n
 
     def test_q_hat_increases_with_target_coverage(self):
         rows = [_row("semantic", 0.10, 30, 0.05, 0.15)]
-        r80 = build_conformal_coverage(rows, target_coverage=0.80)
-        r95 = build_conformal_coverage(rows, target_coverage=0.95)
+        r80 = build_parametric_estimate(rows, target_coverage=0.80)
+        r95 = build_parametric_estimate(rows, target_coverage=0.95)
         assert r95.axes[0].q_hat >= r80.axes[0].q_hat
 
     def test_invalid_target_coverage_raises(self):
         with pytest.raises(ValueError, match="target_coverage"):
-            build_conformal_coverage([], target_coverage=1.5)
+            build_parametric_estimate([], target_coverage=1.5)
 
     def test_invalid_confidence_raises(self):
         with pytest.raises(ValueError, match="confidence"):
-            build_conformal_coverage([], confidence=0.0)
+            build_parametric_estimate([], confidence=0.0)
 
     def test_achieved_coverage_gte_target_coverage(self):
         # By the conformal guarantee, empirical coverage on the
         # calibration set must be ≥ target. Only holds for non-trivial
         # (n > 1) calibration sets with n ≥ n_min.
         rows = [_row("semantic", 0.08, 50, 0.04, 0.12)]
-        report = build_conformal_coverage(rows, target_coverage=0.90)
+        report = build_parametric_estimate(rows, target_coverage=0.90)
         ax = report.axes[0]
         # Achieved coverage must meet or exceed target on calibration.
         assert ax.achieved_coverage >= ax.target_coverage - 1e-9
 
     def test_to_dict_round_trips(self):
         rows = [_row("trajectory", 0.30, 10, 0.10, 0.50)]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         d = report.to_dict()
         assert isinstance(d, dict)
         assert d["target_coverage"] == report.target_coverage
@@ -127,17 +127,17 @@ class TestBuildConformalCoverage:
 
     def test_marginal_claim_contains_axis_name(self):
         rows = [_row("verbosity", 0.20, 15, 0.10, 0.30)]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         assert "verbosity" in report.axes[0].marginal_claim
 
     def test_note_contains_insufficient_warning_when_n_low(self):
         rows = [_row("semantic", 0.05, 1)]
-        report = build_conformal_coverage(rows, target_coverage=0.95, confidence=0.99)
+        report = build_parametric_estimate(rows, target_coverage=0.95, confidence=0.99)
         assert "n_min" in report.note or "below" in report.note
 
     def test_note_describes_binding_axis_when_sufficient(self):
         rows = [_row("semantic", 0.05, 200)]
-        report = build_conformal_coverage(rows, target_coverage=0.80, confidence=0.80)
+        report = build_parametric_estimate(rows, target_coverage=0.80, confidence=0.80)
         assert "semantic" in report.note or "binding" in report.note
 
     def test_nine_axes_all_present(self):
@@ -153,7 +153,7 @@ class TestBuildConformalCoverage:
             "conformance",
         ]
         rows = [_row(name, 0.05 * (i + 1), 20) for i, name in enumerate(axis_names)]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         assert len(report.axes) == 9
         reported_names = {ax.axis for ax in report.axes}
         assert reported_names == set(axis_names)
@@ -165,7 +165,7 @@ class TestBuildConformalCoverage:
 class TestAxisCoverage:
     def test_to_dict_has_required_keys(self):
         rows = [_row("cost", 0.02, 10)]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         d = report.axes[0].to_dict()
         required = {
             "axis",
@@ -180,9 +180,32 @@ class TestAxisCoverage:
 
     def test_pac_delta_in_unit_interval(self):
         rows = [_row("cost", 0.02, 10)]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         ax = report.axes[0]
         assert 0.0 <= ax.pac_delta <= 1.0
+
+
+# ---- deprecation alias ------------------------------------------------------
+
+
+class TestDeprecatedAlias:
+    def test_old_name_still_works_but_warns(self):
+        """build_conformal_coverage is renamed to build_parametric_estimate
+        (the original name was misleading — it is parametric, not
+        distribution-free conformal). The old name remains as a
+        deprecation alias and emits DeprecationWarning."""
+        import warnings
+
+        from shadow.conformal import build_conformal_coverage
+
+        rows = [_row("semantic", 0.05, 20)]
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            report = build_conformal_coverage(rows)
+        assert isinstance(report, ConformalCoverageReport)
+        deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+        assert len(deprecations) == 1
+        assert "build_parametric_estimate" in str(deprecations[0].message)
 
 
 # ---- conformal_calibrate (real distribution-free path) ---------------------
@@ -283,14 +306,14 @@ class TestConformalCalibrate:
 
 
 class TestParametricFlag:
-    def test_build_conformal_coverage_marks_parametric(self):
+    def test_build_parametric_estimate_marks_parametric(self):
         rows = [_row("semantic", 0.1, 20, 0.05, 0.15)]
-        report = build_conformal_coverage(rows)
+        report = build_parametric_estimate(rows)
         assert report.is_distribution_free is False
 
     def test_parametric_note_warns_about_non_distribution_free(self):
         rows = [_row("semantic", 0.1, 50, 0.05, 0.15)]
-        report = build_conformal_coverage(rows, target_coverage=0.80, confidence=0.80)
+        report = build_parametric_estimate(rows, target_coverage=0.80, confidence=0.80)
         assert "parametric" in report.note.lower()
 
 
