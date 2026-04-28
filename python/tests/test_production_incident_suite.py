@@ -30,7 +30,7 @@ else:
     sys.path.insert(0, str(_EXAMPLE_DIR))
 
 
-from audit import (  # noqa: E402
+from incident_audit import (  # noqa: E402
     SAFETY_POLICIES,
     AuditFindings,
     render_findings,

@@ -19,7 +19,7 @@ if hasattr(sys.stdout, "reconfigure"):
 _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE))
 
-from audit import render_findings, run_audit  # noqa: E402
+from incident_audit import render_findings, run_audit  # noqa: E402
 from scenarios import generate_baseline, generate_candidate  # noqa: E402
 
 
