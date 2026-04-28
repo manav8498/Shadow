@@ -42,8 +42,8 @@ Example:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
-from string import Formatter
 from typing import Any
 
 from shadow.judge._common import (
@@ -62,15 +62,25 @@ from shadow.llm.base import LlmBackend
 _ALLOWED_PLACEHOLDERS = frozenset({"task", "baseline", "candidate"})
 
 
+_PLACEHOLDER_RE = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+
+
 def _rubric_placeholders(rubric: str) -> set[str]:
-    """Return the set of `{name}` placeholders used in `rubric`."""
-    names: set[str] = set()
-    for _, field_name, _, _ in Formatter().parse(rubric):
-        if field_name:
-            # Strip any attribute-access tail (`x.y` → `x`).
-            root = field_name.split(".", 1)[0].split("[", 1)[0]
-            names.add(root)
-    return names
+    """Return the set of `{identifier}` placeholders used in `rubric`.
+
+    Recognizes ``{task}``-style patterns where the contents are a valid
+    Python identifier. Anything else (JSON examples like
+    ``{"verdict": ...}``, dict literals like ``{x: 1}``, format specs)
+    is ignored as literal text.
+
+    The previous implementation used :class:`string.Formatter`, which
+    raises ``ValueError`` on malformed format strings — so a rubric that
+    contained any literal ``{`` for a JSON example would refuse to load.
+    Switching to a regex over identifier-only matches keeps the unknown-
+    placeholder validation working while letting authors include JSON
+    examples without escaping every brace.
+    """
+    return set(_PLACEHOLDER_RE.findall(rubric))
 
 
 class LlmJudge:
@@ -150,7 +160,17 @@ class LlmJudge:
     # ---- internals ---------------------------------------------------------
 
     def _render(self, *, task: str, baseline: str, candidate: str) -> str:
-        return self._rubric.format(task=task, baseline=baseline, candidate=candidate)
+        # Substitute placeholders without invoking str.format(), so literal
+        # braces in the rubric (e.g. JSON example `{"verdict": ...}`) do not
+        # crash with KeyError on the JSON keys. The previous implementation
+        # called `self._rubric.format(...)` which required users to escape
+        # every literal `{` and `}` in their rubric — a major footgun caught
+        # by external evaluation.
+        out = self._rubric
+        out = out.replace("{task}", task)
+        out = out.replace("{baseline}", baseline)
+        out = out.replace("{candidate}", candidate)
+        return out
 
     def _parse(self, text: str) -> JudgeVerdict:
         data = extract_json(text)
