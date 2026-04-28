@@ -145,6 +145,112 @@ def test_report_renders_markdown_and_github_pr(tmp_path: Path) -> None:
     assert "<details>" in gh.stdout
 
 
+def test_github_pr_report_has_no_regressions_header_when_clean() -> None:
+    """When all axes are 'none' and no recommendations, the PR comment
+    leads with the green 'no regressions' header."""
+    from shadow.report.github_pr import render_github_pr
+
+    report = {
+        "rows": [
+            {
+                "axis": "semantic",
+                "baseline_median": 1.0,
+                "candidate_median": 1.0,
+                "delta": 0.0,
+                "ci95_low": 0.0,
+                "ci95_high": 0.0,
+                "severity": "none",
+                "n": 5,
+            }
+        ],
+        "recommendations": [],
+        "pair_count": 5,
+        "baseline_trace_id": "sha256:" + "a" * 64,
+        "candidate_trace_id": "sha256:" + "b" * 64,
+    }
+    out = render_github_pr(report)
+    assert "no regressions" in out.lower()
+    assert "✅" in out
+
+
+def test_github_pr_report_surfaces_severe_axis_in_critical_tier() -> None:
+    """B-1: A severe axis regression must surface as CRITICAL in the
+    risk summary header — not buried in the per-axis table."""
+    from shadow.report.github_pr import render_github_pr
+
+    report = {
+        "rows": [
+            {
+                "axis": "trajectory",
+                "baseline_median": 0.0,
+                "candidate_median": 0.5,
+                "delta": 0.5,
+                "ci95_low": 0.4,
+                "ci95_high": 0.6,
+                "severity": "severe",  # → critical tier
+                "n": 5,
+            },
+            {
+                "axis": "latency",
+                "baseline_median": 100,
+                "candidate_median": 110,
+                "delta": 10,
+                "ci95_low": 5,
+                "ci95_high": 15,
+                "severity": "minor",
+                "n": 5,
+            },
+        ],
+        "recommendations": [
+            {
+                "severity": "critical",
+                "action": "restore",
+                "message": "Restore tool call `lookup_order`",
+                "rationale": "candidate dropped this tool",
+            }
+        ],
+        "pair_count": 5,
+        "baseline_trace_id": "sha256:" + "a" * 64,
+        "candidate_trace_id": "sha256:" + "b" * 64,
+    }
+    out = render_github_pr(report)
+    # Header must lead with CRITICAL.
+    assert "CRITICAL" in out
+    # Specific axis name and recommendation message both surface.
+    assert "trajectory" in out
+    assert "lookup_order" in out
+    # Per-axis table still rendered.
+    assert "| axis |" in out
+
+
+def test_github_pr_report_caps_per_tier_listing() -> None:
+    """When >5 items are in one tier, the header caps at 5 + summary line."""
+    from shadow.report.github_pr import render_github_pr
+
+    rows = [
+        {
+            "axis": f"axis_{i}",
+            "baseline_median": 0.0,
+            "candidate_median": 0.5,
+            "delta": 0.5,
+            "ci95_low": 0.4,
+            "ci95_high": 0.6,
+            "severity": "severe",
+            "n": 5,
+        }
+        for i in range(8)
+    ]
+    report = {
+        "rows": rows,
+        "recommendations": [],
+        "pair_count": 5,
+        "baseline_trace_id": "sha256:" + "a" * 64,
+        "candidate_trace_id": "sha256:" + "b" * 64,
+    }
+    out = render_github_pr(report)
+    assert "and 3 more" in out  # 8 - 5 = 3 elided
+
+
 def test_replay_uses_mock_backend_on_matching_baseline(tmp_path: Path) -> None:
     baseline = tmp_path / "b.agentlog"
     _make_trace(baseline, latency_ms=100, text="hello")
