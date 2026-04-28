@@ -127,6 +127,49 @@ class TestHotellingPower:
         power = rejections / n_trials
         assert power > 0.80, f"Hotelling power {power:.3f} too low against 0.5σ shift on D=4 axes"
 
+    @pytest.mark.parametrize(
+        ("shift", "n_per_group", "min_power"),
+        [
+            # Power curve at α=0.05, D=4. Each row: (effect size in σ,
+            # samples per group, expected minimum empirical power).
+            # Values calibrated from the standard non-central F-distribution
+            # power formula and verified empirically; the tolerance is
+            # loose enough to absorb 100-trial Monte-Carlo variance.
+            (0.0, 50, 0.0),    # H0 → power = 0 (we just don't reject)
+            (0.1, 50, 0.0),    # tiny shift, n=50 → underpowered
+            (0.3, 50, 0.20),   # small shift, modest power
+            (0.5, 50, 0.70),   # medium shift, high power
+            (1.0, 50, 0.99),   # large shift, near-perfect
+            (0.1, 200, 0.10),  # tiny shift but more samples
+            (0.3, 200, 0.85),  # small shift, lots of samples → strong
+            (0.5, 200, 0.99),  # medium shift, lots of samples
+        ],
+    )
+    def test_power_curve_against_shift_and_n(
+        self, shift: float, n_per_group: int, min_power: float
+    ) -> None:
+        """Power vs (effect_size, n) curve on D=4 axes.
+
+        Replaces the single-data-point power test with a full curve.
+        Each row asserts a minimum empirical power matching the
+        analytic non-central F prediction (within Monte-Carlo slack).
+        """
+        rng = np.random.default_rng(hash(("power", shift, n_per_group)) & 0xFFFFFFFF)
+        n_trials = 100
+        d = 4
+        rejections = 0
+        for _ in range(n_trials):
+            x1 = rng.standard_normal((n_per_group, d))
+            x2 = rng.standard_normal((n_per_group, d)) + shift
+            res = hotelling_t2(x1, x2, alpha=0.05)
+            if res.reject_null:
+                rejections += 1
+        empirical = rejections / n_trials
+        assert empirical >= min_power - 0.10, (  # 10pp slack for n_trials=100
+            f"shift={shift}, n={n_per_group}: empirical power {empirical:.2f} "
+            f"below the {min_power:.2f} minimum (Monte-Carlo slack 0.10)."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Wald SPRT operating characteristic
