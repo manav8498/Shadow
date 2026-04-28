@@ -149,12 +149,35 @@ Touching `SPEC.md` is a bigger deal than touching code. Rules:
 
 ## Releasing (maintainers only)
 
-- Version lives in three places: `Cargo.toml` workspace, `python/pyproject.toml`,
-  and `python/src/shadow/__init__.py`. Keep them aligned.
-- CHANGELOG.md: move the unreleased section under a new `[x.y.z], YYYY-MM-DD`
-  header.
+### Versioning policy: lockstep across all components
+
+Shadow ships three artifacts that share a single version number:
+
+- Python wheel (`shadow-diff` on PyPI) — `python/pyproject.toml` + `python/src/shadow/__init__.py`
+- Rust crate (`shadow-core` on crates.io) — `Cargo.toml` workspace
+- TypeScript SDK (`@shadow/sdk` on npm) — `typescript/package.json`
+
+**All three bump together on every release.** A v2.5.0 release means the
+Python wheel, Rust crate, and TypeScript SDK are all at 2.5.0, even if a
+specific component had no functional changes that release. This is the
+Cargo workspace / Kubernetes release-train model: predictable for users,
+no-confusion when filing issues.
+
+The release pipeline (`.github/workflows/release.yml`) checks all three
+versions match before tagging. CI fails if they drift.
+
+Release steps:
+
+- Bump all four version pins in lockstep:
+  - `Cargo.toml` workspace `version`
+  - `python/pyproject.toml` `[project] version`
+  - `python/src/shadow/__init__.py` `__version__`
+  - `typescript/package.json` `version`
+- CHANGELOG.md: move the unreleased section under a new `[x.y.z] - YYYY-MM-DD`
+  header. Note any component that had no functional change as `(no-op bump)`.
 - Tag with `git tag -a vX.Y.Z -m "..."` and push tags.
-- `cargo publish -p shadow-core` (Rust) and `maturin publish` (Python).
+- The release workflow handles publishing to PyPI / crates.io / npm and
+  attaches signed artifacts + SBOMs to the GitHub Release.
 
 ## Developer Certificate of Origin (DCO)
 
