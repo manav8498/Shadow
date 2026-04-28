@@ -6,6 +6,8 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-04-28
+
 Closes the four production-grade gaps identified after the v2.6.0
 release: causal extension beyond foundation, public discoverability
 of the LASSO bootstrap-CI APIs, TypeScript gating parity, and a
