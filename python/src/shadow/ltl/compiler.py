@@ -23,10 +23,17 @@ Supported kinds and their LTL translations
     once A fires, it never fires again.
 
 ``required_stop_reason(allowed=[r1, r2, ...])``
-    The final stop reason must be in the allowed set:
-    ``F(stop_reason:r1 ∨ stop_reason:r2 ∨ ...)``
-    (Finite-trace: "eventually, at least one allowed stop reason is
-    reached." For single-turn agents this is the only stop reason.)
+    The **final** observed turn's stop reason must be in the allowed
+    set. Encoded in finite-trace LTLf as
+
+      ``F((¬X(true)) ∧ (stop_reason:r1 ∨ stop_reason:r2 ∨ ...))``
+
+    Read aloud: "eventually we reach a position with no next state
+    (the last observed turn) at which the stop_reason matches the
+    allowed set." This evaluates correctly for arbitrary trace
+    lengths — multi-turn agents whose final turn fails the allowed
+    set are reported as failing, even when an earlier turn happened
+    to satisfy it.
 
 ``forbidden_text(text=T)``
     ``G(¬text_contains:T)``
@@ -106,7 +113,14 @@ def rule_to_ltl(kind: str, params: dict[str, Any]) -> Formula | None:
         if not isinstance(allowed, list) or not allowed:
             return None
         stop_atoms = [Atom(f"stop_reason:{r}") for r in allowed]
-        return Finally(disj(*stop_atoms))
+        # ``F((¬X(true)) ∧ (stop_reason:r1 ∨ ...))`` — eventually we reach a
+        # position with no successor (the last observed turn) at which
+        # the stop_reason matches. ¬X(true) is the canonical finite-trace
+        # encoding of "this is the last position": Next(true) is false at
+        # i=n-1 (no observation at n) and false at i=n by the checker's
+        # boundary, so its negation marks the last observed turn exactly.
+        last_position = Not(Next(Atom("true")))
+        return Finally(And(last_position, disj(*stop_atoms)))
 
     if kind == "forbidden_text":
         text = params.get("text")

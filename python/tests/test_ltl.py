@@ -258,6 +258,78 @@ class TestRuleToLtl:
         assert check(formula, states_ok, 0)
         assert not check(formula, states_bad, 0)
 
+    def test_required_stop_reason_multi_turn_final_only(self):
+        """The rule must check the LAST turn's stop_reason, not "any turn".
+
+        Pre-fix bug: the encoding F(stop_reason:r1 ∨ ...) passed if ANY
+        turn had an allowed stop_reason. A 3-turn trace where turn 1 is
+        ``end_turn`` (allowed) but turn 3 is ``max_tokens`` (not allowed)
+        was reported as passing — wrong, because the FINAL response did
+        not satisfy the policy.
+
+        Post-fix: the formula must evaluate the last observed turn only.
+        """
+        formula = rule_to_ltl("required_stop_reason", {"allowed": ["end_turn"]})
+        assert formula is not None
+
+        # Final turn has disallowed stop_reason; earlier turn is allowed.
+        states_bad_final = _states(
+            [],
+            [],
+            [],
+            stop_reasons=["end_turn", "tool_use", "max_tokens"],
+        )
+        assert not check(formula, states_bad_final, 0), (
+            "rule must FAIL when only an earlier turn satisfies the allowed set "
+            "and the final turn does not"
+        )
+
+        # Final turn is allowed; earlier turn is not.
+        states_good_final = _states(
+            [],
+            [],
+            [],
+            stop_reasons=["max_tokens", "tool_use", "end_turn"],
+        )
+        assert check(
+            formula, states_good_final, 0
+        ), "rule must PASS when only the final turn satisfies the allowed set"
+
+        # All turns allowed.
+        states_all_good = _states(
+            [],
+            [],
+            [],
+            stop_reasons=["end_turn", "end_turn", "end_turn"],
+        )
+        assert check(formula, states_all_good, 0)
+
+        # All turns disallowed.
+        states_all_bad = _states(
+            [],
+            [],
+            [],
+            stop_reasons=["max_tokens", "max_tokens", "max_tokens"],
+        )
+        assert not check(formula, states_all_bad, 0)
+
+    def test_required_stop_reason_multiple_allowed(self):
+        """When multiple stop_reasons are allowed, the final turn must
+        match one of them."""
+        formula = rule_to_ltl("required_stop_reason", {"allowed": ["end_turn", "tool_use"]})
+        assert formula is not None
+        states_tool_final = _states(
+            [], [], [], stop_reasons=["max_tokens", "max_tokens", "tool_use"]
+        )
+        assert check(formula, states_tool_final, 0)
+
+    def test_required_stop_reason_empty_trace(self):
+        """An empty trace cannot have a 'final' stop_reason. The rule
+        is vacuously failing — there's no observation to evaluate."""
+        formula = rule_to_ltl("required_stop_reason", {"allowed": ["end_turn"]})
+        assert formula is not None
+        assert not check(formula, [], 0)
+
     def test_forbidden_text(self):
         formula = rule_to_ltl("forbidden_text", {"text": "confidential"})
         assert formula is not None

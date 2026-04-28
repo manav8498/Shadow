@@ -87,10 +87,13 @@ class TestConstruction:
         assert m.conformal_report.is_distribution_free is True
 
     def test_q_hat_is_set_for_all_axes(self):
+        from shadow.statistical.fingerprint import DIM
+
         m = _make_monitor()
-        # All 8 fingerprint dimensions should have a q_hat entry,
-        # even if the value is 0 (axis is constant in baseline).
-        assert len(m.q_hat) == 8
+        # Every fingerprint dimension should have a q_hat entry, even if
+        # the value is 0 (axis constant in baseline). DIM tracks the
+        # current fingerprint dimensionality.
+        assert len(m.q_hat) == DIM
 
     def test_q_hat_is_non_negative(self):
         m = _make_monitor()
@@ -286,9 +289,11 @@ class TestConformalDrift:
         for _ in range(5):
             sess = generate_session("baseline", seed=99)
             m.observe_session(sess)
+        from shadow.statistical.fingerprint import DIM
+
         # Even if no axis breached, the dict should exist with all axes.
         verdict = m.observe_session(generate_session("baseline", seed=100))
-        assert len(verdict.conformal_breach_count) == 8
+        assert len(verdict.conformal_breach_count) == DIM
 
 
 # ===========================================================================

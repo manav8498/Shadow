@@ -118,7 +118,10 @@ DEFAULT_POLICIES: list[PolicyRule] = [
 
 
 # Fingerprint dimension names matching shadow.statistical.fingerprint.BehavioralVector.
+# Order matches BehavioralVector field order; len(_DIM_NAMES) must equal
+# shadow.statistical.fingerprint.DIM (currently 12).
 _DIM_NAMES = [
+    # Pattern features
     "tool_call_rate",
     "distinct_tool_frac",
     "stop_end_turn",
@@ -127,6 +130,11 @@ _DIM_NAMES = [
     "verbosity",
     "latency",
     "refusal_flag",
+    # Content-aware features (v2.7+)
+    "text_chars",
+    "arg_keys_total",
+    "error_token_flag",
+    "numeric_token_density",
 ]
 
 # Axes monitored by mSPRT.  Each must be present in _DIM_NAMES.

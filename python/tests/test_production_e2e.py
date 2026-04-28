@@ -27,6 +27,7 @@ from shadow.ltl.formula import (
     Until,
     WeakUntil,
 )
+from shadow.statistical.fingerprint import DIM as FP_DIM
 from shadow.statistical.fingerprint import fingerprint_trace
 from shadow.statistical.hotelling import hotelling_t2
 from shadow.statistical.sprt import MultiSPRT, SPRTDetector
@@ -414,17 +415,17 @@ def _devops_baseline_states() -> list[TraceState]:
 class TestFingerprintOnRealFixtures:
     def test_demo_baseline_fingerprint_shape(self):
         mat = fingerprint_trace(DEMO_BASELINE_RECORDS)
-        assert mat.shape == (3, 8)
+        assert mat.shape == (3, FP_DIM)
 
     def test_demo_candidate_has_refusal_flag(self):
         mat = fingerprint_trace(DEMO_CANDIDATE_RECORDS)
-        assert mat.shape == (3, 8)
+        assert mat.shape == (3, FP_DIM)
         # Last row corresponds to content_filter turn — refusal_flag is index 7
         assert mat[2, 7] == pytest.approx(1.0)
 
     def test_devops_baseline_high_tool_call_rate(self):
         mat = fingerprint_trace(DEVOPS_BASELINE_RECORDS)
-        assert mat.shape == (5, 8)
+        assert mat.shape == (5, FP_DIM)
         # All turns have ≥1 tool call → tool_call_rate (log-scaled) is > 0
         # for all rows. The exact value depends on how many tools were
         # called per turn, but every row must be strictly positive.
@@ -452,7 +453,7 @@ class TestFingerprintOnRealFixtures:
         # Should not crash; null payload → skipped (payload or {} gives empty dict)
         mat = fingerprint_trace([rec])
         # payload=None → payload or {} → empty, still produces a row
-        assert mat.shape[1] == 8
+        assert mat.shape[1] == FP_DIM
 
     def test_none_content_handled_gracefully(self):
         rec = {
@@ -470,7 +471,7 @@ class TestFingerprintOnRealFixtures:
             },
         }
         mat = fingerprint_trace([rec])
-        assert mat.shape == (1, 8)
+        assert mat.shape == (1, FP_DIM)
         # No tool calls → tool_call_rate and distinct_tool_frac both 0
         assert mat[0, 0] == pytest.approx(0.0)
         assert mat[0, 1] == pytest.approx(0.0)
@@ -491,7 +492,7 @@ class TestFingerprintOnRealFixtures:
             },
         }
         mat = fingerprint_trace([rec])
-        assert mat.shape == (1, 8)
+        assert mat.shape == (1, FP_DIM)
         # output_len_log = log(0+1)/log(4097) = 0
         assert mat[0, 5] == pytest.approx(0.0)
 
@@ -511,7 +512,7 @@ class TestFingerprintOnRealFixtures:
             },
         }
         mat = fingerprint_trace([rec])
-        assert mat.shape == (1, 8)
+        assert mat.shape == (1, FP_DIM)
         # latency_log = log(0+1)/log(30001) = 0
         assert mat[0, 6] == pytest.approx(0.0)
 
@@ -531,7 +532,7 @@ class TestFingerprintOnRealFixtures:
             },
         }
         mat = fingerprint_trace([rec])
-        assert mat.shape == (1, 8)
+        assert mat.shape == (1, FP_DIM)
         # stop_other (index 4) = 1.0; stop_end_turn (2) = 0; stop_tool_use (3) = 0
         assert mat[0, 2] == pytest.approx(0.0)  # stop_end_turn
         assert mat[0, 3] == pytest.approx(0.0)  # stop_tool_use
@@ -556,7 +557,7 @@ class TestFingerprintOnRealFixtures:
             "another_extra": 42,
         }
         mat = fingerprint_trace([rec])
-        assert mat.shape == (1, 8)
+        assert mat.shape == (1, FP_DIM)
 
 
 # ===========================================================================
@@ -568,8 +569,8 @@ class TestHotellingOnRealFixtures:
     def test_demo_baseline_vs_candidate_detects_drift(self):
         x1 = fingerprint_trace(DEMO_BASELINE_RECORDS)
         x2 = fingerprint_trace(DEMO_CANDIDATE_RECORDS)
-        assert x1.shape == (3, 8)
-        assert x2.shape == (3, 8)
+        assert x1.shape == (3, FP_DIM)
+        assert x2.shape == (3, FP_DIM)
         # With n=3, df2 may be ≤ 0 so no rejection possible by F-test,
         # but must not crash; candidate has content_filter refusal (structural shift)
         result = hotelling_t2(x1, x2, alpha=0.10)
@@ -583,8 +584,8 @@ class TestHotellingOnRealFixtures:
         # n1=n2=15 → df2=21, giving the F-test real power.
         devops_x15 = fingerprint_trace(DEVOPS_BASELINE_RECORDS * 3)  # 15 rows
         demo_x15 = fingerprint_trace(DEMO_BASELINE_RECORDS * 5)  # 15 rows
-        assert devops_x15.shape == (15, 8)
-        assert demo_x15.shape == (15, 8)
+        assert devops_x15.shape == (15, FP_DIM)
+        assert demo_x15.shape == (15, FP_DIM)
         result = hotelling_t2(devops_x15, demo_x15, alpha=0.05)
         assert result.df2 > 0, f"df2={result.df2}: not enough rows for the F-test"
         assert result.reject_null, (
@@ -617,14 +618,14 @@ class TestHotellingOnRealFixtures:
     def test_p_value_always_finite(self):
         rng = np.random.default_rng(seed=123)
         for _ in range(100):
-            x1 = rng.standard_normal((5, 8))
-            x2 = rng.standard_normal((5, 8))
+            x1 = rng.standard_normal((5, FP_DIM))
+            x2 = rng.standard_normal((5, FP_DIM))
             result = hotelling_t2(x1, x2)
             assert math.isfinite(result.p_value), f"p_value={result.p_value} is not finite"
 
     def test_single_row_each_raises_valueerror(self):
-        x1 = np.zeros((1, 8), dtype=np.float64)
-        x2 = np.zeros((10, 8), dtype=np.float64)
+        x1 = np.zeros((1, FP_DIM), dtype=np.float64)
+        x2 = np.zeros((10, FP_DIM), dtype=np.float64)
         with pytest.raises(ValueError):
             hotelling_t2(x1, x2)
 
@@ -850,9 +851,20 @@ class TestLTLCompilerEdgeCases:
         assert rule_to_ltl("must_call_before", {"first": "a"}) is None
 
     def test_required_stop_reason_string_allowed_treated_as_list(self):
+        # `"end_turn"` is coerced to `["end_turn"]`. The v2.7 multi-turn
+        # fix changed the encoding from `F(stop_reason:end_turn)` (which
+        # passed when ANY turn matched) to
+        # `F(¬X(true) ∧ stop_reason:end_turn)` (which requires the LAST
+        # observed turn to match). Test both: the formula structure is
+        # the new encoding, AND a single-turn trace where the only stop
+        # reason matches is correctly accepted.
         result = rule_to_ltl("required_stop_reason", {"allowed": "end_turn"})
-        # string "end_turn" is coerced to ["end_turn"] → Finally(Atom("stop_reason:end_turn"))
-        assert result == Finally(Atom("stop_reason:end_turn"))
+        expected = Finally(And(Not(Next(Atom("true"))), Atom("stop_reason:end_turn")))
+        assert result == expected
+        # Single-turn integration check: the only turn has stop=end_turn,
+        # so the rule passes.
+        states = [TraceState(pair_index=0, tool_calls=[], stop_reason="end_turn")]
+        assert result is not None and check(result, states, 0)
 
     def test_required_stop_reason_empty_list_returns_none(self):
         assert rule_to_ltl("required_stop_reason", {"allowed": []}) is None
@@ -1164,8 +1176,8 @@ class TestEndToEndIntegration:
     def test_demo_fingerprint_to_hotelling_detects_content_filter_drift(self):
         x1 = fingerprint_trace(DEMO_BASELINE_RECORDS)
         x2 = fingerprint_trace(DEMO_CANDIDATE_RECORDS)
-        assert x1.shape == (3, 8)
-        assert x2.shape == (3, 8)
+        assert x1.shape == (3, FP_DIM)
+        assert x2.shape == (3, FP_DIM)
         # With n=3 and d=8, df2 = 3+3-8-1 = -3 < 0, so Hotelling returns p=1 but must not crash
         result = hotelling_t2(x1, x2)
         assert hasattr(result, "p_value")

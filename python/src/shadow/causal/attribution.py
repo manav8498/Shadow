@@ -25,11 +25,20 @@ Design notes
   produce CIs. The two are independent.
 - Back-door adjustment expects ``confounders`` to be config keys
   whose values differ between baseline and candidate. The estimator
-  stratifies over the 2^|C| confounder combinations and averages the
-  per-stratum ATE with uniform weights. Other weighting schemes
-  (e.g., propensity-score-derived) can be layered on top by computing
-  per-stratum ATEs externally and combining them; we keep the
-  built-in estimator simple and inspectable.
+  stratifies over the 2^|C| confounder combinations and combines the
+  per-stratum ATEs with weights that follow Pearl's formula
+  ``ATE = Σ_c P(C=c) · ATE_c``:
+
+    * When ``confounder_weights`` is supplied as a dict mapping
+      ``(c_1, c_2, ...)`` tuples to weights, those weights are
+      normalised to sum to 1 and applied directly. Use this when
+      you have measured P(C=c) in the target population.
+    * When ``confounder_weights`` is omitted, the estimator falls
+      back to **uniform** weights. This is the unbiased estimator
+      under the Pearl formula only when P(C=c) is itself uniform;
+      under any other distribution it is biased toward the simple
+      average. The fallback is documented but it is the caller's
+      responsibility to supply real weights for production use.
 - E-value uses the VanderWeele-Ding closed form for continuous
   outcomes via the standardized mean difference. The pooled SD
   comes from the union of baseline and intervened replay outputs.
@@ -131,6 +140,7 @@ def causal_attribution(
     n_replays: int = 1,
     n_bootstrap: int = 0,
     confounders: list[DeltaName] | None = None,
+    confounder_weights: dict[tuple[Any, ...], float] | None = None,
     sensitivity: bool = False,
     confidence_level: float = 0.95,
     seed: int = 42,
@@ -157,8 +167,20 @@ def causal_attribution(
         Optional list of config keys whose effect should be controlled
         for via Pearl's back-door criterion. The estimator stratifies
         over the 2^|C| combinations of confounder values (drawn from
-        ``baseline_config`` and ``candidate_config``) and averages the
-        per-stratum ATE with uniform weights.
+        ``baseline_config`` and ``candidate_config``) and combines the
+        per-stratum ATEs via Pearl's formula
+        ``ATE = Σ_c P(C=c) · ATE_c``. See ``confounder_weights`` for
+        how P(C=c) is supplied.
+    confounder_weights :
+        Optional explicit weights for the back-door combination,
+        keyed by the tuple of confounder values in the same order as
+        ``confounders``. Keys that need to appear: every cartesian
+        combination of (baseline_value, candidate_value) for each
+        confounder. Weights are normalised to sum to 1; raw counts are
+        accepted. When omitted, **uniform weights** are applied. The
+        uniform default is correct only when P(C=c) is itself uniform;
+        for any non-uniform distribution this estimate is biased and
+        the caller should pass measured weights.
     sensitivity :
         When True, compute the VanderWeele-Ding E-value per (delta, axis).
         Requires ``n_replays ≥ 2`` for a non-degenerate pooled SD; with
@@ -234,6 +256,10 @@ def causal_attribution(
 
     target_deltas = [k for k in differing if k not in confounder_keys]
 
+    normalised_weights = _validate_and_normalise_weights(
+        confounder_keys, baseline_config, candidate_config, confounder_weights
+    )
+
     for delta in target_deltas:
         per_axis_ate, per_axis_runs = _ate_for_delta(
             target_delta=delta,
@@ -242,6 +268,7 @@ def causal_attribution(
             replay_fn=replay_fn,
             n_replays=n_replays,
             confounder_keys=confounder_keys,
+            confounder_weights=normalised_weights,
             axes=axes,
         )
         ate[delta] = per_axis_ate
@@ -289,6 +316,7 @@ def _ate_for_delta(
     replay_fn: ReplayFn,
     n_replays: int,
     confounder_keys: list[DeltaName],
+    confounder_weights: dict[tuple[Any, ...], float] | None,
     axes: list[AxisName] | None,
 ) -> tuple[
     dict[AxisName, float],
@@ -325,11 +353,11 @@ def _ate_for_delta(
         ate = _ate_from_runs(control_runs, intervention_runs, axes)
         return ate, runs
 
-    # Back-door adjustment: stratify over confounder combinations.
-    # Each stratum fixes the confounders to one (baseline_value,
-    # candidate_value) combination and computes a single-stratum ATE.
-    # The reported ATE is the uniform average of stratum ATEs.
-    stratum_ates: list[dict[AxisName, float]] = []
+    # Back-door adjustment: stratify over confounder combinations and
+    # combine via Pearl's formula ATE = Σ_c P(C=c) · ATE_c. Per-stratum
+    # weights come from `confounder_weights` (already validated and
+    # normalised by the caller) or default to uniform when None.
+    stratum_ates: list[tuple[tuple[Any, ...], dict[AxisName, float]]] = []
 
     confounder_value_grids = [(baseline_config[c], candidate_config[c]) for c in confounder_keys]
     last_intervention_runs: list[DivergenceVector] = []
@@ -350,19 +378,67 @@ def _ate_for_delta(
         runs[f"intervention_runs__{stratum_idx}"] = intervention_runs
         last_intervention_runs = intervention_runs
 
-        stratum_ates.append(_ate_from_runs(control_runs, intervention_runs, axes))
+        stratum_ates.append((combo, _ate_from_runs(control_runs, intervention_runs, axes)))
 
     runs["__last_intervention__"] = last_intervention_runs
 
-    # Uniform-weighted average across strata.
     all_axes: set[str] = set()
-    for s in stratum_ates:
+    for _, s in stratum_ates:
         all_axes.update(s.keys())
     if axes is not None:
         all_axes &= set(axes)
 
-    ate = {ax: sum(s.get(ax, 0.0) for s in stratum_ates) / len(stratum_ates) for ax in all_axes}
+    if confounder_weights is None:
+        # Uniform-average fallback (correct only when P(C=c) is uniform).
+        weights = {combo: 1.0 / len(stratum_ates) for combo, _ in stratum_ates}
+    else:
+        weights = confounder_weights
+
+    ate = {ax: sum(weights[combo] * s.get(ax, 0.0) for combo, s in stratum_ates) for ax in all_axes}
     return ate, runs
+
+
+def _validate_and_normalise_weights(
+    confounder_keys: list[DeltaName],
+    baseline_config: dict[DeltaName, Any],
+    candidate_config: dict[DeltaName, Any],
+    confounder_weights: dict[tuple[Any, ...], float] | None,
+) -> dict[tuple[Any, ...], float] | None:
+    """Validate user-supplied weights against the cartesian product of
+    confounder values, normalise to sum to 1, and return the result.
+
+    ``None`` propagates as ``None`` (signals uniform fallback in
+    ``_ate_for_delta``).
+    """
+    if confounder_weights is None:
+        return None
+    if not confounder_keys:
+        # No back-door adjustment requested but weights were supplied —
+        # weights are meaningless without confounders. Treat as a usage
+        # error so the caller doesn't get silently-ignored configuration.
+        raise ValueError(
+            "confounder_weights supplied but `confounders` is empty — "
+            "weights have no strata to apply to"
+        )
+
+    grids = [(baseline_config[c], candidate_config[c]) for c in confounder_keys]
+    expected_combos = list(product(*grids))
+
+    missing = [combo for combo in expected_combos if combo not in confounder_weights]
+    if missing:
+        raise ValueError(
+            "confounder_weights is missing weight(s) for stratum/strata "
+            f"{missing!r}; back-door requires every (baseline, candidate) "
+            "combination across confounders to have an explicit weight"
+        )
+
+    total = sum(float(confounder_weights[c]) for c in expected_combos)
+    if total <= 0.0:
+        raise ValueError(
+            "confounder_weights must sum to a positive value; "
+            f"got {total} across {len(expected_combos)} strata"
+        )
+    return {c: float(confounder_weights[c]) / total for c in expected_combos}
 
 
 def _ate_from_runs(

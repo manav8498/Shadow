@@ -15,6 +15,25 @@
 //! Both paths use the same downstream cosine + paired-CI machinery, so
 //! reports from either embedder are directly comparable.
 //!
+//! ## Coverage cross-references
+//!
+//! What this axis catches:
+//! - Final-text similarity drops (lexical with TF-IDF; paraphrase-
+//!   robust with a neural [`Embedder`]).
+//!
+//! What it does NOT catch:
+//! - **Wrong answer with similar words** — TF-IDF cosine measures
+//!   token overlap; a numeric value flip ("$99 → $9") barely moves
+//!   the cosine. The alignment module's W_ARGS component catches
+//!   tool-arg value flips; numeric content drift surfaces on the
+//!   v2.7+ `numeric_token_density` fingerprint dimension.
+//! - **Empty-response regressions** — empty-vs-empty scores 1.0
+//!   (vacuous match). The verbosity axis (axis 4) catches the
+//!   collapse to empty.
+//! - **Tone shifts with same content** — embeddings only carry
+//!   semantic meaning; the Judge axis (axis 8) with a tone rubric
+//!   is the right surface.
+//!
 //! [`Embedder`]: crate::diff::embedder::Embedder
 
 use std::collections::HashMap;

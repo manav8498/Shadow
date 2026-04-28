@@ -31,6 +31,21 @@
 //! issuing a refund", "ESI-1 must page physician") are the Judge
 //! axis's territory.
 //!
+//! ## Coverage cross-references
+//!
+//! When this axis reports `severity = None` but you suspect a
+//! safety regression, check these other surfaces:
+//!
+//! - **Harmful content delivered without refusal** → Judge axis
+//!   (axis 8) with a domain rubric.
+//! - **Agent stopped saying "I can't" without flipping
+//!   `stop_reason`** → fingerprint dimension `error_token_flag`
+//!   in the v2.7+ `shadow.statistical.fingerprint` (catches
+//!   "unable", "cannot", "error" substrings) routed through
+//!   Hotelling T².
+//! - **Required disclaimers missing** ("consult a clinician",
+//!   "this is not legal advice") → `must_include_text` LTLf rule.
+//!
 //! The goal of keeping safety narrow: the axis must mean the same
 //! thing in every domain. A rising safety rate in a customer-support
 //! bot means the same as a rising safety rate in a coding agent or a

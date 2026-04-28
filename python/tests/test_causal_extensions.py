@@ -205,6 +205,96 @@ class TestBackdoorAdjustment:
         # Average of (0.6 + 0.4) / 2 = 0.5
         assert adjusted.ate["delta_x"]["verbosity"] == pytest.approx(0.5, abs=1e-9)
 
+    def test_explicit_confounder_weights_change_estimate(self) -> None:
+        """Pearl's formula is ATE = Σ_c P(C=c) · ATE_c. With non-uniform
+        P(C=c), the back-door estimate must shift toward the better-
+        weighted stratum."""
+
+        def interactive_replay(config: dict[str, Any]) -> dict[str, float]:
+            v = 0.0
+            x = config.get("delta_x") == "on"
+            m = config.get("model") == "A"
+            if x and m:
+                v += 0.6
+            elif x and not m:
+                v += 0.4
+            return {"verbosity": v}
+
+        # Per-stratum ATEs: model=B → 0.4, model=A → 0.6.
+        # Uniform weights → 0.5.
+        # P(model=A)=0.9, P(model=B)=0.1 → 0.9·0.6 + 0.1·0.4 = 0.58.
+        weighted = causal_attribution(
+            baseline_config={"delta_x": "off", "model": "B"},
+            candidate_config={"delta_x": "on", "model": "A"},
+            replay_fn=interactive_replay,
+            confounders=["model"],
+            confounder_weights={("B",): 0.1, ("A",): 0.9},
+        )
+        assert weighted.ate["delta_x"]["verbosity"] == pytest.approx(0.58, abs=1e-9)
+
+        # P(model=A)=0.1, P(model=B)=0.9 → 0.1·0.6 + 0.9·0.4 = 0.42.
+        weighted_other = causal_attribution(
+            baseline_config={"delta_x": "off", "model": "B"},
+            candidate_config={"delta_x": "on", "model": "A"},
+            replay_fn=interactive_replay,
+            confounders=["model"],
+            confounder_weights={("B",): 0.9, ("A",): 0.1},
+        )
+        assert weighted_other.ate["delta_x"]["verbosity"] == pytest.approx(0.42, abs=1e-9)
+
+    def test_confounder_weights_normalised_when_unnormalised(self) -> None:
+        """Weights that don't sum to 1 should be normalised internally."""
+
+        def replay(config: dict[str, Any]) -> dict[str, float]:
+            x = config.get("delta_x") == "on"
+            m = config.get("model") == "A"
+            return {"v": (0.6 if m else 0.4) if x else 0.0}
+
+        # Pass raw frequencies (counts); they must be normalised.
+        result = causal_attribution(
+            baseline_config={"delta_x": "off", "model": "B"},
+            candidate_config={"delta_x": "on", "model": "A"},
+            replay_fn=replay,
+            confounders=["model"],
+            confounder_weights={("B",): 9, ("A",): 1},
+        )
+        # 0.9·0.4 + 0.1·0.6 = 0.42
+        assert result.ate["delta_x"]["v"] == pytest.approx(0.42, abs=1e-9)
+
+    def test_confounder_weights_missing_stratum_raises(self) -> None:
+        """If a stratum exists in the design but not in confounder_weights,
+        we cannot compute Σ_c P(C=c)·ATE_c — refuse rather than guess."""
+        with pytest.raises(ValueError, match="weight"):
+            causal_attribution(
+                baseline_config={"delta_x": "off", "model": "B"},
+                candidate_config={"delta_x": "on", "model": "A"},
+                replay_fn=_real_replay,
+                confounders=["model"],
+                confounder_weights={("A",): 1.0},  # ("B",) missing
+            )
+
+    def test_uniform_weights_default_unchanged(self) -> None:
+        """Backward-compat: omitting confounder_weights keeps the prior
+        uniform-average behaviour. Existing tests rely on this."""
+
+        def interactive_replay(config: dict[str, Any]) -> dict[str, float]:
+            v = 0.0
+            x = config.get("delta_x") == "on"
+            m = config.get("model") == "A"
+            if x and m:
+                v += 0.6
+            elif x and not m:
+                v += 0.4
+            return {"verbosity": v}
+
+        result = causal_attribution(
+            baseline_config={"delta_x": "off", "model": "B"},
+            candidate_config={"delta_x": "on", "model": "A"},
+            replay_fn=interactive_replay,
+            confounders=["model"],
+        )
+        assert result.ate["delta_x"]["verbosity"] == pytest.approx(0.5, abs=1e-9)
+
     def test_unknown_confounder_raises(self) -> None:
         with pytest.raises(ValueError, match="confounder"):
             causal_attribution(
