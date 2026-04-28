@@ -9,7 +9,7 @@ build-backend = "maturin"
 # the CLI stays `shadow`, and the repo stays Shadow — only the
 # `pip install` name is different.
 name = "shadow-diff"
-version = "2.4.3"
+version = "2.5.0"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
 # Dual-licensed to match the Rust community convention (tokio, serde,
 # ruff, uv). MIT keeps embedding frictionless; Apache-2.0 adds an
@@ -161,6 +161,19 @@ ignore = []
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["B", "PT"]
+# Statistical and LTL modules use math notation (Greek letters, Unicode
+# operators) in docstrings and comments — suppress ambiguous-character
+# warnings that are false positives for domain-specific mathematical prose.
+"src/shadow/statistical/**" = ["RUF001", "RUF002", "RUF003"]
+"src/shadow/ltl/**" = ["RUF001", "RUF002", "RUF003"]
+"src/shadow/conformal.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/test_statistical_validation.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/test_refund_audit_scenario.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/test_production_e2e.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/test_ltl.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/test_statistical.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/test_conformal.py" = ["RUF001", "RUF002", "RUF003"]
+"tests/test_canary_monitor.py" = ["RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 strict = true
@@ -202,6 +215,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "network: tests that hit real LLM APIs (gated by SHADOW_RUN_NETWORK_TESTS=1)",
+    "slow: statistical-property simulations (run with `pytest -m slow`)",
 ]
 
 [tool.coverage.run]
