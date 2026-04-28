@@ -213,6 +213,27 @@ files = ["src/shadow"]
 # at install time (sigstore's dependencies pull pre-release wheels),
 # which CI doesn't pass by default; certify_sign goes here for the
 # same reason.
+# Modules that depend on optional extras (fastapi / starlette / uvicorn /
+# sigstore / mcp / langgraph / crewai / ag2) not installed in the default
+# CI venv. When a user opts into those extras, mypy can check these too —
+# but the default install shouldn't fail on missing stubs for deps the
+# user explicitly didn't install. The [sign] extra additionally requires
+# --prerelease=allow at install time (sigstore's dependencies pull
+# pre-release wheels), which the default CI doesn't pass; certify_sign
+# goes here for the same reason.
+#
+# G-1..G-6 from technical-debt plan: removing modules from this list is
+# blocked on those modules' optional deps. The work to un-exclude them
+# is to either:
+#   (a) make the default CI install pull all extras (rejected — slow,
+#       and pulls heavy ML deps that aren't actually needed for the
+#       core test loop), or
+#   (b) introduce a separate mypy config file used by an extras-only
+#       CI job that lifts these overrides (deferred — needs a second
+#       config file maintained alongside pyproject.toml).
+# Until one of (a) or (b) lands, the override is correct. Type errors
+# in these modules are caught only at install time by users who pip
+# install the relevant extra.
 [[tool.mypy.overrides]]
 module = [
     "shadow.enterprise.*",
