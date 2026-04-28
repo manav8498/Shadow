@@ -30,7 +30,6 @@ from shadow.conformal import conformal_calibrate
 from shadow.statistical.hotelling import hotelling_t2
 from shadow.statistical.sprt import MSPRTDetector, SPRTDetector
 
-
 # ---------------------------------------------------------------------------
 # Hotelling T²
 # ---------------------------------------------------------------------------
