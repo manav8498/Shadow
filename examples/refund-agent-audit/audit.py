@@ -47,10 +47,15 @@ import json
 import math
 import sys
 from dataclasses import dataclass, field
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+
+# Force UTF-8 stdout so Unicode characters (q̂, ±) in the report do not
+# crash on Windows, where the default codec is cp1252.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 from shadow.statistical.fingerprint import fingerprint_trace
 from shadow.statistical.hotelling import hotelling_t2

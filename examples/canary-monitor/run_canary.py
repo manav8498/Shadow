@@ -21,6 +21,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+# Force UTF-8 stdout so the Unicode math symbols (σ̂, q̂, etc.) used by
+# the canary report do not crash on Windows, where the default codec is
+# cp1252 and cannot encode combining diacritics.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+
 _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE))
 
