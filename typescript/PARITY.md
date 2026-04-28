@@ -1,6 +1,6 @@
 # TypeScript SDK feature parity vs Python
 
-**Last reviewed:** 2026-04-28 against Python `shadow-diff==2.5.0`.
+**Last reviewed:** 2026-04-28 against Python `shadow-diff==2.6.0`.
 
 The TypeScript SDK (`@shadow/sdk`) is intentionally **trace-recording-
 focused**, not feature-parity. It exists so JS / TS agents can write
@@ -48,7 +48,7 @@ These features live only in the Python distribution:
 
    ```yaml
    # .github/workflows/shadow.yml
-   - run: pip install shadow-diff==2.5.0
+   - run: pip install shadow-diff==2.6.0
    - run: shadow diff fixtures/baseline.agentlog new.agentlog
    ```
 
