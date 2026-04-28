@@ -357,6 +357,8 @@ class TestCLIDemo:
             [sys.executable, str(_EXAMPLE_DIR / "run_canary.py")],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
         )
         assert (
@@ -370,6 +372,8 @@ class TestCLIDemo:
             [sys.executable, str(_EXAMPLE_DIR / "run_canary.py")],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
         )
         assert "Overall: PASS" in proc.stdout
@@ -381,6 +385,8 @@ class TestCLIDemo:
             [sys.executable, str(_EXAMPLE_DIR / "run_canary.py")],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
         )
         assert "HEALTHY CANARY" in proc.stdout

@@ -453,6 +453,8 @@ class TestCLIEntryPoint:
             [sys.executable, str(_EXAMPLE_DIR / "audit.py")],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         assert proc.returncode != 0, (
             "CLI should exit non-zero when candidate is unsafe.\n"
@@ -465,6 +467,8 @@ class TestCLIEntryPoint:
             [sys.executable, str(_EXAMPLE_DIR / "audit.py")],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         assert "FAIL" in proc.stdout, (
             f"CLI stdout should contain 'FAIL'.\n" f"stdout: {proc.stdout[:800]}"
@@ -475,6 +479,8 @@ class TestCLIEntryPoint:
             [sys.executable, str(_EXAMPLE_DIR / "audit.py"), "--json"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         data = json.loads(proc.stdout)
         assert "is_safe" in data
@@ -485,6 +491,8 @@ class TestCLIEntryPoint:
             [sys.executable, str(_EXAMPLE_DIR / "audit.py"), "--json"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         assert proc.returncode != 0
 
@@ -493,6 +501,8 @@ class TestCLIEntryPoint:
             [sys.executable, str(_EXAMPLE_DIR / "audit.py"), "--json"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         data = json.loads(proc.stdout)
         assert len(data["policy_violations"]) >= 1
@@ -502,6 +512,8 @@ class TestCLIEntryPoint:
             [sys.executable, str(_EXAMPLE_DIR / "audit.py"), "--json"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         data = json.loads(proc.stdout)
         assert data["sprt_decision"] == "h1"
