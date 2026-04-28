@@ -48,11 +48,20 @@ class TestHotellingEdgeCases:
         with pytest.raises(ValueError, match="same number of columns"):
             hotelling_t2(x1, x2)
 
-    def test_negative_permutations_raises(self):
+    def test_invalid_permutations_value_raises(self):
+        """v2.7+ semantics: permutations=-1 is the exact-enumeration
+        sentinel (not an error). Values < -1 are still rejected."""
         x1 = np.random.default_rng(0).standard_normal((5, 2))
         x2 = np.random.default_rng(1).standard_normal((5, 2))
         with pytest.raises(ValueError, match="permutations"):
-            hotelling_t2(x1, x2, permutations=-1)
+            hotelling_t2(x1, x2, permutations=-2)
+
+    def test_exact_enumeration_at_negative_one(self):
+        """permutations=-1 triggers exact enumeration when feasible."""
+        x1 = np.random.default_rng(0).standard_normal((4, 2))
+        x2 = np.random.default_rng(1).standard_normal((4, 2)) + 1.0
+        result = hotelling_t2(x1, x2, permutations=-1)
+        assert result.used_exact_permutation is True
 
     def test_all_zero_inputs_returns_finite_result(self):
         """Zero-variance input → diff=0 → T²=0 → p-value=1.0 (no rejection).

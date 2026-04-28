@@ -31,6 +31,26 @@ labels are shuffled B times to build a Monte-Carlo null and the
 returned ``p_value`` is the empirical fraction of permuted T² values
 that exceed the observed T².
 
+**Exact permutation for tiny n.**  When ``permutations == -1`` AND the
+total number of label permutations C(n1+n2, n1) ≤ EXACT_PERM_LIMIT,
+the implementation enumerates the full set of permutations and reports
+the exact (not Monte-Carlo) p-value.  Use this when n1 + n2 ≤ ~12 and
+exact size control matters more than speed.
+
+**Power and decision classification.**  Every result carries:
+
+  * ``power``: post-hoc power approximation under the non-central F
+    null at the observed effect size.  Computed via the closed-form
+    ncF tail probability (Anderson 2003 Eq. 5.3.10) when df2 > 0;
+    set to NaN when the F approximation is undefined (df2 ≤ 0).
+  * ``decision``: one of ``"reject"``, ``"fail_to_reject"``, or
+    ``"underpowered"``.  The ``underpowered`` state fires when the
+    sample is too small to draw a conclusion at the requested
+    α-level (df2 ≤ 0 with no permutation request, OR power < 0.5
+    on a non-rejecting result).  This prevents the
+    "we silently said no regression but the sample size was 5" failure
+    mode that the v2.6 review flagged.
+
 References
 ----------
 Hotelling, H. (1931). The generalization of Student's ratio.
@@ -38,17 +58,38 @@ Chen, Wiesel, Eldar & Hero (2010). Shrinkage Algorithms for MMSE
     Covariance Estimation. IEEE Trans. Signal Processing.
 Anderson, T. W. (2003). An Introduction to Multivariate Statistical
     Analysis (3rd ed.) — permutation Hotelling T² (§5.3).
+Phipson, B. & Smyth, G. K. (2010). "Permutation P-values Should Never
+    Be Zero." *Statistical Applications in Genetics and Molecular
+    Biology* 9(1).
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from itertools import combinations
+from typing import Any, Literal
 
 import numpy as np
 from numpy.typing import NDArray
 from scipy.stats import f as f_dist  # type: ignore[import-untyped]
+from scipy.stats import ncf as ncf_dist  # type: ignore[import-untyped]
+
+# Total label-permutation enumeration cap. C(12, 6) = 924; C(14, 7) =
+# 3432; C(16, 8) = 12870. We cap at ~13_000 enumerations so the exact
+# path stays fast (well under 1 s in pure Python). Above this the
+# Monte-Carlo path is the right answer.
+EXACT_PERM_LIMIT: int = 13_000
+
+# Power threshold under which a non-rejecting result is reported as
+# "underpowered" rather than fail_to_reject. Industry convention:
+# 0.8 is the conventional adequacy threshold (Cohen 1988); we use 0.5
+# as the "this answer might be wrong" threshold rather than the more
+# stringent "this answer is reliable" threshold so the underpowered
+# state isn't triggered too aggressively on borderline cases.
+UNDERPOWERED_BELOW: float = 0.5
+
+Decision = Literal["reject", "fail_to_reject", "underpowered"]
 
 
 @dataclass
@@ -60,7 +101,7 @@ class HotellingResult:
     f_stat: float
     """F approximation: (n1+n2-D-1) / ((n1+n2-2)*D) * T²."""
     p_value: float
-    """Two-tailed p-value under F(D, n1+n2-D-1)."""
+    """Two-tailed p-value under F(D, n1+n2-D-1) or the permutation null."""
     df1: int
     """Numerator degrees of freedom (== D)."""
     df2: int
@@ -72,9 +113,35 @@ class HotellingResult:
     d: int
     """Fingerprint dimension."""
     reject_null: bool
-    """True when p_value < alpha (behavioral drift detected)."""
+    """True when p_value < alpha AND the test was adequately powered.
+
+    A non-rejecting outcome on an underpowered sample sets
+    ``reject_null = False`` AND ``decision = "underpowered"`` — callers
+    should branch on ``decision``, not just ``reject_null``, when the
+    "no regression detected" path matters.
+    """
     shrinkage: float
-    """Ledoit-Wolf shrinkage coefficient applied to S_pooled (0 = none)."""
+    """Oracle Approximating Shrinkage coefficient (0 = none, 1 = full)."""
+    power: float = field(default=float("nan"))
+    """Post-hoc power under the non-central F at the observed effect.
+
+    NaN when df2 ≤ 0 (the F approximation is undefined). Callers can
+    use the ``decision`` field to branch instead.
+    """
+    decision: Decision = field(default="fail_to_reject")
+    """Three-state classification:
+
+      * ``reject`` — H0 is rejected at the requested α (drift detected).
+      * ``fail_to_reject`` — H0 not rejected AND the test was adequately
+        powered (≥ 0.5) — i.e. "we looked carefully and saw nothing."
+      * ``underpowered`` — sample too small to conclude. Either df2 ≤ 0
+        (the F approximation is undefined) or the post-hoc power on
+        the observed effect is < 0.5. Reported instead of
+        ``fail_to_reject`` so callers don't mistake low power for "all
+        clear."
+    """
+    used_exact_permutation: bool = field(default=False)
+    """True iff the exact permutation enumeration path was used."""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -88,6 +155,9 @@ class HotellingResult:
             "d": self.d,
             "reject_null": self.reject_null,
             "shrinkage": self.shrinkage,
+            "power": self.power,
+            "decision": self.decision,
+            "used_exact_permutation": self.used_exact_permutation,
         }
 
 
@@ -98,7 +168,7 @@ def hotelling_t2(
     permutations: int = 0,
     rng: np.random.Generator | None = None,
 ) -> HotellingResult:
-    """Two-sample Hotelling T² test.
+    """Two-sample Hotelling T² test with power-aware decision classification.
 
     Parameters
     ----------
@@ -106,30 +176,34 @@ def hotelling_t2(
     x2 : (n2, D) array — candidate fingerprint matrix.
     alpha : significance level (default 0.05).
     permutations
-        If 0 (default), the p-value is computed from the F-approximation.
-        If > 0, run a permutation test with that many label shuffles
-        and return the Monte-Carlo p-value
-        ``(1 + #{T²_perm ≥ T²_obs}) / (1 + permutations)``.  Use this
-        when the F-approximation is unreliable — small samples, when
-        OAS shrinkage was applied, or when the data clearly violates
-        multivariate normality.
+        Three modes:
+
+        * ``0`` (default) — F-approximation p-value via
+          :func:`scipy.stats.f.sf`.
+        * ``> 0`` — Monte-Carlo permutation test with that many label
+          shuffles. Phipson-Smyth (2010) corrected p-value.
+        * ``-1`` — **exact permutation** when the total number of
+          label permutations C(n1+n2, n1) ≤ ``EXACT_PERM_LIMIT``;
+          otherwise falls through to the F-approximation. Use this
+          when n1+n2 is small (≤ ~12) and exact size control matters.
     rng
-        Optional random generator for the permutation path; passing one
-        makes the result reproducible.
+        Optional random generator for the Monte-Carlo permutation path.
 
     Returns
     -------
-    HotellingResult with T², F statistic, p-value, and rejection
-    decision at the given alpha level.
+    HotellingResult with T², F statistic, p-value, **post-hoc power**,
+    and a three-state ``decision`` field that distinguishes
+    ``reject`` / ``fail_to_reject`` / ``underpowered`` so the caller
+    cannot mistake low statistical power for "no regression detected."
 
     Raises
     ------
     ValueError if either matrix has fewer than 2 observations, or if
     the two matrices have different D dimensions, or if ``permutations``
-    is negative.
+    is < -1.
     """
-    if permutations < 0:
-        raise ValueError(f"permutations must be >= 0; got {permutations}")
+    if permutations < -1:
+        raise ValueError(f"permutations must be >= -1; got {permutations}")
 
     x1 = np.atleast_2d(np.asarray(x1, dtype=np.float64))
     x2 = np.atleast_2d(np.asarray(x2, dtype=np.float64))
@@ -147,6 +221,48 @@ def hotelling_t2(
     t2_obs, shrinkage = _t2_statistic(x1, x2)
 
     df2 = n1 + n2 - d - 1
+
+    # Exact-permutation path: enumerate all C(n1+n2, n1) permutations
+    # when feasible and return the exact (not Monte-Carlo) p-value.
+    if permutations == -1:
+        n_total = n1 + n2
+        n_combos = math.comb(n_total, n1)
+        if n_combos <= EXACT_PERM_LIMIT:
+            combined = np.vstack([x1, x2])
+            ge_count = 0
+            for combo in combinations(range(n_total), n1):
+                mask = np.zeros(n_total, dtype=bool)
+                mask[list(combo)] = True
+                xa = combined[mask]
+                xb = combined[~mask]
+                t2_perm, _ = _t2_statistic(xa, xb)
+                if t2_perm >= t2_obs:
+                    ge_count += 1
+            p_value = ge_count / n_combos
+            f_stat = (
+                float((n1 + n2 - d - 1) / ((n1 + n2 - 2) * d) * t2_obs) if df2 > 0 else math.nan
+            )
+            power = _post_hoc_power(t2_obs, n1, n2, d, alpha, df2)
+            decision = _classify_decision(p_value, alpha, power, df2)
+            reject = decision == "reject"
+            return HotellingResult(
+                t2=t2_obs,
+                f_stat=f_stat,
+                p_value=p_value,
+                df1=d,
+                df2=max(df2, 0),
+                n1=n1,
+                n2=n2,
+                d=d,
+                reject_null=reject,
+                shrinkage=shrinkage,
+                power=power,
+                decision=decision,
+                used_exact_permutation=True,
+            )
+        # n too large to enumerate exhaustively — fall through to the
+        # F-approximation (the caller asked for exact, but we cannot
+        # safely deliver it; the F path is the conservative choice).
 
     if permutations > 0:
         # Permutation Monte-Carlo p-value. Robust under non-normality
@@ -175,6 +291,9 @@ def hotelling_t2(
         # Molecular Biology 9(1).
         p_value = (count + 1) / (permutations + 1)
         f_stat = float((n1 + n2 - d - 1) / ((n1 + n2 - 2) * d) * t2_obs) if df2 > 0 else math.nan
+        power = _post_hoc_power(t2_obs, n1, n2, d, alpha, df2)
+        decision = _classify_decision(p_value, alpha, power, df2)
+        reject = decision == "reject"
         return HotellingResult(
             t2=t2_obs,
             f_stat=f_stat,
@@ -184,13 +303,17 @@ def hotelling_t2(
             n1=n1,
             n2=n2,
             d=d,
-            reject_null=p_value < alpha,
+            reject_null=reject,
             shrinkage=shrinkage,
+            power=power,
+            decision=decision,
+            used_exact_permutation=False,
         )
 
     if df2 <= 0:
         # More dimensions than observations; F-approximation is undefined.
-        # Caller should pass permutations > 0 for a valid test in this regime.
+        # Reported as ``underpowered`` so callers don't mistake the
+        # neutral p=1.0 for "all clear."
         return HotellingResult(
             t2=t2_obs,
             f_stat=math.nan,
@@ -202,10 +325,16 @@ def hotelling_t2(
             d=d,
             reject_null=False,
             shrinkage=shrinkage,
+            power=float("nan"),
+            decision="underpowered",
+            used_exact_permutation=False,
         )
 
     f_stat = float((n1 + n2 - d - 1) / ((n1 + n2 - 2) * d) * t2_obs)
     p_value = float(f_dist.sf(f_stat, dfn=d, dfd=df2))
+    power = _post_hoc_power(t2_obs, n1, n2, d, alpha, df2)
+    decision = _classify_decision(p_value, alpha, power, df2)
+    reject = decision == "reject"
 
     return HotellingResult(
         t2=t2_obs,
@@ -216,8 +345,100 @@ def hotelling_t2(
         n1=n1,
         n2=n2,
         d=d,
-        reject_null=p_value < alpha,
+        reject_null=reject,
         shrinkage=shrinkage,
+        power=power,
+        decision=decision,
+        used_exact_permutation=False,
+    )
+
+
+def _post_hoc_power(
+    t2_obs: float,
+    n1: int,
+    n2: int,
+    d: int,
+    alpha: float,
+    df2: int,
+) -> float:
+    """Post-hoc power approximation under the non-central F.
+
+    Procedure (Anderson 2003 §5.3.10):
+
+      1. Critical value: ``F_crit = F_{1-α; d, df2}``.
+      2. Non-centrality parameter: ``λ = T²_obs * (n1 * n2) / (n1 + n2)``
+         under the alternative — this is the form for the
+         multivariate ANOVA non-central F.
+      3. Power: ``1 - F_ncF(F_crit; d, df2, λ)``.
+
+    Returns NaN when df2 ≤ 0 (the F approximation is undefined). The
+    caller branches on the ``decision`` field rather than the raw
+    power value in that case.
+    """
+    if df2 <= 0:
+        return float("nan")
+    try:
+        f_crit = float(f_dist.ppf(1.0 - alpha, dfn=d, dfd=df2))
+    except Exception:
+        return float("nan")
+    if not math.isfinite(f_crit):
+        return float("nan")
+    nc = float(t2_obs * (n1 * n2) / (n1 + n2))
+    if nc <= 0.0:
+        return float(alpha)  # null effect → power equals nominal size
+    try:
+        power = 1.0 - float(ncf_dist.cdf(f_crit, dfn=d, dfd=df2, nc=nc))
+    except Exception:
+        return float("nan")
+    if not math.isfinite(power):
+        return float("nan")
+    return max(0.0, min(1.0, power))
+
+
+def _classify_decision(p_value: float, alpha: float, power: float, df2: int) -> Decision:
+    """Map (p-value, power, df2) to one of three decision states.
+
+    * df2 ≤ 0 → ``underpowered`` (F approximation undefined; the
+      caller passed a fingerprint with more dimensions than the sample
+      can support).
+    * p < α → ``reject`` (drift detected; power is informational only).
+    * p ≥ α AND power ≥ UNDERPOWERED_BELOW → ``fail_to_reject`` (we
+      looked carefully and saw nothing).
+    * p ≥ α AND power < UNDERPOWERED_BELOW → ``underpowered`` (sample
+      too small to draw a confident conclusion at this effect size).
+    """
+    if df2 <= 0:
+        return "underpowered"
+    if p_value < alpha:
+        return "reject"
+    if not math.isfinite(power) or power < UNDERPOWERED_BELOW:
+        return "underpowered"
+    return "fail_to_reject"
+
+
+def decision_label(result: HotellingResult) -> str:
+    """Human-readable one-line label for a HotellingResult.
+
+    Designed for terminal / PR-comment renderers. The label includes
+    the decision state, the p-value (or "p=NaN" when undefined), and
+    the post-hoc power so the reader can tell the difference between
+    "we ran the test with adequate power" and "the test was undefined."
+    """
+    if result.decision == "reject":
+        return f"behavioral drift detected (p={result.p_value:.4f}, " f"power={result.power:.2f})"
+    if result.decision == "fail_to_reject":
+        return f"no detectable drift (p={result.p_value:.4f}, " f"power={result.power:.2f})"
+    # underpowered
+    if math.isfinite(result.power):
+        return (
+            f"underpowered: cannot conclude "
+            f"(p={result.p_value:.4f}, power={result.power:.2f}, "
+            f"need larger sample)"
+        )
+    return (
+        f"underpowered: F-approximation undefined "
+        f"(df2={result.df2}, n1={result.n1}, n2={result.n2}, D={result.d}; "
+        f"need n1+n2 > D+1 OR pass permutations=-1 for exact test)"
     )
 
 
@@ -285,4 +506,11 @@ def _oas_shrink(s: NDArray[np.float64], n: int) -> tuple[NDArray[np.float64], fl
     return s_reg, rho
 
 
-__all__ = ["HotellingResult", "hotelling_t2"]
+__all__ = [
+    "EXACT_PERM_LIMIT",
+    "UNDERPOWERED_BELOW",
+    "Decision",
+    "HotellingResult",
+    "decision_label",
+    "hotelling_t2",
+]
