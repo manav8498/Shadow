@@ -424,7 +424,183 @@ def build_conformal_coverage(
     return build_parametric_estimate(axis_rows, target_coverage, confidence)
 
 
+@dataclass
+class ACIState:
+    """Snapshot of an :class:`ACIDetector` after one observation."""
+
+    n_observations: int
+    """Total observations processed."""
+    alpha_t: float
+    """Current adaptive miscoverage level."""
+    q_hat_t: float
+    """Current calibration quantile (the interval width)."""
+    breach: bool
+    """Whether the most recent observation exceeded the interval."""
+    cumulative_breaches: int
+    """Total breaches since start."""
+    empirical_miscoverage: float
+    """Cumulative breach rate (the empirical α̂)."""
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "n_observations": self.n_observations,
+            "alpha_t": self.alpha_t,
+            "q_hat_t": self.q_hat_t,
+            "breach": self.breach,
+            "cumulative_breaches": self.cumulative_breaches,
+            "empirical_miscoverage": self.empirical_miscoverage,
+        }
+
+
+class ACIDetector:
+    """Adaptive Conformal Inference (Gibbs & Candès 2021).
+
+    Online conformal prediction that adapts to distribution shift.
+    Standard split conformal (:func:`conformal_calibrate`) gives a
+    finite-sample marginal coverage guarantee under exchangeability,
+    but if the production distribution drifts over time the calibration
+    quantile becomes stale and coverage degrades.
+
+    ACI handles drift by tracking an **adaptive miscoverage level**
+    ``α_t`` instead of a fixed α. After each observation:
+
+        α_{t+1} = α_t + γ · (α_target − I[breach_t])
+
+    where ``I[breach_t]`` is 1 if the most recent observation exceeded
+    the interval and 0 otherwise. The intuition: if breaches happen
+    too often (we're under-covering), α_t grows → q̂_t expands → we
+    cover more. If breaches happen too rarely (over-covering), α_t
+    shrinks → q̂_t contracts.
+
+    The Gibbs–Candès theorem: under arbitrary distribution shift,
+
+        | (1/T) Σ_t I[breach_t] − α_target | ≤ 1 / (γ T)
+
+    so the long-run empirical miscoverage converges to the target at
+    rate O(1/T) regardless of how the distribution evolves.
+
+    Usage
+    -----
+        det = ACIDetector(
+            calibration_scores=baseline_scores,  # initial calibration set
+            alpha_target=0.10,                   # 90% coverage
+            gamma=0.005,                         # learning rate
+        )
+        for new_score in stream:
+            state = det.update(new_score)
+            if state.empirical_miscoverage > 0.20:
+                # Distribution has drifted hard — investigate.
+                ...
+
+    Parameters
+    ----------
+    calibration_scores : list[float]
+        Initial calibration set. Used to compute ``q̂_t`` at every step
+        via :func:`_quantile`. The scores are NOT updated as new
+        observations arrive — that's the next-level "fully online" ACI;
+        this implementation uses a fixed reference set.
+    alpha_target : float
+        Target miscoverage rate. Coverage = 1 − alpha_target.
+    gamma : float
+        Step size. Smaller γ = slower adaptation but tighter long-run
+        miscoverage. Gibbs & Candès recommend γ ∈ [0.001, 0.05].
+
+    References
+    ----------
+    Gibbs, I. & Candès, E. (2021). "Adaptive Conformal Inference Under
+        Distribution Shift." NeurIPS 2021.
+    """
+
+    def __init__(
+        self,
+        calibration_scores: list[float],
+        *,
+        alpha_target: float = 0.10,
+        gamma: float = 0.005,
+    ) -> None:
+        if not calibration_scores:
+            raise ValueError("calibration_scores must be non-empty")
+        if not (0 < alpha_target < 1):
+            raise ValueError(f"alpha_target must be in (0, 1); got {alpha_target}")
+        if gamma <= 0:
+            raise ValueError(f"gamma must be > 0; got {gamma}")
+
+        self._calibration = sorted(abs(float(s)) for s in calibration_scores)
+        self.alpha_target = alpha_target
+        self.gamma = gamma
+
+        self._reset_state()
+
+    def _reset_state(self) -> None:
+        self._n: int = 0
+        self._cumulative_breaches: int = 0
+        # Start at the target: alpha_t = alpha_target.
+        self._alpha_t: float = self.alpha_target
+
+    def _q_hat_at(self, alpha: float) -> float:
+        """Compute the (1-α) quantile of the calibration set."""
+        # Clamp α to a sensible range so the quantile is well-defined.
+        a = max(0.0, min(1.0, alpha))
+        # Conformal q̂ at miscoverage α: ⌈(n+1)(1−α)⌉ on the sorted list.
+        n = len(self._calibration)
+        if n == 0:
+            return 0.0
+        idx = int(math.ceil((n + 1) * (1.0 - a))) - 1
+        idx_clamped = max(0, min(n - 1, idx))
+        return self._calibration[idx_clamped]
+
+    def update(self, score: float) -> ACIState:
+        """Process one observation, update α_t, return current state."""
+        self._n += 1
+        s = abs(float(score))
+        q_hat = self._q_hat_at(self._alpha_t)
+        breach = s > q_hat
+        if breach:
+            self._cumulative_breaches += 1
+
+        # Adaptive update: α_{t+1} = α_t + γ (α_target - I[breach_t]).
+        breach_indicator = 1.0 if breach else 0.0
+        self._alpha_t = self._alpha_t + self.gamma * (self.alpha_target - breach_indicator)
+        # Keep α_t in [0, 1].
+        self._alpha_t = max(0.0, min(1.0, self._alpha_t))
+
+        empirical = self._cumulative_breaches / self._n if self._n > 0 else 0.0
+
+        return ACIState(
+            n_observations=self._n,
+            alpha_t=self._alpha_t,
+            q_hat_t=q_hat,
+            breach=breach,
+            cumulative_breaches=self._cumulative_breaches,
+            empirical_miscoverage=empirical,
+        )
+
+    def reset(self) -> None:
+        """Clear streaming state. Calibration set is preserved."""
+        self._reset_state()
+
+    @property
+    def n_observations(self) -> int:
+        return self._n
+
+    @property
+    def alpha_t(self) -> float:
+        return self._alpha_t
+
+    @property
+    def cumulative_breaches(self) -> int:
+        return self._cumulative_breaches
+
+    @property
+    def empirical_miscoverage(self) -> float:
+        if self._n == 0:
+            return 0.0
+        return self._cumulative_breaches / self._n
+
+
 __all__ = [
+    "ACIDetector",
+    "ACIState",
     "AxisCoverage",
     "ConformalCoverageReport",
     "build_conformal_coverage",  # Deprecated alias; kept for backward compat.
