@@ -180,9 +180,14 @@ def build_certificate(
         ]
         conformal: dict[str, Any] | None = None
         if conformal_coverage is not None:
-            from shadow.conformal import build_conformal_coverage
+            # Note: this is the parametric (Gaussian-from-summary-stats) path,
+            # not real distribution-free conformal. The certificate keeps this
+            # for backward compatibility with v2.4-era diff-report inputs that
+            # only carry summary stats. Callers with per-run scores should
+            # use shadow.conformal.conformal_calibrate() directly.
+            from shadow.conformal import build_parametric_estimate
 
-            conformal_report = build_conformal_coverage(
+            conformal_report = build_parametric_estimate(
                 axis_rows=axis_rows,
                 target_coverage=conformal_coverage,
                 confidence=conformal_confidence,
