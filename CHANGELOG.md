@@ -6,6 +6,8 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-04-28
+
 Comprehensive technical-debt cleanup pass on top of v2.5.0.
 Closes 50+ specific items identified in the post-v2.5.0 audit and
 external real-world stress evaluation.

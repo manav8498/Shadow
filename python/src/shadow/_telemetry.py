@@ -14,7 +14,7 @@ Privacy guarantees
 ------------------
 - No code, payloads, agent traces, or user data ever leaves the
   user's machine. The only fields collected are:
-    * SDK version (e.g. "2.5.0")
+    * SDK version (e.g. "2.6.0")
     * Python version (e.g. "3.11")
     * OS (e.g. "Linux", "Darwin", "Windows")
     * CPU architecture (e.g. "x86_64", "arm64")
