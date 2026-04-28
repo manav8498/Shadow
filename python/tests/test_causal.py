@@ -153,15 +153,15 @@ class TestGroundTruthAttribution:
 
         for d in real_deltas:
             max_abs_ate = max(abs(v) for v in result.ate[d].values())
-            assert max_abs_ate >= 0.1, (
-                f"real delta {d!r} has ATE {result.ate[d]} — should be ≥0.1 on some axis"
-            )
+            assert (
+                max_abs_ate >= 0.1
+            ), f"real delta {d!r} has ATE {result.ate[d]} — should be ≥0.1 on some axis"
 
         for d in noise_deltas:
             max_abs_ate = max(abs(v) for v in result.ate[d].values())
-            assert max_abs_ate < 0.01, (
-                f"noise delta {d!r} has ATE {result.ate[d]} — should be ≈0 (got {max_abs_ate})"
-            )
+            assert (
+                max_abs_ate < 0.01
+            ), f"noise delta {d!r} has ATE {result.ate[d]} — should be ≈0 (got {max_abs_ate})"
 
     def test_per_axis_attribution_correctly_decomposed(self):
         """Each delta's effect should land on the axes it actually moves."""

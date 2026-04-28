@@ -100,9 +100,7 @@ class TestEmitSilent:
             _telemetry.emit("test-event", {"foo": "bar"})
             urlopen.assert_not_called()
 
-    def test_emit_does_not_propagate_network_errors(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_emit_does_not_propagate_network_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Even if telemetry IS enabled (force it on), network errors
         must not propagate to the caller."""
         monkeypatch.setattr(_telemetry, "is_telemetry_enabled", lambda: True)

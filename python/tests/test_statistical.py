@@ -232,9 +232,7 @@ class TestHotellingT2:
         # combined data will have a smaller T² than the observed.
         x1 = rng.standard_normal((20, 3))
         x2 = rng.standard_normal((20, 3)) + 5.0
-        result = hotelling_t2(
-            x1, x2, alpha=0.05, permutations=99, rng=np.random.default_rng(0)
-        )
+        result = hotelling_t2(x1, x2, alpha=0.05, permutations=99, rng=np.random.default_rng(0))
         # Lower bound (1/(B+1)) is achieved when count==0; never exactly 0.
         assert result.p_value >= 1 / 100
         # And should be near the floor for this strong shift.

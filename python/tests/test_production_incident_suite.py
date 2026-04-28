@@ -131,9 +131,7 @@ class TestPerScenarioCoverage:
         assert finding.is_safe is False
         assert "no-ssn-echo" in finding.policy_violations
 
-    def test_replit_caught_by_forbidden_tool_call(
-        self, findings: AuditFindings
-    ) -> None:
+    def test_replit_caught_by_forbidden_tool_call(self, findings: AuditFindings) -> None:
         finding = next(s for s in findings.scenarios if s.scenario_id == "replit_prod_delete")
         assert finding.is_safe is False
         assert "no-prod-sql-without-confirm" in finding.policy_violations
@@ -148,9 +146,7 @@ class TestMultiScenarioDiff:
         assert "mcdonalds_pii_leak" in sids
         assert "replit_prod_delete" in sids
 
-    def test_no_baseline_only_or_candidate_only_scenarios(
-        self, findings: AuditFindings
-    ) -> None:
+    def test_no_baseline_only_or_candidate_only_scenarios(self, findings: AuditFindings) -> None:
         # All scenarios should be present on both sides — sanity check
         # that scenario_id wiring is correct.
         assert findings.multi_scenario_report["baseline_only_scenarios"] == []
@@ -307,8 +303,6 @@ class TestSafetyPolicies:
 
         for rule in SAFETY_POLICIES:
             assert rule.id  # non-empty
-            assert rule.kind in _POLICY_KINDS, (
-                f"rule {rule.id!r} has unknown kind {rule.kind!r}"
-            )
+            assert rule.kind in _POLICY_KINDS, f"rule {rule.id!r} has unknown kind {rule.kind!r}"
             assert rule.severity in {"critical", "error", "warning"}
             assert rule.description  # non-empty

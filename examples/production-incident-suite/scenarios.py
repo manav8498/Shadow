@@ -105,7 +105,9 @@ def _response(
 # ---------------------------------------------------------------------------
 
 
-def _scenario_air_canada(rng: random.Random, base_idx: int, profile: str) -> list[dict[str, Any]]:
+def _scenario_air_canada(
+    rng: random.Random, base_idx: int, profile: str
+) -> list[dict[str, Any]]:
     """Air Canada chatbot pattern — refund issued without verification.
 
     Baseline: agent calls verify_user before refund_order.
@@ -175,7 +177,9 @@ def _scenario_air_canada(rng: random.Random, base_idx: int, profile: str) -> lis
     return records
 
 
-def _scenario_avianca(rng: random.Random, base_idx: int, profile: str) -> list[dict[str, Any]]:
+def _scenario_avianca(
+    rng: random.Random, base_idx: int, profile: str
+) -> list[dict[str, Any]]:
     """Mata v. Avianca pattern — fabricated legal citations."""
     sid = "avianca_fake_citations"
     safe = profile == "baseline"
@@ -224,7 +228,9 @@ def _scenario_avianca(rng: random.Random, base_idx: int, profile: str) -> list[d
     return records
 
 
-def _scenario_neda_tessa(rng: random.Random, base_idx: int, profile: str) -> list[dict[str, Any]]:
+def _scenario_neda_tessa(
+    rng: random.Random, base_idx: int, profile: str
+) -> list[dict[str, Any]]:
     """NEDA / Tessa pattern — harmful eating-disorder content."""
     sid = "neda_tessa_harm"
     safe = profile == "baseline"
@@ -321,7 +327,9 @@ def _scenario_mcdonalds_pii(
     return records
 
 
-def _scenario_replit_sql(rng: random.Random, base_idx: int, profile: str) -> list[dict[str, Any]]:
+def _scenario_replit_sql(
+    rng: random.Random, base_idx: int, profile: str
+) -> list[dict[str, Any]]:
     """Replit pattern — production DB DELETE without explicit user confirmation."""
     sid = "replit_prod_delete"
     safe = profile == "baseline"
@@ -383,15 +391,19 @@ SCENARIO_BUILDERS = [
 def generate_baseline(seed: int = 1) -> list[list[dict[str, Any]]]:
     """Generate one baseline session per incident pattern (5 sessions)."""
     rng = random.Random(seed)
-    return [b(rng, base_idx=(i + 1) * 1000, profile="baseline")
-            for i, b in enumerate(SCENARIO_BUILDERS)]
+    return [
+        b(rng, base_idx=(i + 1) * 1000, profile="baseline")
+        for i, b in enumerate(SCENARIO_BUILDERS)
+    ]
 
 
 def generate_candidate(seed: int = 2) -> list[list[dict[str, Any]]]:
     """Generate one candidate session per incident pattern (5 sessions)."""
     rng = random.Random(seed)
-    return [b(rng, base_idx=(i + 1) * 10000, profile="candidate")
-            for i, b in enumerate(SCENARIO_BUILDERS)]
+    return [
+        b(rng, base_idx=(i + 1) * 10000, profile="candidate")
+        for i, b in enumerate(SCENARIO_BUILDERS)
+    ]
 
 
 __all__ = [

@@ -87,10 +87,7 @@ class CausalAttribution:
         """Return top-k deltas by |ATE| on the given axis."""
         scored = [(d, abs(self.ate.get(d, {}).get(axis, 0.0))) for d in self.ate]
         scored.sort(key=lambda x: -x[1])
-        return [
-            (d, self.ate.get(d, {}).get(axis, 0.0))
-            for d, _ in scored[:k]
-        ]
+        return [(d, self.ate.get(d, {}).get(axis, 0.0)) for d, _ in scored[:k]]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -141,9 +138,7 @@ def causal_attribution(
         raise ValueError(f"n_replays must be >= 1; got {n_replays}")
 
     # Identify the deltas (keys where baseline and candidate differ).
-    differing = [
-        k for k in candidate_config if baseline_config.get(k) != candidate_config[k]
-    ]
+    differing = [k for k in candidate_config if baseline_config.get(k) != candidate_config[k]]
     if not differing:
         raise ValueError(
             "no differing keys between baseline_config and candidate_config — "
@@ -160,9 +155,7 @@ def causal_attribution(
     for delta in differing:
         intervened_config = dict(baseline_config)
         intervened_config[delta] = candidate_config[delta]
-        intervention_runs = [
-            replay_fn(intervened_config) for _ in range(n_replays)
-        ]
+        intervention_runs = [replay_fn(intervened_config) for _ in range(n_replays)]
         intervened_mean = _mean_divergence(intervention_runs)
 
         # ATE per axis = intervened mean − control mean.
@@ -170,13 +163,10 @@ def causal_attribution(
         if axes is not None:
             all_axes &= set(axes)
         per_axis_ate = {
-            ax: intervened_mean.get(ax, 0.0) - control_mean.get(ax, 0.0)
-            for ax in all_axes
+            ax: intervened_mean.get(ax, 0.0) - control_mean.get(ax, 0.0) for ax in all_axes
         }
         ate[delta] = per_axis_ate
-        interventions.append(
-            InterventionResult(delta=delta, divergence=intervened_mean)
-        )
+        interventions.append(InterventionResult(delta=delta, divergence=intervened_mean))
 
     return CausalAttribution(ate=ate, interventions=interventions)
 

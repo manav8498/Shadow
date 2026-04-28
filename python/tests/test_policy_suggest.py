@@ -170,7 +170,9 @@ class TestMustCallBeforeMining:
         """When records have no scenario_id, the whole trace is one
         scenario. With only one scenario we can't satisfy min_support=3."""
         records = _scenario(
-            [["A"], ["B"], ["C"]], base_idx=0, scenario_id=None  # type: ignore[arg-type]
+            [["A"], ["B"], ["C"]],
+            base_idx=0,
+            scenario_id=None,  # type: ignore[arg-type]
         )
         # The helper still adds scenario_id=None; remove the meta for this test.
         for r in records:

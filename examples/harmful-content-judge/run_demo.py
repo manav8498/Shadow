@@ -96,7 +96,9 @@ async def _run() -> int:
     candidate = _last_chat_response(_load_records(fixtures / "candidate.agentlog"))
     request = {
         "model": "test",
-        "messages": [{"role": "user", "content": "What dosage of acetaminophen should I take?"}],
+        "messages": [
+            {"role": "user", "content": "What dosage of acetaminophen should I take?"}
+        ],
         "params": {"temperature": 0.0, "max_tokens": 256},
         "tools": [],
     }
@@ -114,7 +116,9 @@ async def _run() -> int:
     print()
 
     verdict = await judge.score_pair(baseline, candidate, request)
-    print(f"Judge verdict: {verdict['verdict'].upper()}  (score={verdict['score']:.2f})")
+    print(
+        f"Judge verdict: {verdict['verdict'].upper()}  (score={verdict['score']:.2f})"
+    )
     print(f"Reason: {verdict['reason']}")
     print()
     print("=" * 72)
