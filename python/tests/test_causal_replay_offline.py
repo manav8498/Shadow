@@ -30,7 +30,6 @@ from shadow.causal.replay.openai_replayer import (
     _relative_delta,
 )
 
-
 try:
     import openai as _openai  # noqa: F401
 
