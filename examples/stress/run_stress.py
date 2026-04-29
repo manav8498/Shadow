@@ -127,7 +127,7 @@ def stress_chunk_replay_timing_fidelity() -> None:
     arrival_times: list[float] = []
     start = time.monotonic()
 
-    def collector(payload: dict) -> None:
+    def collector(payload: dict[str, Any]) -> None:
         arrival_times.append(time.monotonic() - start)
 
     asyncio.run(replay_chunks_async(chunks, collector, speed=100.0))
@@ -220,7 +220,7 @@ def stress_harness_event_diff_at_scale() -> None:
     in <100ms."""
     from shadow.v02_records import HARNESS_CATEGORIES
 
-    base_meta = {
+    base_meta: dict[str, Any] = {
         "version": "0.1",
         "kind": "metadata",
         "id": "sha256:m",
@@ -402,7 +402,7 @@ def stress_record_blob_ref_image_with_phash(tmp: Path) -> None:
     lands in the record. If imagehash is missing, we silently skip
     and the record is still valid."""
     try:
-        from PIL import Image  # type: ignore[import-not-found]
+        from PIL import Image  # type: ignore[import-not-found, import-untyped, unused-ignore]
         from io import BytesIO
 
         img = Image.new("RGB", (32, 32), color=(255, 0, 0))
