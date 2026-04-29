@@ -9,7 +9,7 @@ build-backend = "maturin"
 # the CLI stays `shadow`, and the repo stays Shadow — only the
 # `pip install` name is different.
 name = "shadow-diff"
-version = "2.7.0"
+version = "2.8.0"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
 license = "Apache-2.0"
 # LICENSE files live at the workspace root; we copy them into the Python
