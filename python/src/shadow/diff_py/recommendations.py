@@ -69,11 +69,26 @@ class LLMDiagnosedRecommendation:
     confidence: float
     source: Literal["llm"] = "llm"
 
+    @property
+    def baseline_turn(self) -> int:
+        """Mirror of ``turn`` for parity with the Rust schema."""
+        return self.turn
+
+    @property
+    def candidate_turn(self) -> int:
+        """Mirror of ``turn`` for parity with the Rust schema. The LLM
+        fallback only surfaces trace-wide diagnoses, so the two indices
+        coincide here.
+        """
+        return self.turn
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "severity": self.severity,
             "action": self.action,
             "turn": self.turn,
+            "baseline_turn": self.baseline_turn,
+            "candidate_turn": self.candidate_turn,
             "message": self.message,
             "rationale": self.rationale,
             "axis": self.axis,

@@ -138,10 +138,26 @@ pub struct Recommendation {
     pub severity: RecommendationSeverity,
     /// What kind of move is being suggested.
     pub action: ActionKind,
-    /// 0-based turn index the recommendation refers to. 0 when the
-    /// recommendation is trace-wide (not tied to a specific turn) —
-    /// in that case `source` should say "overall" or similar.
+    /// 0-based turn index the recommendation refers to, in the
+    /// **baseline** chat-response sequence. 0 when the recommendation
+    /// is trace-wide (not tied to a specific turn).
+    ///
+    /// Kept for backward compatibility: this is always equal to
+    /// `baseline_turn`. New consumers should prefer `baseline_turn` /
+    /// `candidate_turn`, since the former can exceed `report.pair_count`
+    /// (which is `min(N_baseline, N_candidate)`) when the candidate
+    /// dropped a turn.
     pub turn: usize,
+    /// 0-based index in the baseline's chat-response sequence (mirror
+    /// of `FirstDivergence::baseline_turn`). May exceed
+    /// `report.pair_count` when the candidate dropped turns.
+    #[serde(default)]
+    pub baseline_turn: usize,
+    /// 0-based index in the candidate's chat-response sequence (mirror
+    /// of `FirstDivergence::candidate_turn`). May differ from
+    /// `baseline_turn` when the alignment path contains gaps.
+    #[serde(default)]
+    pub candidate_turn: usize,
     /// One-line action statement, starts with an imperative verb.
     /// Example: "Restore `send_confirmation_email` tool call at turn 9."
     pub message: String,
@@ -208,6 +224,8 @@ pub fn generate(report: &DiffReport) -> Vec<Recommendation> {
                 severity: RecommendationSeverity::Error,
                 action: ActionKind::Review,
                 turn: 0,
+                baseline_turn: 0,
+                candidate_turn: 0,
                 message: format!(
                     "Review the candidate: {} axis shifted with severity {}.",
                     worst.axis.label(),
@@ -262,6 +280,8 @@ fn rule_for_divergence(dv: &FirstDivergence) -> Option<Recommendation> {
                     severity: RecommendationSeverity::Error,
                     action: ActionKind::Restore,
                     turn: dv.baseline_turn,
+                    baseline_turn: dv.baseline_turn,
+                    candidate_turn: dv.candidate_turn,
                     message: format!("Restore {tool_ref} at turn {}.", dv.baseline_turn),
                     rationale: dv.explanation.clone(),
                     axis: dv.primary_axis,
@@ -276,6 +296,8 @@ fn rule_for_divergence(dv: &FirstDivergence) -> Option<Recommendation> {
                     severity: RecommendationSeverity::Error,
                     action: ActionKind::Review,
                     turn: dv.baseline_turn,
+                    baseline_turn: dv.baseline_turn,
+                    candidate_turn: dv.candidate_turn,
                     message: format!(
                         "Review unexpected addition at turn {}: {tool_ref}.",
                         dv.baseline_turn
@@ -292,6 +314,8 @@ fn rule_for_divergence(dv: &FirstDivergence) -> Option<Recommendation> {
                     severity: RecommendationSeverity::Error,
                     action: ActionKind::Remove,
                     turn: dv.baseline_turn,
+                    baseline_turn: dv.baseline_turn,
+                    candidate_turn: dv.candidate_turn,
                     message: format!(
                         "Remove duplicate invocation of {tool_ref} at turn {}.",
                         dv.baseline_turn
@@ -307,6 +331,8 @@ fn rule_for_divergence(dv: &FirstDivergence) -> Option<Recommendation> {
                     severity: RecommendationSeverity::Error,
                     action: ActionKind::Review,
                     turn: dv.baseline_turn,
+                    baseline_turn: dv.baseline_turn,
+                    candidate_turn: dv.candidate_turn,
                     message: format!(
                         "Review tool-schema change at turn {}: call shape diverged.",
                         dv.baseline_turn
@@ -322,6 +348,8 @@ fn rule_for_divergence(dv: &FirstDivergence) -> Option<Recommendation> {
                     severity: RecommendationSeverity::Error,
                     action: ActionKind::Review,
                     turn: dv.baseline_turn,
+                    baseline_turn: dv.baseline_turn,
+                    candidate_turn: dv.candidate_turn,
                     message: format!("Review structural change at turn {}.", dv.baseline_turn),
                     rationale: dv.explanation.clone(),
                     axis: dv.primary_axis,
@@ -346,6 +374,8 @@ fn rule_for_divergence(dv: &FirstDivergence) -> Option<Recommendation> {
                     severity,
                     action: ActionKind::Review,
                     turn: dv.baseline_turn,
+                    baseline_turn: dv.baseline_turn,
+                    candidate_turn: dv.candidate_turn,
                     message: format!(
                         "Review refusal behaviour at turn {}: candidate may be over-refusing.",
                         dv.baseline_turn
@@ -362,6 +392,8 @@ fn rule_for_divergence(dv: &FirstDivergence) -> Option<Recommendation> {
                     severity: RecommendationSeverity::Warning,
                     action: ActionKind::Revert,
                     turn: dv.baseline_turn,
+                    baseline_turn: dv.baseline_turn,
+                    candidate_turn: dv.candidate_turn,
                     message: format!(
                         "Revert {arg_ref} at turn {} to the baseline value.",
                         dv.baseline_turn
@@ -377,6 +409,8 @@ fn rule_for_divergence(dv: &FirstDivergence) -> Option<Recommendation> {
                     severity: RecommendationSeverity::Warning,
                     action: ActionKind::Review,
                     turn: dv.baseline_turn,
+                    baseline_turn: dv.baseline_turn,
+                    candidate_turn: dv.candidate_turn,
                     message: format!(
                         "Review response text at turn {}: semantic content shifted.",
                         dv.baseline_turn
@@ -392,6 +426,8 @@ fn rule_for_divergence(dv: &FirstDivergence) -> Option<Recommendation> {
                     severity: RecommendationSeverity::Warning,
                     action: ActionKind::Review,
                     turn: dv.baseline_turn,
+                    baseline_turn: dv.baseline_turn,
+                    candidate_turn: dv.candidate_turn,
                     message: format!("Review decision change at turn {}.", dv.baseline_turn),
                     rationale: dv.explanation.clone(),
                     axis: dv.primary_axis,
@@ -406,6 +442,8 @@ fn rule_for_divergence(dv: &FirstDivergence) -> Option<Recommendation> {
             severity: RecommendationSeverity::Info,
             action: ActionKind::Verify,
             turn: dv.baseline_turn,
+            baseline_turn: dv.baseline_turn,
+            candidate_turn: dv.candidate_turn,
             message: format!(
                 "Cosmetic wording change at turn {} — verify intended.",
                 dv.baseline_turn
@@ -503,6 +541,8 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
             severity: RecommendationSeverity::Error,
             action: ActionKind::RootCause,
             turn: 0,
+            baseline_turn: 0,
+            candidate_turn: 0,
             message:
                 "Looks like a model change. Cost, latency, and semantic axes all shifted together."
                     .to_string(),
@@ -536,6 +576,8 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
                 severity: RecommendationSeverity::Warning,
                 action: ActionKind::RootCause,
                 turn: 0,
+                baseline_turn: 0,
+                candidate_turn: 0,
                 message: format!(
                     "Looks like a system-prompt edit. Semantic + verbosity moved together{safety_part}."
                 ),
@@ -557,6 +599,8 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
                 severity: RecommendationSeverity::Error,
                 action: ActionKind::RootCause,
                 turn: 0,
+                baseline_turn: 0,
+                candidate_turn: 0,
                 message: "Refusal rate is up severely. Check for stricter system instructions \
                           or tighter content policies."
                     .to_string(),
@@ -580,6 +624,8 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
             severity: RecommendationSeverity::Error,
             action: ActionKind::RootCause,
             turn: 0,
+            baseline_turn: 0,
+            candidate_turn: 0,
             message: "Looks like a tool-schema migration. Trajectory + reasoning both moved."
                 .to_string(),
             rationale: format!(
@@ -606,6 +652,8 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
             severity: RecommendationSeverity::Error,
             action: ActionKind::RootCause,
             turn: 0,
+            baseline_turn: 0,
+            candidate_turn: 0,
             message: format!(
                 "Possible hallucination regression. Semantic and judge axes both moved{verbosity_part}."
             ),
@@ -637,6 +685,8 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
                 severity: RecommendationSeverity::Error,
                 action: ActionKind::RootCause,
                 turn: 0,
+                baseline_turn: 0,
+                candidate_turn: 0,
                 message: "Possible context-window overflow. Cost spiked severely without a model \
                      change, and reasoning shifted with it."
                     .to_string(),
@@ -671,6 +721,8 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
                     severity: RecommendationSeverity::Error,
                     action: ActionKind::RootCause,
                     turn: 0,
+                    baseline_turn: 0,
+                    candidate_turn: 0,
                     message: "Possible retry loop. Trajectory diverged severely with latency \
                               spike but no reasoning shift."
                         .to_string(),
@@ -702,6 +754,8 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
                 severity: RecommendationSeverity::Error,
                 action: ActionKind::RootCause,
                 turn: 0,
+                baseline_turn: 0,
+                candidate_turn: 0,
                 message: "Cost up severely with latency stable. Suggests cache control \
                           stopped being honored."
                     .to_string(),
@@ -734,6 +788,8 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
                 severity: RecommendationSeverity::Error,
                 action: ActionKind::RootCause,
                 turn: 0,
+                baseline_turn: 0,
+                candidate_turn: 0,
                 message: "Possible prompt-injection or tool-args exfiltration. Trajectory \
                           severe AND refusal rate dropped."
                     .to_string(),
@@ -773,6 +829,8 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
                 severity: RecommendationSeverity::Warning,
                 action: ActionKind::RootCause,
                 turn: 0,
+                baseline_turn: 0,
+                candidate_turn: 0,
                 message: "Latency up severely with cost stable. Provider-side capacity or \
                           network change."
                     .to_string(),
@@ -865,6 +923,60 @@ mod tests {
         assert!(rec.message.contains("Restore"));
         assert!(rec.message.contains("send_confirmation_email"));
         assert_eq!(rec.turn, 3);
+        // The mirror fields must agree with the legacy `turn` so existing
+        // consumers stay valid, and `candidate_turn` must come from the
+        // divergence (not be inferred from `turn`).
+        assert_eq!(rec.baseline_turn, rec.turn);
+        assert_eq!(rec.candidate_turn, 3);
+    }
+
+    #[test]
+    fn baseline_turn_can_exceed_pair_count_when_candidate_dropped_turns() {
+        // Repro for the schema gap: when the candidate has fewer
+        // chat_responses than the baseline, the alignment surfaces a
+        // divergence at a baseline index >= pair_count. The
+        // recommendation's `turn` (== `baseline_turn`) follows the
+        // baseline-side index — this is correct, but downstream tooling
+        // that bounded turn-iteration by `pair_count` would miss the
+        // dropped turn. The mirror fields make the semantics explicit.
+        let mut r = empty_report();
+        r.pair_count = 3; // candidate kept only 3 of 5 baseline turns
+        r.divergences.push(FirstDivergence {
+            baseline_turn: 4,
+            candidate_turn: 2, // alignment insertion-point on the short side
+            kind: DivergenceKind::Structural,
+            primary_axis: Axis::Trajectory,
+            explanation: "candidate dropped tool call(s): `send_email(to)`".to_string(),
+            confidence: 0.9,
+        });
+        let recs = generate(&r);
+        let rec = recs
+            .iter()
+            .find(|r| r.action == ActionKind::Restore)
+            .unwrap();
+        assert!(rec.baseline_turn >= r.pair_count);
+        assert_eq!(rec.baseline_turn, 4);
+        assert_eq!(rec.candidate_turn, 2);
+        assert_eq!(rec.turn, rec.baseline_turn);
+    }
+
+    #[test]
+    fn recommendation_serializes_with_both_turn_fields() {
+        // Wire-format guard: both mirror fields must appear in the JSON
+        // shape, and the legacy `turn` must remain present for
+        // backward compatibility.
+        let mut r = empty_report();
+        r.divergences.push(divergence(
+            DivergenceKind::Structural,
+            Axis::Trajectory,
+            "candidate dropped tool call(s): `x(y)`",
+            0.9,
+        ));
+        let recs = generate(&r);
+        let json = serde_json::to_value(&recs[0]).unwrap();
+        assert!(json.get("turn").is_some());
+        assert!(json.get("baseline_turn").is_some());
+        assert!(json.get("candidate_turn").is_some());
     }
 
     #[test]
