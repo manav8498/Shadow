@@ -6,7 +6,7 @@ benchmark prints a single line with elapsed wall time; the
 ``BUDGETS`` dict at the bottom defines the budget per scenario, and
 the script exits 1 if any scenario exceeds its budget.
 
-Run: ``python benchmarks/v25_primitives_perf.py``
+Run: ``python benchmarks/primitives_perf.py``
 
 Targets are calibrated for typical agent-eval workloads (5-100 turn
 traces, 1-20 LTL formula nodes, 8-dimensional fingerprints). For

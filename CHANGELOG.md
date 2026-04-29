@@ -49,7 +49,7 @@ clean opt-in paths and zero impact on backward compatibility.
   patterns."
 
   14 dedicated tests in
-  `python/tests/test_recommendations_llm_fallback.py` covering
+  `python/tests/test_recommendations_llm.py` covering
   gating logic (no-LLM-when-root-cause-present, no-LLM-when-no-
   severe-axis, no-key-no-fallback), happy path, malformed-output
   validation (5 distinct invalidation cases), confidence cap, and
@@ -303,7 +303,7 @@ external real-world stress evaluation.
   (Hotelling, SPRT, conformal, LTL, causal). Designed so a reader
   with stats / formal-methods background can verify Shadow's claims
   in under five minutes per page.
-- **`benchmarks/v25_primitives_perf.py`** — wall-time budgets per
+- **`benchmarks/primitives_perf.py`** — wall-time budgets per
   primitive with 3× safety margin. Confirms current pure-Python LTL
   runs at 5K-turn DP in 2.5ms, well within agent-eval scale.
 - **Statistical validation suite expanded**: power curves across
@@ -652,7 +652,7 @@ The two final roadmap items shipped — every entry in ROADMAP's "What's next" i
 ### Tests
 
 - 41 new tests across `python/tests/test_v02_records.py` (22) and `python/tests/test_mcp_replay.py` (19) — chunk record/replay round-trip, replay timing fidelity (deadline loop, non-monotonic timestamps, speed multiplier), harness event recording + diff at scale, BlobStore dedup + atomic replace + URI scheme, dHash distance correctness, MCP canonicalization (key-order independence, unicode, integer-vs-float distinction), 1000-call lookup performance, repeated-call ordering, error propagation, strict vs non-strict miss handling, drift detection via `unconsumed_keys`.
-- Real-world adverse stress harness at `examples/stress_v23x/run_stress.py` — 20 assertions covering 10K-chunk session round-trip, 5 concurrent replays without state leakage, backward-timestamp non-deadlock, harness diff at scale (sub-100ms over thousands of records), 1000-puts dedup, atomic-replace crash simulation, 16 MiB blob round-trip, real PNG dHash, 1000-call MCP recording lookup in <2ms, canonicalize collision matrix (int vs float, key order, unicode). 20/20 passes in 0.32s wall-clock.
+- Real-world adverse stress harness at `examples/stress/run_stress.py` — 20 assertions covering 10K-chunk session round-trip, 5 concurrent replays without state leakage, backward-timestamp non-deadlock, harness diff at scale (sub-100ms over thousands of records), 1000-puts dedup, atomic-replace crash simulation, 16 MiB blob round-trip, real PNG dHash, 1000-call MCP recording lookup in <2ms, canonicalize collision matrix (int vs float, key order, unicode). 20/20 passes in 0.32s wall-clock.
 
 ### Roadmap
 
@@ -759,7 +759,7 @@ All six items the reviewer raised were verified real and fixed.
 ### Fixed
 
 - **`PolicyEnforcer` was respamming whole-trace rules every turn after they crossed.** The dedup key was `(rule_id, pair_index, detail)`. Whole-trace rules like `max_turns` and `must_call_once` embed a running count in their detail string ("trace has 5 turns; max is 4", then "trace has 6 turns; max is 4", etc.), so each subsequent turn produced a new detail and the enforcer reported it as new. Now keyed on `(rule_id, pair_index)` only — detail is human-output, not identity. Caught by the v2.0 real-LLM stress harness; existing 15 runtime tests still pass and a new regression test (`test_enforcer_whole_trace_rule_with_growing_count_does_not_respam`) locks the fix.
-- New committed real-LLM stress harness at `examples/stress_v20x/run_stress.py` — 13 assertions against real OpenAI gpt-4o-mini covering `must_remain_consistent` against live agent behavior, `must_be_grounded` against real RAG context (both grounded and off-topic prompts), all three `EnforcedSession` modes (replace/raise/warn) verifying the on-disk trace shape, incremental violation detection across a 6-turn live trace, the certify+verify-cert pipeline against an `EnforcedSession` output, and three concurrent `EnforcedSessions`. 13/13 passes against real OpenAI in ~17 seconds at well under $0.05.
+- New committed real-LLM stress harness at `examples/stress/run_stress.py` — 13 assertions against real OpenAI gpt-4o-mini covering `must_remain_consistent` against live agent behavior, `must_be_grounded` against real RAG context (both grounded and off-topic prompts), all three `EnforcedSession` modes (replace/raise/warn) verifying the on-disk trace shape, incremental violation detection across a 6-turn live trace, the certify+verify-cert pipeline against an `EnforcedSession` output, and three concurrent `EnforcedSessions`. 13/13 passes against real OpenAI in ~17 seconds at well under $0.05.
 
 ## [2.0.0] - 2026-04-25
 
@@ -843,8 +843,8 @@ Major version bump because v2.0 grows the SDK's public surface (new `shadow.poli
 
 ### Fixed
 
-- `examples/stress_v17x/run_stress.py` had 5 mypy `--strict` errors that ci-local missed because the harness was outside mypy scope. Same drift pattern caught for `stress_v16x` in v1.6.4 — applied here too. Type signatures fixed; the harness still passes 26/26 at runtime.
-- `just ci-local` and `.github/workflows/ci.yml` mypy scope now covers `examples/stress_v17x/run_stress.py`. Future stress-harness changes are caught by both local and CI mypy.
+- `examples/stress/run_stress.py` had 5 mypy `--strict` errors that ci-local missed because the harness was outside mypy scope. Same drift pattern caught for `stress` in v1.6.4 — applied here too. Type signatures fixed; the harness still passes 26/26 at runtime.
+- `just ci-local` and `.github/workflows/ci.yml` mypy scope now covers `examples/stress/run_stress.py`. Future stress-harness changes are caught by both local and CI mypy.
 
 ### Docs
 
@@ -859,13 +859,13 @@ Major version bump because v2.0 grows the SDK's public surface (new `shadow.poli
 
 ### Fixed
 
-- `must_match_json_schema` was accepting `NaN`, `Infinity`, and `-Infinity` because Python's `json.loads` accepts them as a CPython extension. Those literals are NOT valid JSON per RFC 8259 and downstream consumers (browsers, other-language parsers, strict JSON consumers) will choke on them. The rule now rejects them with a clear "non-standard JSON literal" violation. Caught by the new adverse-stress harness in `examples/stress_v17x/run_stress.py`.
+- `must_match_json_schema` was accepting `NaN`, `Infinity`, and `-Infinity` because Python's `json.loads` accepts them as a CPython extension. Those literals are NOT valid JSON per RFC 8259 and downstream consumers (browsers, other-language parsers, strict JSON consumers) will choke on them. The rule now rejects them with a clear "non-standard JSON literal" violation. Caught by the new adverse-stress harness in `examples/stress/run_stress.py`.
 
 ### Tests
 
 - 12 new tests for `must_match_json_schema` (valid JSON passes, malformed JSON / schema mismatch / empty text / both-or-neither schema params / external schema_path / policy_diff regressions / NaN-Infinity rejection).
 - 13 new tests for the certificate module: build extracts models/prompts/tools, self-verifies, tampering breaks verification, unsupported `cert_version` rejected, optional policy hash + baseline regression suite, CLI `certify` writes JSON, CLI `verify-cert` exits 0 on valid / 1 on tampered.
-- New `examples/stress_v17x/run_stress.py` adverse harness — 26 assertions covering 12 malformed-JSON variants, unicode/RTL/emoji payloads, 62 KB / 2000-item payload scaling, `oneOf`/`$ref` schemas, invalid-schema short-circuiting, pathological `schema_path` cases, 50-thread concurrent validation, deterministic certificate builds with fixed timestamp, 20-thread concurrent builds producing identical `cert_id`, all 9 per-field tamper detections, `cert_id`-only swap detection, round-trip via disk, forward-compat with unknown fields, version + format rejection, 100-turn trace certification scaling.
+- New `examples/stress/run_stress.py` adverse harness — 26 assertions covering 12 malformed-JSON variants, unicode/RTL/emoji payloads, 62 KB / 2000-item payload scaling, `oneOf`/`$ref` schemas, invalid-schema short-circuiting, pathological `schema_path` cases, 50-thread concurrent validation, deterministic certificate builds with fixed timestamp, 20-thread concurrent builds producing identical `cert_id`, all 9 per-field tamper detections, `cert_id`-only swap detection, round-trip via disk, forward-compat with unknown fields, version + format rejection, 100-turn trace certification scaling.
 
 ## [1.6.5] - 2026-04-25
 
@@ -883,23 +883,23 @@ Major version bump because v2.0 grows the SDK's public surface (new `shadow.poli
 
 ### Fixed
 
-- `examples/stress_v16x/run_stress.py` — corrected `record_baseline`'s declared return type (was `list[dict[str, Any]]`, actually returned a `(records, summary)` tuple), removed two stale `# type: ignore[arg-type]` comments, and added explicit type annotations on baseline-construction dicts. The harness ran correctly at runtime but the type signatures lied; mypy can now actually help.
+- `examples/stress/run_stress.py` — corrected `record_baseline`'s declared return type (was `list[dict[str, Any]]`, actually returned a `(records, summary)` tuple), removed two stale `# type: ignore[arg-type]` comments, and added explicit type annotations on baseline-construction dicts. The harness ran correctly at runtime but the type signatures lied; mypy can now actually help.
 
 ### Changed
 
-- `just ci-local` and `.github/workflows/ci.yml` mypy scope now includes `examples/stress_v16x/run_stress.py`. Previously only `examples/demo/agent.py` and `examples/demo/generate_fixtures.py` were type-checked, so the committed stress harness drifted unchecked. Future stress-harness changes are now caught by both local and remote CI.
+- `just ci-local` and `.github/workflows/ci.yml` mypy scope now includes `examples/stress/run_stress.py`. Previously only `examples/demo/agent.py` and `examples/demo/generate_fixtures.py` were type-checked, so the committed stress harness drifted unchecked. Future stress-harness changes are now caught by both local and remote CI.
 
 ## [1.6.3] - 2026-04-25
 
 ### Fixed
 
 - **`OpenAILLM` was dropping `tool_calls` and `tool_call_id` from messages on follow-up requests.** The agent-loop engine emits assistant messages of the form `{role:"assistant", content:"", tool_calls:[…]}` (the OpenAI wire shape). The converter's early-return path for string `content` was returning before forwarding `tool_calls`. The very next request — carrying the `role:"tool"` follow-up — was rejected by the API with HTTP 400 *"messages with role 'tool' must be a response to a preceding message with 'tool_calls'"*. This blocked every real-world OpenAI agent-loop replay past the first tool round-trip. The converter now forwards both fields regardless of `content` shape.
-- Found by an end-to-end stress test against real `gpt-4o-mini` (`examples/stress_v16x/run_stress.py`) — 25 adverse-condition assertions covering branch_at_turn mid-trajectory, replace_tool_result re-drive with hostile output, replace_tool_args under sandbox redispatch, hostile-tool sandbox (socket / subprocess / write), max_turns truncation under runaway, four novel-call policies, five concurrent branches, long-trace truncation, empty seed, and past-end branch. The harness went from 20/24 (broken at OpenAI handoff) to 25/25 once the converter was fixed.
+- Found by an end-to-end stress test against real `gpt-4o-mini` (`examples/stress/run_stress.py`) — 25 adverse-condition assertions covering branch_at_turn mid-trajectory, replace_tool_result re-drive with hostile output, replace_tool_args under sandbox redispatch, hostile-tool sandbox (socket / subprocess / write), max_turns truncation under runaway, four novel-call policies, five concurrent branches, long-trace truncation, empty seed, and past-end branch. The harness went from 20/24 (broken at OpenAI handoff) to 25/25 once the converter was fixed.
 
 ### Added
 
 - `python/tests/test_openai_backend.py` — five focused unit tests covering the converter's tool-calls forwarding, including the exact shape the agent-loop engine produces. Locks the regression.
-- `examples/stress_v16x/run_stress.py` — runnable real-LLM adverse stress harness. Gated behind `SHADOW_RUN_NETWORK_TESTS=1` and `OPENAI_API_KEY`; skips otherwise. Costs well under $0.05 per run against gpt-4o-mini.
+- `examples/stress/run_stress.py` — runnable real-LLM adverse stress harness. Gated behind `SHADOW_RUN_NETWORK_TESTS=1` and `OPENAI_API_KEY`; skips otherwise. Costs well under $0.05 per run against gpt-4o-mini.
 
 ## [1.6.2] - 2026-04-25
 

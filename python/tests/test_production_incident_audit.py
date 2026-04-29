@@ -26,7 +26,7 @@ per-scenario tests instead exercise the rule-based / formal-verification
 detectors, which work correctly at small n.
 
 Run with:
-    pytest python/tests/test_real_world_13_dimensions.py -v -s
+    pytest python/tests/test_production_incident_audit.py -v -s
 """
 
 from __future__ import annotations
