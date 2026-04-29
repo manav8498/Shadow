@@ -17,8 +17,12 @@ better to ask than to guess.
 5. **No `unwrap()` / `expect()` / `panic!()` in non-test Rust.** Enforced by
    clippy lints inside `lib.rs`. Same rule for `# type: ignore` in Python -
    don't use it unless a `# TODO(v0.x):` comment explains why.
-6. **Pin every new direct dependency exactly** (`=x.y.z`), update
-   `CONTRIBUTING.md` §Dependency policy, and justify in the PR description.
+6. **Dependency policy.** Pin **dev / build / test** dependencies exactly
+   (`=x.y.z`) so CI reruns are bit-reproducible. **Runtime** dependencies
+   should use reviewed lower + upper bounds (e.g. `numpy>=2.2,<3`) so
+   downstream applications can resolve compatible versions of their own.
+   Update `CONTRIBUTING.md` §Dependency policy and justify in the PR
+   description for any new direct dep.
 
 ## Setup
 
@@ -30,7 +34,10 @@ just setup        # installs user-local rustup if missing, creates.venv,
 ```
 
 Requires: a POSIX shell, `curl` (for rustup), Python 3.11+ on PATH.
-Windows isn't tested in v0.1.
+Windows is covered in CI for the Python wheel and Rust core; some
+shell-based helper scripts (e.g. parts of the `justfile`) still
+assume POSIX, so day-to-day development on Windows is best done
+under WSL2.
 
 ## The inner loop
 
@@ -105,8 +112,8 @@ python examples/edge-cases/probe.py           # 20-case adversarial probe
 3. Wire it into `diff/mod.rs::compute_report`.
 4. Ship a test that exercises a realistic regression on this axis and asserts
    severity matches expectations.
-5. Update `CONTRIBUTING.md` §Nine axes (now ten) and `SPEC.md` if the axis exposes a
-   new field to records.
+5. Update `README.md` "The nine behavioral dimensions" section (rename to match
+   the new count) and `SPEC.md` if the axis exposes a new field to records.
 
 ## The `Judge` axis and domain rules
 
