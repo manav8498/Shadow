@@ -119,7 +119,7 @@ class OpenAIReplayer:
                 "file before instantiating."
             )
         try:
-            from openai import OpenAI
+            from openai import OpenAI  # type: ignore[import-not-found, unused-ignore]
         except ImportError as e:
             raise RuntimeError(
                 "openai package is not installed. "
@@ -195,7 +195,7 @@ class OpenAIReplayer:
     ) -> ReplayResult:
         """Call the API with exponential-backoff retry on transient
         errors, then convert the response to a ReplayResult."""
-        from openai import (
+        from openai import (  # type: ignore[import-not-found, unused-ignore]
             APIError,
             APITimeoutError,
             RateLimitError,
