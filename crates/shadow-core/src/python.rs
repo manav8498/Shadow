@@ -184,11 +184,7 @@ fn compute_semantic_axis_with_embedder<'py>(
                     Err(_) => return Vec::new(),
                 };
                 let bound = any.bind(py);
-                let outer: Vec<Vec<f32>> = match bound.extract() {
-                    Ok(v) => v,
-                    Err(_) => Vec::new(),
-                };
-                outer
+                bound.extract::<Vec<Vec<f32>>>().unwrap_or_default()
             })
         },
         "py-callback",
@@ -219,11 +215,7 @@ fn pair_responses<'a>(
         .iter()
         .filter(|r| r.kind == Kind::ChatResponse)
         .collect();
-    b_resps
-        .into_iter()
-        .zip(c_resps.into_iter())
-        .map(|(b, c)| (b, c))
-        .collect()
+    b_resps.into_iter().zip(c_resps).collect()
 }
 
 fn pylist_to_records(list: &Bound<'_, PyList>) -> PyResult<Vec<Record>> {
