@@ -28,6 +28,8 @@ use crate::agentlog::{hash, parser, writer, Record};
 use crate::diff::{
     compute_report,
     cost::{ModelPricing, Pricing},
+    embedder::{BoxedEmbedder, Embedder},
+    semantic::compute_with_embedder,
 };
 
 /// Parse a `.agentlog` byte blob into a list of record dicts.
@@ -130,6 +132,100 @@ fn compute_diff_report<'py>(
     pythonize(py, &v).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
+/// Compute the semantic axis using a Python-supplied embedder callable.
+///
+/// The callable receives a `list[str]` of texts and must return a
+/// `list[list[float]]` of equal-length dense vectors. Typical wiring:
+///
+/// ```python
+/// from sentence_transformers import SentenceTransformer
+/// model = SentenceTransformer("all-MiniLM-L6-v2")
+/// def embed(texts: list[str]) -> list[list[float]]:
+///     return model.encode(texts).tolist()
+/// shadow._core.compute_semantic_axis_with_embedder(baseline, candidate, embed, seed=42)
+/// ```
+///
+/// Returns the AxisStat as a dict (same shape the diff report uses).
+#[pyfunction]
+#[pyo3(signature = (baseline, candidate, embedder, seed=None))]
+fn compute_semantic_axis_with_embedder<'py>(
+    py: Python<'py>,
+    baseline: &Bound<'py, PyList>,
+    candidate: &Bound<'py, PyList>,
+    embedder: &Bound<'py, PyAny>,
+    seed: Option<u64>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let baseline_records = pylist_to_records(baseline)?;
+    let candidate_records = pylist_to_records(candidate)?;
+
+    if !embedder.is_callable() {
+        return Err(PyValueError::new_err(
+            "embedder must be callable: fn(list[str]) -> list[list[float]]",
+        ));
+    }
+
+    // Pair up baseline ↔ candidate response records the same way
+    // `compute_report` does, then route through `compute_with_embedder`.
+    let pairs = pair_responses(&baseline_records, &candidate_records);
+
+    // Wrap the Python callable into a Rust closure that the Embedder
+    // trait can call. We hold the GIL for the duration via Python::with_gil
+    // inside the closure, since BoxedEmbedder is Sync but the actual call
+    // path is single-threaded here.
+    let embedder_obj: Py<PyAny> = embedder.clone().unbind();
+    let py_embedder = BoxedEmbedder::named(
+        move |texts: &[&str]| -> Vec<Vec<f32>> {
+            Python::with_gil(|py| {
+                let owned: Vec<String> = texts.iter().map(|s| (*s).to_string()).collect();
+                let py_list = PyList::new_bound(py, &owned);
+                let result = embedder_obj.call1(py, (py_list,));
+                let any = match result {
+                    Ok(v) => v,
+                    Err(_) => return Vec::new(),
+                };
+                let bound = any.bind(py);
+                let outer: Vec<Vec<f32>> = match bound.extract() {
+                    Ok(v) => v,
+                    Err(_) => Vec::new(),
+                };
+                outer
+            })
+        },
+        "py-callback",
+    );
+
+    // SAFETY: compute_with_embedder takes &dyn Embedder; BoxedEmbedder is
+    // Send + Sync. We construct on this thread and use it on this thread,
+    // so no concurrency concerns.
+    let pair_refs: Vec<(&Record, &Record)> = pairs.iter().map(|(a, b)| (*a, *b)).collect();
+    let stat = compute_with_embedder(&pair_refs, &py_embedder as &dyn Embedder, seed);
+
+    let v = serde_json::to_value(&stat).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    pythonize(py, &v).map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Helper: pair baseline and candidate `chat_response` records by index,
+/// matching the existing diff pipeline's pairing semantics.
+fn pair_responses<'a>(
+    baseline: &'a [Record],
+    candidate: &'a [Record],
+) -> Vec<(&'a Record, &'a Record)> {
+    use crate::agentlog::Kind;
+    let b_resps: Vec<&Record> = baseline
+        .iter()
+        .filter(|r| r.kind == Kind::ChatResponse)
+        .collect();
+    let c_resps: Vec<&Record> = candidate
+        .iter()
+        .filter(|r| r.kind == Kind::ChatResponse)
+        .collect();
+    b_resps
+        .into_iter()
+        .zip(c_resps.into_iter())
+        .map(|(b, c)| (b, c))
+        .collect()
+}
+
 fn pylist_to_records(list: &Bound<'_, PyList>) -> PyResult<Vec<Record>> {
     let mut out = Vec::with_capacity(list.len());
     for item in list.iter() {
@@ -153,5 +249,6 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(canonical_bytes, m)?)?;
     m.add_function(wrap_pyfunction!(content_id, m)?)?;
     m.add_function(wrap_pyfunction!(compute_diff_report, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_semantic_axis_with_embedder, m)?)?;
     Ok(())
 }

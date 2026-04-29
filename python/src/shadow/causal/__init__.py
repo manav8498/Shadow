@@ -57,9 +57,19 @@ from shadow.causal.attribution import (
     InterventionResult,
     causal_attribution,
 )
+from shadow.causal.replay import (
+    OpenAIReplayer,
+    RecordedReplayer,
+    Replayer,
+    ReplayResult,
+)
 
 __all__ = [
     "CausalAttribution",
     "InterventionResult",
+    "OpenAIReplayer",
+    "RecordedReplayer",
+    "ReplayResult",
+    "Replayer",
     "causal_attribution",
 ]
