@@ -426,6 +426,117 @@ def call(
     raise typer.Exit(code=result.exit_code())
 
 
+# ---- brief -----------------------------------------------------------------
+
+
+@app.command("brief")
+def brief_cmd(
+    fmt: Annotated[
+        str,
+        typer.Option(
+            "--format",
+            help="Output format. `terminal` (default, copy-friendly plain text), "
+            "`markdown` (GitHub PR comments), or `slack` (Block Kit JSON).",
+        ),
+    ] = "terminal",
+    slack_webhook: Annotated[
+        str | None,
+        typer.Option(
+            "--slack-webhook",
+            help="Post the brief directly to a Slack incoming-webhook URL. "
+            "Implies `--format slack`. Network failures fail soft (warning, "
+            "not error).",
+        ),
+    ] = None,
+    since: Annotated[
+        str,
+        typer.Option(
+            "--since",
+            help="Only summarise entries newer than this window. Same syntax "
+            "as `shadow ledger --since`. Default: `7d` for a weekly broadcast.",
+        ),
+    ] = "7d",
+    limit: Annotated[
+        int,
+        typer.Option(
+            "--limit",
+            help="Maximum number of ledger entries to scan.",
+        ),
+    ] = 50,
+    base: Annotated[
+        Path | None,
+        typer.Option(
+            "--base",
+            help="Override the ledger root.",
+        ),
+    ] = None,
+) -> None:
+    """Broadcast a recent-state brief — terminal, Markdown, or Slack.
+
+    Reads the local artifact ledger and renders a tight summary suitable
+    for sharing. Three formats:
+
+      * `terminal` (default) plain text that copies cleanly into a Slack
+        thread, an email, or a CI artifact.
+      * `markdown` GitHub-flavoured Markdown for PR comments.
+      * `slack` Block Kit JSON. Pass `--slack-webhook URL` to post it
+        directly via stdlib `urllib`.
+
+    Example:
+        shadow brief
+        shadow brief --format markdown >> CHANGELOG.md
+        shadow brief --slack-webhook "$SLACK_WEBHOOK"
+    """
+    import json as _json
+    from datetime import UTC
+    from datetime import datetime as _datetime
+
+    from shadow.ledger import (
+        compute_view,
+        format_brief_markdown,
+        format_brief_slack,
+        format_brief_terminal,
+        parse_since,
+        post_to_slack,
+        read_recent,
+    )
+
+    try:
+        window = parse_since(since)
+    except ValueError as e:
+        _fail(e)
+        return
+
+    entries = read_recent(base=base, limit=limit)
+    now = _datetime.now(UTC)
+    view = compute_view(entries, now=now, since=window)
+
+    # Webhook path: assemble the slack payload, POST, report.
+    if slack_webhook:
+        payload = format_brief_slack(view)
+        ok, msg = post_to_slack(slack_webhook, payload)
+        if ok:
+            err_console.print("[green]✓[/] posted brief to Slack")
+        else:
+            err_console.print(f"[yellow]warning[/]: Slack webhook post failed: {msg}")
+            # Fall through to print the JSON locally so the user has
+            # something they can manually retry — fail-soft behaviour.
+            sys.stdout.write(_json.dumps(payload, indent=2) + "\n")
+        return
+
+    # No webhook: render to stdout in the requested format.
+    fmt = fmt.lower()
+    if fmt == "terminal":
+        sys.stdout.write(format_brief_terminal(view) + "\n")
+    elif fmt == "markdown":
+        sys.stdout.write(format_brief_markdown(view) + "\n")
+    elif fmt == "slack":
+        payload = format_brief_slack(view)
+        sys.stdout.write(_json.dumps(payload, indent=2) + "\n")
+    else:
+        _fail(Exception(f"unknown format {fmt!r}; valid choices: terminal, markdown, slack."))
+
+
 # ---- trail -----------------------------------------------------------------
 
 
