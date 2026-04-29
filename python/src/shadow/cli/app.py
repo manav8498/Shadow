@@ -426,6 +426,85 @@ def call(
     raise typer.Exit(code=result.exit_code())
 
 
+# ---- trail -----------------------------------------------------------------
+
+
+@app.command("trail")
+def trail_cmd(
+    trace_id: Annotated[
+        str,
+        typer.Argument(
+            help="Trace id to walk back from (8-char prefix is enough). "
+            "Look it up in the `anchor` column of `shadow ledger`.",
+        ),
+    ],
+    depth: Annotated[
+        int,
+        typer.Option(
+            "--depth",
+            help="Maximum number of steps to walk. Default 5 keeps the panel "
+            "within one terminal screen.",
+        ),
+    ] = 5,
+    limit: Annotated[
+        int,
+        typer.Option(
+            "--limit",
+            help="Maximum number of ledger entries to scan when building " "the lookup index.",
+        ),
+    ] = 200,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Emit the trail as JSON to stdout instead of the rendered " "panel.",
+        ),
+    ] = False,
+    base: Annotated[
+        Path | None,
+        typer.Option(
+            "--base",
+            help="Override the ledger root. Default: `.shadow/ledger/` "
+            "under the current directory.",
+        ),
+    ] = None,
+) -> None:
+    """Walk back from a regressed trace through the artifact graph.
+
+    Given a trace id (anchor or candidate of some recorded comparison),
+    follows the (anchor → candidate) edges in reverse, surfacing each
+    step's call tier and driver. Stops at the original anchor, when the
+    depth limit is hit, or when a cycle is detected.
+
+    Useful right after `shadow ledger` flags a concerning entry: copy
+    the trace id from the ledger output and run `shadow trail <id>` to
+    see how the chain reached this state.
+
+    Example:
+        shadow trail ba5e1a92
+        shadow trail ba5e1a92 --depth 10
+        shadow trail ba5e1a92 --json | jq '.steps[].tier'
+    """
+    import json as _json
+
+    from shadow.ledger import compute_trail, read_recent, render_trail
+
+    entries = read_recent(base=base, limit=limit)
+    result = compute_trail(entries, trace_id=trace_id, depth=depth)
+
+    if json_output:
+        payload = {
+            "root_trace_id": result.root_trace_id,
+            "steps": [s.to_dict() for s in result.steps],
+            "truncated_by_depth": result.truncated_by_depth,
+            "truncated_by_cycle": result.truncated_by_cycle,
+        }
+        sys.stdout.write(_json.dumps(payload, indent=2) + "\n")
+        return
+
+    render_trail(result, console=console)
+
+
 # ---- ledger ----------------------------------------------------------------
 
 

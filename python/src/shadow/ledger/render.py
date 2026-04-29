@@ -1,9 +1,8 @@
-"""Rich rendering for ``shadow ledger`` — the daily glance panel.
+"""Rich rendering for ``shadow ledger`` and ``shadow trail``.
 
-Turns a :class:`shadow.ledger.view.LedgerView` into a terminal panel
-that mirrors the visual language of ``shadow call``: a titled bordered
-box, a compact table, and a small action footer with copy-pasteable
-shell commands.
+Both commands feed into the same visual language as ``shadow call``: a
+titled bordered box, compact tables / chains, and a small action footer
+with copy-pasteable shell commands.
 """
 
 from __future__ import annotations
@@ -15,6 +14,7 @@ from rich.table import Table
 from rich.text import Text
 
 from shadow.ledger.store import LedgerEntry
+from shadow.ledger.trail import TrailResult, TrailStep
 from shadow.ledger.view import LedgerView, relative_time
 
 # Glyph + colour for the call-tier column. Same palette as `shadow call`
@@ -232,3 +232,165 @@ def _humanize_window(td) -> str:  # type: ignore[no-untyped-def]
         return f"last {n} hour{'s' if n != 1 else ''}"
     n = secs // 86400
     return f"last {n} day{'s' if n != 1 else ''}"
+
+
+# ---------------------------------------------------------------------------
+# Trail rendering
+# ---------------------------------------------------------------------------
+
+
+def render_trail(result: TrailResult, console: Console | None = None) -> None:
+    """Print a :class:`TrailResult` as a Rich panel showing the chain."""
+    target = console or Console()
+    target.print(_build_trail_panel(result))
+
+
+def _build_trail_panel(result: TrailResult) -> Panel:
+    """Compose the trail panel — vertical chain of steps with a footer."""
+    if not result.found:
+        return _empty_trail_panel(result)
+
+    sections: list[RenderableType] = []
+    sections.append(_trail_header(result))
+    sections.append(Text(""))
+    sections.append(_trail_chain(result))
+    if result.truncated_by_depth:
+        sections.append(Text(""))
+        sections.append(
+            Text(
+                "  (truncated by --depth; pass `--depth N` to walk further)",
+                style="dim italic",
+            )
+        )
+    if result.truncated_by_cycle:
+        sections.append(Text(""))
+        sections.append(
+            Text(
+                "  (cycle detected — chain stopped at the repeated trace id)",
+                style="dim italic",
+            )
+        )
+    sections.append(Text(""))
+    sections.append(_trail_actions(result))
+
+    return Panel(
+        Group(*sections),
+        border_style="bold",
+        box=HEAVY,
+        padding=(1, 2),
+        title=Text(" shadow trail ", style="bold"),
+        title_align="left",
+    )
+
+
+def _empty_trail_panel(result: TrailResult) -> Panel:
+    """Friendly panel for an unknown trace id."""
+    body = Group(
+        Text(no_wrap=True).append(
+            f"No ledger entry references trace `{result.root_trace_id}`.",
+            style="bold",
+        ),
+        Text(""),
+        Text(
+            "Run `shadow ledger` to see what's recorded, or log a call "
+            "with `shadow call <anchor> <candidate> --log` to populate "
+            "the chain.",
+            style="dim",
+        ),
+    )
+    return Panel(
+        body,
+        border_style="dim",
+        box=HEAVY,
+        padding=(1, 2),
+        title=Text(" shadow trail ", style="bold"),
+        title_align="left",
+    )
+
+
+def _trail_header(result: TrailResult) -> Text:
+    """One-line header naming the starting trace id."""
+    head = Text(no_wrap=True)
+    head.append("Walking back from ", style="dim")
+    head.append(result.root_trace_id, style="bold cyan")
+    head.append(f"   ·   {len(result.steps)} step", style="dim")
+    if len(result.steps) != 1:
+        head.append("s", style="dim")
+    return head
+
+
+def _trail_chain(result: TrailResult) -> Group:
+    """Vertical chain of steps. Each step rendered as two grouped rows
+    (the step itself + the edge text), with a trailing connector line
+    between consecutive steps."""
+    rows: list[RenderableType] = []
+    n = len(result.steps)
+    for i, step in enumerate(result.steps):
+        rows.append(_trail_step(step))
+        # Show the edge connector except after the last step.
+        if i < n - 1:
+            rows.append(_trail_edge(step))
+    return Group(*rows)
+
+
+def _trail_step(step: TrailStep) -> Text:
+    """One step row: glyph, trace id, role, tier, summary."""
+    line = Text(no_wrap=True)
+    line.append("  ●  ", style="bold")
+    line.append(f"{step.trace_id:<12}", style="bold cyan")
+    line.append(f"{step.role:<11}", style="dim")
+    if step.tier:
+        label, colour = _CALL_STYLE.get(step.tier, (step.tier, "white"))
+        line.append(f"{label:<10}", style=f"bold {colour}")
+    else:
+        line.append(f"{'—':<10}", style="dim")
+    if step.driver_summary:
+        line.append(step.driver_summary)
+    elif step.role == "anchor":
+        line.append("last clean state", style="dim italic")
+    elif step.primary_axis:
+        line.append(f"{step.primary_axis} regression", style="dim")
+    return line
+
+
+def _trail_edge(step: TrailStep) -> Text:
+    """Vertical-pipe connector between two steps. Carries the driver
+    text on its own line so the chain reads top-to-bottom naturally."""
+    body = Text(no_wrap=False)
+    body.append("     │\n", style="dim")
+    if step.primary_axis or step.driver_summary:
+        body.append("     │  ", style="dim")
+        body.append("driver: ", style="dim")
+        if step.driver_summary:
+            body.append(step.driver_summary, style="italic")
+        elif step.primary_axis:
+            body.append(f"{step.primary_axis} change", style="italic")
+        body.append("\n")
+    body.append("     │", style="dim")
+    return body
+
+
+def _trail_actions(result: TrailResult) -> Group:
+    """Two next-step commands derived from the chain's endpoints."""
+    title = Text("What to do", style="bold")
+    rows: list[Text] = []
+
+    # If we have at least two steps, the user can re-verify the call
+    # and pin the regression as a policy.
+    if len(result.steps) >= 2:
+        anchor = result.steps[-1].trace_id
+        cand = result.steps[0].trace_id
+        rows.append(_command_line(f"shadow call {anchor} {cand}    re-verify the call"))
+        rows.append(
+            _command_line(
+                f"shadow autopr {anchor} {cand} -o tests/regressions/r.yaml    pin it as policy"
+            )
+        )
+    else:
+        rows.append(
+            _command_line(
+                f"shadow ledger    see other artifacts referencing {result.root_trace_id}"
+            )
+        )
+
+    return Group(title, *rows)
