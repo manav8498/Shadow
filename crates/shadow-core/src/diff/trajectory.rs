@@ -100,7 +100,10 @@ fn tool_shape(r: &Record) -> Vec<String> {
                 .and_then(|n| n.as_str())
                 .unwrap_or("_")
                 .to_string();
-            let input = part.get("input").cloned().unwrap_or(serde_json::Value::Null);
+            let input = part
+                .get("input")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
             let mut keys: Vec<String> = input
                 .as_object()
                 .map(|o| o.keys().cloned().collect())
