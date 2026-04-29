@@ -73,7 +73,7 @@ from typing import Any, Literal
 import numpy as np
 from numpy.typing import NDArray
 from scipy.stats import f as f_dist  # type: ignore[import-untyped]
-from scipy.stats import ncf as ncf_dist  # type: ignore[import-untyped]
+from scipy.stats import ncf as ncf_dist
 
 # Total label-permutation enumeration cap. C(12, 6) = 924; C(14, 7) =
 # 3432; C(16, 8) = 12870. We cap at ~13_000 enumerations so the exact

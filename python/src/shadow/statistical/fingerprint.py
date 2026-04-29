@@ -434,6 +434,7 @@ def fingerprint_trace_extended(
 
     embeddings_raw = embedder(texts)
     embeddings = np.asarray(embeddings_raw, dtype=np.float64)
+    ext: NDArray[np.float64]
     if embeddings.ndim != 2 or embeddings.shape[0] != len(payloads):
         # Misshapen embedder output → fall back to zeros for the
         # embedding-derived dims rather than crashing the fingerprint.
@@ -453,7 +454,7 @@ def fingerprint_trace_extended(
             [float(np.clip(1.0 - _cosine(v, centroid), 0.0, 1.0)) for v in embeddings],
             dtype=np.float64,
         )
-        ext = np.column_stack([norm_log, centroid_dist])
+        ext = np.column_stack([norm_log, centroid_dist]).astype(np.float64)
 
     base = np.stack(base_rows, axis=0)
     return np.concatenate([base, ext], axis=1)
