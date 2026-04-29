@@ -28,7 +28,7 @@ This is a common class of bug with LLM agents. The agent runs, responses look pl
 Shadow treats agent behavior as a thing you can test in CI, the same way you test code. Given a recorded set of real agent interactions (a baseline), and a candidate change (new prompt, new model, renamed tool), Shadow answers three questions on the PR:
 
 1. **What behavior changed?** A nine-axis diff scores the candidate against the baseline on things like meaning, tool use, refusals, latency, and output structure.
-2. **Why did it change?** If the PR touched multiple things at once, causal bisection estimates which specific change most likely explains each regression, then points you at the replay / counterfactual primitives to confirm it before merging.
+2. **Why did it change?** If the PR touched multiple things at once, regression attribution estimates which specific change most likely explains each regression, then points you at the replay / counterfactual primitives to confirm it before merging. The stable CLI uses LASSO-based `shadow bisect`; the newer intervention-based `shadow.causal` module is opt-in.
 3. **Is it safe to merge?** A policy file lets you declare rules the agent must follow (tool ordering, output shape, token budgets, forbidden outputs). Shadow reports regressions against those rules.
 
 The report lands in the PR comment. No dashboard, no separate login, no trace upload. Traces stay on your disk.
@@ -84,12 +84,15 @@ pip install 'shadow-diff[anthropic,openai,embeddings,otel]'
 
 ### Telemetry: off by default, opt-in only
 
-Shadow ships an opt-in usage-telemetry hook (`shadow.statistical` /
-`shadow.diff` invocation counts, SDK version, OS, anonymous install
-ID — no traces, no prompts, no user data). It is **off by default**.
-First-run prompt asks before enabling. CI environments are detected
-and skipped automatically. Hard-disable with `SHADOW_TELEMETRY=off`
-in your shell. Source: [`python/src/shadow/_telemetry.py`](python/src/shadow/_telemetry.py).
+Shadow ships an opt-in usage-telemetry hook. When enabled, each
+event includes: CLI command / event name, SDK version, Python
+version, OS, CPU architecture, and an anonymous install ID
+(random UUID4 generated once, stored at `~/.shadow/install_id`,
+never tied to identity). **No traces, no prompts, no user data.**
+Telemetry is **off by default** — the first-run prompt asks before
+enabling. CI environments are detected and skipped automatically.
+Hard-disable with `SHADOW_TELEMETRY=off` in your shell. Source:
+[`python/src/shadow/_telemetry.py`](python/src/shadow/_telemetry.py).
 
 Shadow never uploads `.agentlog` content, prompt text, response
 text, or tool arguments. The only fields collected when telemetry
@@ -498,14 +501,14 @@ Every example runs offline from committed fixtures. No API key required:
 
 ## Statistical, formal, and causal primitives (v2.5+)
 
-Shadow ships a layer most LLM-eval tools don't have — empirically-validated statistical and formal-verification primitives that give the certificates real meaning. These compose with the nine-axis diff above.
+Shadow ships a layer most LLM-eval tools don't have — empirically-validated statistical and formal-methods-inspired primitives that make certificates more evidence-backed. The mix is heterogeneous: rigorous statistical tests (Hotelling T², SPRT, conformal coverage), genuine formal verification on traces (LTLf model checking with bottom-up DP), causal-inference-inspired attribution (intervention-based ATE, foundation), and signed certificates that compose all of the above. Not every certificate carries a formal proof; each component is documented for what it is. These compose with the nine-axis diff above.
 
 | Module | What it does | Reference |
 |---|---|---|
 | [`shadow.statistical`](python/src/shadow/statistical/) | Behavioral fingerprinting, Hotelling T² (with OAS shrinkage and permutation p-values), Wald + mixture SPRT, variance-adaptive `MSPRTtDetector` | [docs/theory/sprt.md](docs/theory/sprt.md), [docs/theory/hotelling.md](docs/theory/hotelling.md) |
 | [`shadow.ltl`](python/src/shadow/ltl/) | Finite-trace LTLf model checking with bottom-up DP (O(\|π\|×\|φ\|)); `WeakUntil` for "must-call-before" rules; YAML compiler | [docs/theory/ltl.md](docs/theory/ltl.md) |
 | [`shadow.conformal`](python/src/shadow/conformal.py) | Distribution-free split conformal (`conformal_calibrate`); Adaptive Conformal Inference (`ACIDetector`, Gibbs & Candès 2021) for distribution shift | [docs/theory/conformal.md](docs/theory/conformal.md) |
-| [`shadow.causal`](python/src/shadow/causal/) | Intervention-based causal attribution foundation, inspired by Pearl-style causal inference: per-delta ATE, optional percentile-bootstrap CIs (Efron 1979), optional back-door adjustment for named confounders, optional VanderWeele-Ding (2017) E-value sensitivity. Not yet the default `shadow bisect` engine — that remains LASSO-based. | [docs/theory/causal.md](docs/theory/causal.md) |
+| [`shadow.causal`](python/src/shadow/causal/) | Intervention-based causal attribution foundation, inspired by Pearl-style causal inference: per-delta ATE, optional percentile-bootstrap CIs (Efron 1979), optional back-door adjustment for named confounders **when users can supply or justify stratum weights** (the default uniform weights are unbiased only under uniform P(C=c)), optional VanderWeele-Ding (2017) E-value sensitivity. Not yet the default `shadow bisect` engine — that remains LASSO-based. | [docs/theory/causal.md](docs/theory/causal.md) |
 | [`shadow.diff_py`](python/src/shadow/diff_py/) | Scenario-aware multi-case diff: partition by `meta.scenario_id`, run per-scenario diffs without spurious "dropped turns" |  |
 | [`shadow.policy_suggest`](python/src/shadow/policy_suggest/) | Mine baseline traces for `must_call_before` patterns; suggest policies the operator approves before adding |  |
 | [`shadow.storage`](python/src/shadow/storage/) | Pluggable Storage interface (FileStore + InMemoryStore in OSS; cloud backends plug in) |  |
