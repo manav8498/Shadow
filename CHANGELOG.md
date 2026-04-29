@@ -6,6 +6,67 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.9.0] - 2026-04-28
+
+Closes the last two A+ holdouts identified in the post-v2.8 third-
+party review: causal-replay semantic divergence is now embedder-
+aware (matches the Rust nine-axis cosine when an embedder is
+provided), and the deterministic 10-pattern recommendations engine
+gains an opt-in LLM-backed novel-pattern fallback for signatures
+the curated rules don't catch. Both close real fidelity gaps with
+clean opt-in paths and zero impact on backward compatibility.
+
+### Added
+
+- **`OpenAIReplayer(embedder=...)`** — when supplied, semantic
+  divergence is computed as ``1 - cosine(embed(baseline), embed(candidate))``
+  rather than the v2.8 Jaccard fallback. Cross-validated to match
+  the Rust ``compute_semantic_axis_with_embedder`` output within
+  1e-6 on identical inputs. Failure modes (misshapen output, dim
+  mismatch, exception) all map to divergence = 1.0 (fail-loud) so
+  the embedder bug surfaces as a regression rather than as silent
+  zero-divergence.
+
+  10 dedicated tests in
+  `python/tests/test_causal_replayer_embedder.py` including a
+  cross-validation against the Rust nine-axis path on the same
+  text pair + embedder.
+
+- **`shadow.diff_py.recommendations.enrich_with_llm`** — LLM-backed
+  novel-pattern diagnosis fallback. Calls the deterministic Rust
+  engine first; only invokes an LLM when:
+    * No rule-based root-cause is present, AND
+    * At least one axis is at severity "severe", AND
+    * `OPENAI_API_KEY` is in the env or a custom `llm_caller=` is
+      passed.
+
+  Uses OpenAI structured output (JSON Schema) so the response shape
+  is enforced server-side; malformed responses are dropped silently
+  (returning the deterministic recommendations unchanged) rather
+  than propagating noise. LLM-derived rows are tagged with
+  `"source": "llm"` for renderer differentiation, and confidence is
+  capped at 0.65 to honestly signal "operating beyond curated
+  patterns."
+
+  14 dedicated tests in
+  `python/tests/test_recommendations_llm_fallback.py` covering
+  gating logic (no-LLM-when-root-cause-present, no-LLM-when-no-
+  severe-axis, no-key-no-fallback), happy path, malformed-output
+  validation (5 distinct invalidation cases), confidence cap, and
+  dataclass round-trip.
+
+### Notes
+
+- These are additive — no breaking changes vs 2.8.0. SemVer minor.
+- Default behavior is unchanged: existing OpenAIReplayer callers
+  who didn't pass `embedder=` keep getting the Jaccard path; users
+  who don't call `enrich_with_llm` keep getting the deterministic
+  recommendations only. Both new paths are opt-in.
+- Cost: at most one LLM call per diff report, only when both gating
+  conditions fire. Typical: $0.001-0.01 with gpt-4o-mini. Zero cost
+  when no severe axis is present or a rule-based root-cause already
+  fired.
+
 ## [2.8.0] - 2026-04-28
 
 Closes the final five A+ gaps from the post-v2.7.0 review: live OpenAI
