@@ -320,6 +320,131 @@ def demo() -> None:
     )
 
 
+# ---- autopr ----------------------------------------------------------------
+
+
+@app.command()
+def autopr(
+    baseline: Annotated[Path, typer.Argument(help="Baseline .agentlog file (good behaviour)")],
+    candidate: Annotated[
+        Path, typer.Argument(help="Candidate .agentlog file (regressed behaviour)")
+    ],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Write the generated policy YAML to this path. Default: print to stdout.",
+        ),
+    ] = None,
+    name: Annotated[
+        str,
+        typer.Option(
+            "--name",
+            help="Slug used as a prefix for rule ids. Use a short, stable string.",
+        ),
+    ] = "regression",
+    verify: Annotated[
+        bool,
+        typer.Option(
+            "--verify/--no-verify",
+            help="After synthesising, run the generated policy against both "
+            "traces and confirm baseline shows zero violations and candidate "
+            "shows at least one. Rules that fail this counterfactual gate "
+            "abort the command with exit code 2 so callers don't ship a "
+            "policy that doesn't actually catch the regression.",
+        ),
+    ] = True,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help="Print what would be written without writing anything to disk.",
+        ),
+    ] = False,
+) -> None:
+    """Synthesise a Shadow policy from a regression.
+
+    Reads two `.agentlog` traces — the baseline (good behaviour) and a
+    candidate that regressed — and emits a policy YAML in Shadow's
+    existing 12-kind language whose rules pin the regression. The
+    generated policy is the same shape `shadow init` writes; you can
+    pass it to `shadow diff --policy <file>` immediately.
+
+    Pure deterministic: no LLM, no network. The optional `--verify`
+    step (default on) runs the generated policy against both traces
+    and confirms it actually catches the regression before you ship it.
+
+    Example:
+        shadow autopr baseline.agentlog candidate.agentlog \\
+                      --output tests/regressions/refund-flow.yaml \\
+                      --name refund-flow-2026-04-29
+    """
+    from shadow.autopr import synthesize_policy, verify_policy
+
+    try:
+        b = _core.parse_agentlog(baseline.read_bytes())
+        c = _core.parse_agentlog(candidate.read_bytes())
+    except (FileNotFoundError, PermissionError) as e:
+        # _fail() will append the contextual hint for both these classes.
+        _fail(e)
+        return
+    except ShadowError as e:
+        _fail(e)
+        return
+    except Exception as e:  # pragma: no cover — defensive: parser already surfaces ShadowError.
+        _fail(e)
+        return
+
+    policy = synthesize_policy(b, c, name=name)
+
+    if verify and policy.rules:
+        ok, reasons = verify_policy(policy, b, c)
+        if not ok:
+            err_console.print("[bold red]error[/]: synthesised policy failed counterfactual gate")
+            for r in reasons:
+                err_console.print(f"  • {r}")
+            err_console.print(
+                "[dim]hint: this means the generated rules don't catch the "
+                "regression in the candidate, or they reject baseline "
+                "behaviour. Re-run with --no-verify to inspect the "
+                "rules manually, or open an issue with the trace pair.[/]"
+            )
+            raise typer.Exit(code=2)
+        for r in reasons:
+            err_console.print(f"[dim]✓ {r}[/]")
+
+    if not policy.rules:
+        err_console.print(
+            "[yellow]warning[/]: no rules synthesised — the diff didn't "
+            "surface a regression in a class autopr can pin (structural "
+            "drift, refusal flip, axis-level token spike)."
+        )
+        for d in policy.diagnostics:
+            err_console.print(f"  · {d}")
+        # Exit code 0 with empty output: the caller chose to invoke
+        # autopr; an empty result is informational, not a failure.
+
+    yaml_text = policy.to_yaml()
+
+    if dry_run or output is None:
+        # Print to stdout so the YAML can be piped (e.g. into a
+        # `tests/regressions/<name>.yaml` redirect by the caller).
+        console.print(yaml_text)
+        if output is not None:
+            err_console.print(
+                f"[dim](dry-run: would have written {len(policy.rules)} " f"rule(s) to {output})[/]"
+            )
+        return
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(yaml_text)
+    err_console.print(
+        f"[green]✓[/] wrote {len(policy.rules)} rule(s) to "
+        f"{output.relative_to(Path.cwd()) if output.is_relative_to(Path.cwd()) else output}"
+    )
+
+
 # ---- record ----------------------------------------------------------------
 
 
