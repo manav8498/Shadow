@@ -320,11 +320,154 @@ def mean_fingerprint(
     return mean
 
 
+# ---------------------------------------------------------------------------
+# Extended fingerprint with embedding-derived dimensions
+# ---------------------------------------------------------------------------
+
+# Number of embedding-derived dimensions appended to the base D=12
+# fingerprint when an embedder is provided. The two dimensions are:
+#
+#   12: embedding_norm_log    — log-scaled L2 norm of the response
+#                               embedding, normalised to [0, 1]. Proxy
+#                               for "richness" / "specificity" of the
+#                               response in embedding space — short or
+#                               low-content responses cluster near zero.
+#   13: embedding_centroid_dist — 1 − cosine(this response's embedding,
+#                               corpus-mean embedding). Catches "agent
+#                               drifted away from the typical response
+#                               distribution," a regression class that
+#                               heuristic content features can miss when
+#                               the surface forms look superficially
+#                               similar.
+EMBEDDING_DIM_COUNT: int = 2
+EXTENDED_DIM: int = DIM + EMBEDDING_DIM_COUNT  # 14
+
+# Embedding-norm scale: log-scaled with a default that targets typical
+# all-MiniLM-L6-v2 norms (≈ 1.0 to 5.0 for normal-length responses).
+# Configurable via :class:`FingerprintConfig.embedding_norm_scale`.
+DEFAULT_EMBEDDING_NORM_SCALE: float = 5.0
+
+EmbedderFn = Any  # Callable[[list[str]], list[list[float]] | numpy.ndarray]
+
+
+def _l2_norm(v: NDArray[np.float64]) -> float:
+    return float(np.linalg.norm(v))
+
+
+def _cosine(a: NDArray[np.float64], b: NDArray[np.float64]) -> float:
+    """Cosine similarity bounded to [-1, 1]; returns 1.0 for two zero
+    vectors and 0.0 for one zero / one non-zero (matches the Rust
+    `diff::embedder::cosine` semantics)."""
+    na = float(np.linalg.norm(a))
+    nb = float(np.linalg.norm(b))
+    if na < 1e-12 and nb < 1e-12:
+        return 1.0
+    if na < 1e-12 or nb < 1e-12:
+        return 0.0
+    return float(np.clip(np.dot(a, b) / (na * nb), -1.0, 1.0))
+
+
+def fingerprint_trace_extended(
+    records: list[dict[str, Any]],
+    embedder: EmbedderFn,
+    config: FingerprintConfig | None = None,
+    embedding_norm_scale: float = DEFAULT_EMBEDDING_NORM_SCALE,
+) -> NDArray[np.float64]:
+    """Return a ``(n_responses, EXTENDED_DIM=14)`` fingerprint matrix.
+
+    The base 12 dimensions are computed exactly as in
+    :func:`fingerprint_trace`; the additional two dimensions are
+    derived from a caller-supplied embedder.
+
+    The embedder is invoked **once** with the full corpus of
+    chat_response texts; the centroid is computed from those vectors,
+    and each response gets an embedding-norm and centroid-distance
+    feature.
+
+    Parameters
+    ----------
+    records :
+        agentlog records; non-chat_response records are ignored.
+    embedder :
+        A callable ``texts -> list[list[float]] | NDArray`` matching
+        the Rust ``Embedder`` trait shape. Typical wiring:
+
+        .. code-block:: python
+
+            from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer("all-MiniLM-L6-v2")
+            def embed(texts):
+                return model.encode(texts, show_progress_bar=False)
+            mat = fingerprint_trace_extended(records, embed)
+    config :
+        Optional :class:`FingerprintConfig` for the base dimensions.
+    embedding_norm_scale :
+        L2 norm above which the ``embedding_norm_log`` dimension
+        saturates to 1.0. Default 5.0 targets MiniLM-L6-v2 typical
+        outputs; raise for higher-dimensional models.
+
+    Returns
+    -------
+    Matrix of shape ``(n_responses, EXTENDED_DIM)`` (== ``(n, 14)``).
+    Returns ``(0, EXTENDED_DIM)`` for traces without any chat_responses.
+    """
+    cfg = config if config is not None else DEFAULT_CONFIG
+
+    # Collect chat_response payloads in order.
+    payloads: list[dict[str, Any]] = []
+    for rec in records:
+        if rec.get("kind") != "chat_response":
+            continue
+        payloads.append(rec.get("payload") or {})
+
+    if not payloads:
+        return np.empty((0, EXTENDED_DIM), dtype=np.float64)
+
+    # Base 12-dim features.
+    base_rows = [_extract_response_vector(p, cfg).to_array() for p in payloads]
+
+    # Embedding-derived 2-dim features.
+    texts: list[str] = []
+    for p in payloads:
+        content = p.get("content") or []
+        texts.append(_extract_text(content))
+
+    embeddings_raw = embedder(texts)
+    embeddings = np.asarray(embeddings_raw, dtype=np.float64)
+    if embeddings.ndim != 2 or embeddings.shape[0] != len(payloads):
+        # Misshapen embedder output → fall back to zeros for the
+        # embedding-derived dims rather than crashing the fingerprint.
+        ext = np.zeros((len(payloads), EMBEDDING_DIM_COUNT), dtype=np.float64)
+    else:
+        centroid = embeddings.mean(axis=0)
+        norm_log = np.array(
+            [_log_scale(_l2_norm(v), embedding_norm_scale) for v in embeddings],
+            dtype=np.float64,
+        )
+        # 1 - cosine(this, centroid) ∈ [0, 2]; clamp to [0, 1] so the
+        # dimension stays in the same scale as the others. A response
+        # that perfectly matches the corpus mean has distance 0; a
+        # response orthogonal to the centroid has distance 1; opposite
+        # has distance 2 (clamped to 1).
+        centroid_dist = np.array(
+            [float(np.clip(1.0 - _cosine(v, centroid), 0.0, 1.0)) for v in embeddings],
+            dtype=np.float64,
+        )
+        ext = np.column_stack([norm_log, centroid_dist])
+
+    base = np.stack(base_rows, axis=0)
+    return np.concatenate([base, ext], axis=1)
+
+
 __all__ = [
     "DEFAULT_CONFIG",
+    "DEFAULT_EMBEDDING_NORM_SCALE",
     "DIM",
+    "EMBEDDING_DIM_COUNT",
+    "EXTENDED_DIM",
     "BehavioralVector",
     "FingerprintConfig",
     "fingerprint_trace",
+    "fingerprint_trace_extended",
     "mean_fingerprint",
 ]

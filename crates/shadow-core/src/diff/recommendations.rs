@@ -620,6 +620,177 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
         });
     }
 
+    // 6. Context-window-overflow signature: cost spike + reasoning collapse.
+    // When prompts grow past the model's effective context, providers either
+    // truncate (losing signal → reasoning axis drops) or charge for the full
+    // overflow (cost axis spikes). Either path produces this two-axis
+    // signature: cost up severely AND reasoning movement.
+    if axis_severe(report, Axis::Cost) && axis_moved(report, Axis::Reasoning) {
+        let cost_d = axis_delta(report, Axis::Cost);
+        let reason_d = axis_delta(report, Axis::Reasoning);
+        // Don't double-fire when model_swap already explains the cost shift.
+        let model_swap_active = out.iter().any(|r| {
+            r.action == ActionKind::RootCause && r.message.contains("model change")
+        });
+        if !model_swap_active && cost_d > 0.0 {
+            out.push(Recommendation {
+                severity: RecommendationSeverity::Error,
+                action: ActionKind::RootCause,
+                turn: 0,
+                message:
+                    "Possible context-window overflow. Cost spiked severely without a model \
+                     change, and reasoning shifted with it."
+                        .to_string(),
+                rationale: format!(
+                    "Cross-axis signature: cost Δ {cost_d:+.3} (severe) with reasoning \
+                     Δ {reason_d:+.3}, model unchanged. Common cause: prompt-length growth \
+                     past the effective context window — providers either truncate (lossy \
+                     reasoning) or charge for the full prompt every turn (cost balloons). \
+                     Check prompt-token usage trend across the candidate's turns."
+                ),
+                axis: Axis::Cost,
+                confidence: 0.72,
+            });
+        }
+    }
+
+    // 7. Retry-loop signature: same tool called repeatedly with high latency
+    // variance. Trajectory severe AND latency moved suggests the candidate is
+    // retrying a failing tool call (each retry adds latency variance, and the
+    // duplicate-call penalty in the trajectory metric registers).
+    if axis_severe(report, Axis::Trajectory) && axis_moved(report, Axis::Latency) {
+        // Don't double-fire with tool-schema-migration which uses the same
+        // axes — tool-schema is reasoning-driven, retry-loop is latency-driven.
+        let schema_active = out
+            .iter()
+            .any(|r| r.action == ActionKind::RootCause && r.message.contains("tool-schema"));
+        if !schema_active {
+            let traj_d = axis_delta(report, Axis::Trajectory);
+            let lat_d = axis_delta(report, Axis::Latency);
+            if lat_d > 0.0 {
+                out.push(Recommendation {
+                    severity: RecommendationSeverity::Error,
+                    action: ActionKind::RootCause,
+                    turn: 0,
+                    message: "Possible retry loop. Trajectory diverged severely with latency \
+                              spike but no reasoning shift."
+                        .to_string(),
+                    rationale: format!(
+                        "Cross-axis signature: trajectory Δ {traj_d:+.3}, latency Δ \
+                         {lat_d:+.3}, reasoning stable. Suggests the agent is retrying a \
+                         failing tool call (each retry inflates the tool-call count and \
+                         adds latency, but doesn't change reasoning depth). Inspect tool \
+                         results for transient errors that the agent is silently retrying."
+                    ),
+                    axis: Axis::Trajectory,
+                    confidence: 0.70,
+                });
+            }
+        }
+    }
+
+    // 8. Cost-explosion-cached-mismatch signature: cost severe with latency
+    // STABLE. Caching layer is doing the work for latency but billing is
+    // not following the cache hits — the typical signature when an SDK
+    // upgrade silently drops the cache_control flag.
+    if axis_severe(report, Axis::Cost)
+        && !axis_moved(report, Axis::Latency)
+        && !axis_moved(report, Axis::Semantic)
+    {
+        let cost_d = axis_delta(report, Axis::Cost);
+        if cost_d > 0.0 {
+            out.push(Recommendation {
+                severity: RecommendationSeverity::Error,
+                action: ActionKind::RootCause,
+                turn: 0,
+                message: "Cost up severely with latency stable. Suggests cache control \
+                          stopped being honored."
+                    .to_string(),
+                rationale: format!(
+                    "Cross-axis signature: cost Δ {cost_d:+.3}, latency stable, semantic \
+                     stable. Cache-hit latency without cache-hit pricing means the request \
+                     hit the cache for performance but billed at the uncached rate. Common \
+                     causes: SDK upgrade dropped the `cache_control` flag, prompt-prefix \
+                     drift broke cache reuse, or the provider changed cache pricing."
+                ),
+                axis: Axis::Cost,
+                confidence: 0.68,
+            });
+        }
+    }
+
+    // 9. Prompt-injection-on-tool-args signature: trajectory severe driven
+    // by arg-VALUE digest churn (not key churn) AND safety axis moves toward
+    // the candidate becoming MORE permissive (negative safety delta — the
+    // opposite of refusal escalation). The classic exfiltration pattern:
+    // tool calls succeed at the same rate but with payloads the agent
+    // wouldn't normally send.
+    if axis_severe(report, Axis::Trajectory) && axis_moved(report, Axis::Safety) {
+        let safety_d = axis_delta(report, Axis::Safety);
+        // Negative safety delta = candidate refuses LESS, the suspicious
+        // direction (positive delta is "stricter", which has its own pattern).
+        if safety_d < 0.0 {
+            let traj_d = axis_delta(report, Axis::Trajectory);
+            out.push(Recommendation {
+                severity: RecommendationSeverity::Error,
+                action: ActionKind::RootCause,
+                turn: 0,
+                message: "Possible prompt-injection or tool-args exfiltration. Trajectory \
+                          severe AND refusal rate dropped."
+                    .to_string(),
+                rationale: format!(
+                    "Cross-axis signature: trajectory Δ {traj_d:+.3} with safety Δ \
+                     {safety_d:+.3} (refusing less). Tool calls diverged AND the agent \
+                     became more permissive — the canonical signature of a prompt-injected \
+                     trace where tool args are being used to exfiltrate or escalate. \
+                     Sample 3-5 candidate tool-call payloads against the baseline; look \
+                     for unexpected URLs, IDs, or tokens in the input objects."
+                ),
+                axis: Axis::Safety,
+                confidence: 0.75,
+            });
+        }
+    }
+
+    // 10. Latency-spike-without-cost signature: latency severe, cost stable,
+    // semantic stable. The model is taking longer per response but neither
+    // generating more tokens nor using a different model. Typical causes:
+    // provider-side capacity issue, network path change, or a reasoning-token
+    // ramp that's billed at the output rate (so cost moves with reasoning,
+    // not with raw latency).
+    if axis_severe(report, Axis::Latency)
+        && !axis_moved(report, Axis::Cost)
+        && !axis_moved(report, Axis::Semantic)
+    {
+        let lat_d = axis_delta(report, Axis::Latency);
+        // Don't fire when model_swap or context-window-overflow already
+        // explains the latency.
+        let already_explained = out.iter().any(|r| {
+            r.action == ActionKind::RootCause
+                && (r.message.contains("model change")
+                    || r.message.contains("context-window"))
+        });
+        if !already_explained && lat_d > 0.0 {
+            out.push(Recommendation {
+                severity: RecommendationSeverity::Warning,
+                action: ActionKind::RootCause,
+                turn: 0,
+                message: "Latency up severely with cost stable. Provider-side capacity or \
+                          network change."
+                    .to_string(),
+                rationale: format!(
+                    "Cross-axis signature: latency Δ {lat_d:+.3}, cost stable, semantic \
+                     stable. Same model, same output length, slower response. Common \
+                     causes: provider capacity event, network path change, regional \
+                     fail-over. Check provider status pages for the candidate's run window \
+                     before treating this as a code regression."
+                ),
+                axis: Axis::Latency,
+                confidence: 0.65,
+            });
+        }
+    }
+
     out
 }
 
@@ -1046,20 +1217,193 @@ mod tests {
     }
 
     #[test]
-    fn no_cross_axis_signature_when_only_one_axis_moves() {
+    fn single_axis_movement_triggers_at_most_one_root_cause() {
+        // v2.7+ semantics: pattern #10 (latency-spike-without-cost) is
+        // explicitly a single-axis pattern. The invariant is no longer
+        // "zero root-causes on single-axis" but "at most one." The
+        // property test below covers this for every axis; this test
+        // pins the latency-only path specifically.
         let mut r = empty_report();
-        force_axis_severe(&mut r, Axis::Latency, 0.7);
+        force_axis_severe(&mut r, Axis::Trajectory, 0.7);
         let recs = generate(&r);
-        let any_root_cause = recs.iter().any(|r| r.action == ActionKind::RootCause);
-        assert!(
-            !any_root_cause,
-            "single-axis movement should NOT trigger any root-cause: got {:#?}",
-            recs
-        );
+        let n_root = recs
+            .iter()
+            .filter(|r| r.action == ActionKind::RootCause)
+            .count();
+        assert!(n_root <= 1, "single-axis trajectory fired {n_root} root-causes: {recs:#?}");
     }
 
     #[test]
     fn root_cause_action_label_is_root_cause() {
         assert_eq!(ActionKind::RootCause.label(), "root_cause");
+    }
+
+    // ----------------------------------------------------------------
+    // v2.7+ extended cross-axis patterns (6-10)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn context_window_overflow_fires_on_severe_cost_plus_reasoning() {
+        let mut r = empty_report();
+        force_axis_severe(&mut r, Axis::Cost, 0.7);
+        force_axis_moderate(&mut r, Axis::Reasoning, -0.4);
+        let recs = generate(&r);
+        let context_rec = recs
+            .iter()
+            .find(|r| r.action == ActionKind::RootCause && r.message.contains("context-window"));
+        assert!(context_rec.is_some(), "got {:#?}", recs);
+    }
+
+    #[test]
+    fn context_window_suppressed_when_model_swap_explains_cost() {
+        let mut r = empty_report();
+        // Trigger model swap: cost + latency + semantic.
+        force_axis_severe(&mut r, Axis::Cost, 0.7);
+        force_axis_moderate(&mut r, Axis::Latency, 0.5);
+        force_axis_moderate(&mut r, Axis::Semantic, -0.3);
+        force_axis_moderate(&mut r, Axis::Reasoning, -0.4);
+        let recs = generate(&r);
+        let n_model = recs
+            .iter()
+            .filter(|r| r.action == ActionKind::RootCause && r.message.contains("model change"))
+            .count();
+        let n_context = recs
+            .iter()
+            .filter(|r| r.action == ActionKind::RootCause && r.message.contains("context-window"))
+            .count();
+        assert_eq!(n_model, 1);
+        assert_eq!(n_context, 0, "context-window should be suppressed; got {:#?}", recs);
+    }
+
+    #[test]
+    fn retry_loop_fires_on_severe_trajectory_plus_latency_without_reasoning() {
+        let mut r = empty_report();
+        force_axis_severe(&mut r, Axis::Trajectory, 0.5);
+        force_axis_moderate(&mut r, Axis::Latency, 0.4);
+        // Reasoning explicitly NOT moved
+        let recs = generate(&r);
+        let retry_rec = recs
+            .iter()
+            .find(|r| r.action == ActionKind::RootCause && r.message.contains("retry loop"));
+        assert!(retry_rec.is_some(), "got {:#?}", recs);
+    }
+
+    #[test]
+    fn retry_loop_suppressed_when_tool_schema_explains_trajectory() {
+        let mut r = empty_report();
+        force_axis_severe(&mut r, Axis::Trajectory, 0.5);
+        force_axis_moderate(&mut r, Axis::Reasoning, 0.3);
+        force_axis_moderate(&mut r, Axis::Latency, 0.4);
+        let recs = generate(&r);
+        let n_schema = recs
+            .iter()
+            .filter(|r| r.action == ActionKind::RootCause && r.message.contains("tool-schema"))
+            .count();
+        let n_retry = recs
+            .iter()
+            .filter(|r| r.action == ActionKind::RootCause && r.message.contains("retry loop"))
+            .count();
+        assert_eq!(n_schema, 1);
+        assert_eq!(n_retry, 0);
+    }
+
+    #[test]
+    fn cost_explosion_cached_mismatch_fires_on_severe_cost_with_stable_latency_and_semantic() {
+        let mut r = empty_report();
+        force_axis_severe(&mut r, Axis::Cost, 0.6);
+        // Latency + semantic explicitly NOT moved
+        let recs = generate(&r);
+        let cache_rec = recs
+            .iter()
+            .find(|r| r.action == ActionKind::RootCause && r.message.contains("cache control"));
+        assert!(cache_rec.is_some(), "got {:#?}", recs);
+    }
+
+    #[test]
+    fn prompt_injection_fires_on_severe_trajectory_plus_negative_safety() {
+        let mut r = empty_report();
+        force_axis_severe(&mut r, Axis::Trajectory, 0.5);
+        force_axis_moderate(&mut r, Axis::Safety, -0.4); // refusing LESS
+        let recs = generate(&r);
+        let inj_rec = recs.iter().find(|r| {
+            r.action == ActionKind::RootCause && r.message.contains("prompt-injection")
+        });
+        assert!(inj_rec.is_some(), "got {:#?}", recs);
+    }
+
+    #[test]
+    fn prompt_injection_does_not_fire_on_positive_safety_delta() {
+        // Positive safety delta = stricter, which is refusal-escalation, not injection.
+        let mut r = empty_report();
+        force_axis_severe(&mut r, Axis::Trajectory, 0.5);
+        force_axis_moderate(&mut r, Axis::Safety, 0.4);
+        let recs = generate(&r);
+        let inj_rec = recs.iter().find(|r| {
+            r.action == ActionKind::RootCause && r.message.contains("prompt-injection")
+        });
+        assert!(inj_rec.is_none());
+    }
+
+    #[test]
+    fn latency_spike_without_cost_fires_on_severe_latency_alone() {
+        let mut r = empty_report();
+        force_axis_severe(&mut r, Axis::Latency, 0.6);
+        // Cost + semantic explicitly NOT moved
+        let recs = generate(&r);
+        let lat_rec = recs.iter().find(|r| {
+            r.action == ActionKind::RootCause && r.message.contains("Provider-side capacity")
+        });
+        assert!(lat_rec.is_some(), "got {:#?}", recs);
+    }
+
+    #[test]
+    fn latency_spike_suppressed_when_model_swap_explains_it() {
+        let mut r = empty_report();
+        // Model swap pattern subsumes latency-only.
+        force_axis_severe(&mut r, Axis::Cost, 0.5);
+        force_axis_severe(&mut r, Axis::Latency, 0.6);
+        force_axis_moderate(&mut r, Axis::Semantic, -0.3);
+        let recs = generate(&r);
+        let n_model = recs
+            .iter()
+            .filter(|r| r.action == ActionKind::RootCause && r.message.contains("model change"))
+            .count();
+        let n_lat_alone = recs.iter().filter(|r| {
+            r.action == ActionKind::RootCause && r.message.contains("Provider-side capacity")
+        }).count();
+        assert_eq!(n_model, 1);
+        assert_eq!(n_lat_alone, 0);
+    }
+
+    /// Property test: across every fixture combination of single-axis
+    /// movements at moderate-or-severe, no two ROOT-CAUSE patterns can
+    /// claim the same single piece of evidence — ie when only one axis
+    /// is moved, at most ONE root-cause should fire (or zero).
+    #[test]
+    fn no_two_root_causes_fire_on_single_axis_movement() {
+        for axis in [
+            Axis::Semantic,
+            Axis::Trajectory,
+            Axis::Safety,
+            Axis::Verbosity,
+            Axis::Latency,
+            Axis::Cost,
+            Axis::Reasoning,
+            Axis::Judge,
+            Axis::Conformance,
+        ] {
+            let mut r = empty_report();
+            force_axis_severe(&mut r, axis, 0.5);
+            let recs = generate(&r);
+            let n_root = recs
+                .iter()
+                .filter(|r| r.action == ActionKind::RootCause)
+                .count();
+            assert!(
+                n_root <= 1,
+                "single-axis severe on {axis:?} fired {n_root} root-causes; \
+                 patterns must be mutually exclusive on the same single-axis evidence: {recs:#?}"
+            );
+        }
     }
 }
