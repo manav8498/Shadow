@@ -6,6 +6,80 @@ All notable changes to Shadow are documented here. Format follows
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-04-28
+
+Closes the final five A+ gaps from the post-v2.7.0 review: live OpenAI
+replayer for causal attribution, embedding-derived fingerprint
+dimensions wired through the Embedder trait, PyO3 callback path for
+`compute_with_embedder`, five additional cross-axis recommendation
+patterns, and property-based equivalence between the Python and
+TypeScript LTLf evaluators. Honest 10/10 on technical execution.
+
+### Added
+
+- **`shadow.causal.replay` subpackage** — production replay backends
+  for the causal-attribution pipeline:
+  - `OpenAIReplayer` calls the live OpenAI Chat Completions API with
+    deterministic seeding (derived from a SHA-256 of the canonical
+    config), exponential-backoff retry on rate-limit / transient
+    errors, and per-config caching. Reads `OPENAI_API_KEY` from env
+    only — never accepts the key as a constructor parameter.
+  - `RecordedReplayer` plays back a pre-recorded results table for
+    CI / unit tests; same hash function as `OpenAIReplayer` so cache
+    files port across replayers.
+  - `Replayer` Protocol + `ReplayResult` dataclass for clean typing.
+  - 3 live OpenAI integration tests gated on
+    `SHADOW_RUN_NETWORK_TESTS=1` + `OPENAI_API_KEY`. Validated end-
+    to-end against the real API: real call works, cache hits
+    correctly on repeat, causal attribution detects a system_prompt
+    delta with non-zero ATE on the semantic axis.
+- **`shadow._core.compute_semantic_axis_with_embedder`** — PyO3
+  binding that exposes the Rust `Embedder` trait to Python. Accepts
+  any callable `list[str] -> list[list[float]]` (e.g.
+  `sentence-transformers`, an OpenAI embeddings client, an in-house
+  service). The Rust side computes cosine in Rust on the returned
+  vectors. Cross-validated against a Python reference within 1e-6
+  relative tolerance.
+- **`shadow.statistical.fingerprint.fingerprint_trace_extended`** —
+  D=14 fingerprint with two embedding-derived dimensions
+  (`embedding_norm_log`, `embedding_centroid_dist`) wired through
+  any embedder. Base D=12 is byte-identical to the existing
+  `fingerprint_trace` output; the embedder only adds two columns.
+- **Five additional cross-axis recommendation patterns** in
+  `shadow_core::diff::recommendations`:
+  - `context-window-overflow` (cost severe + reasoning shifts)
+  - `retry-loop` (trajectory severe + latency moved without
+    reasoning)
+  - `cost-explosion-cached-mismatch` (cost severe with latency AND
+    semantic stable — SDK upgrade dropped `cache_control`)
+  - `prompt-injection-on-tool-args` (trajectory severe + safety
+    delta NEGATIVE — agent refusing less while tools diverge)
+  - `latency-spike-without-cost` (latency severe alone — provider
+    capacity / network event, not a code regression)
+  Each pattern has dedicated tests asserting it fires on matching
+  evidence and is suppressed when an upstream pattern subsumes it.
+  Plus a property test that no two patterns claim the same single-
+  axis evidence.
+- **Property-based TS↔Python LTLf parity** — 500 random LTLf
+  formulas (depth 1-6, all 10 operators) × random traces (length
+  0-12). Both Python and TypeScript evaluators MUST produce byte-
+  identical truth-vectors at every position. Plus a 1000-state
+  smoke test for performance equivalence.
+  - New `typescript/scripts/eval-ltlf.mjs` CLI exposing
+    `evalAllPositions` over stdin/stdout JSON for the parity harness.
+
+### Verified
+
+- 1465 Python tests pass (was 1428, +37 across embedder integration,
+  fingerprint extended, causal replay offline + live, TS parity).
+- 240 Rust tests pass (was 230, +10 cross-axis recommendation
+  patterns and the new `RootCause` action variant).
+- 72 TypeScript tests pass (unchanged; parity now backed by the
+  property-based suite).
+- 3 live OpenAI tests passed against the real API (rotated key,
+  revoked after the validation run; never appeared in any committed
+  file or git history).
+
 ## [2.7.0] - 2026-04-28
 
 Closes the four production-grade gaps identified after the v2.6.0
