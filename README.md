@@ -82,6 +82,19 @@ Combine extras with comma-separated form:
 pip install 'shadow-diff[anthropic,openai,embeddings,otel]'
 ```
 
+### Telemetry: off by default, opt-in only
+
+Shadow ships an opt-in usage-telemetry hook (`shadow.statistical` /
+`shadow.diff` invocation counts, SDK version, OS, anonymous install
+ID — no traces, no prompts, no user data). It is **off by default**.
+First-run prompt asks before enabling. CI environments are detected
+and skipped automatically. Hard-disable with `SHADOW_TELEMETRY=off`
+in your shell. Source: [`python/src/shadow/_telemetry.py`](python/src/shadow/_telemetry.py).
+
+Shadow never uploads `.agentlog` content, prompt text, response
+text, or tool arguments. The only fields collected when telemetry
+is enabled are listed in the module docstring.
+
 ## Try it in sixty seconds
 
 ```bash
@@ -459,7 +472,8 @@ Per-axis math, severity bands, and bootstrap details: [`docs/features/nine-axis.
 | Merge-blocking PR check | partial via webhooks | partial via webhooks | partial via webhooks | ✅ |
 | Content-addressed release certificate | no | no | no | ✅ |
 | Cosign / sigstore signing on certificate | no | no | no | ✅ |
-| Estimated causal attribution (LASSO + bootstrap CI) | no | no | no | ✅ |
+| Regression attribution (LASSO bisect, stable CLI) | no | no | no | ✅ |
+| Intervention-based causal attribution (foundation, opt-in) | no | no | no | ✅ |
 | Nine pre-built behavior axes | partial | partial | partial | ✅ |
 | Open content-addressed trace format | no | no | no | ✅ |
 
@@ -491,7 +505,7 @@ Shadow ships a layer most LLM-eval tools don't have — empirically-validated st
 | [`shadow.statistical`](python/src/shadow/statistical/) | Behavioral fingerprinting, Hotelling T² (with OAS shrinkage and permutation p-values), Wald + mixture SPRT, variance-adaptive `MSPRTtDetector` | [docs/theory/sprt.md](docs/theory/sprt.md), [docs/theory/hotelling.md](docs/theory/hotelling.md) |
 | [`shadow.ltl`](python/src/shadow/ltl/) | Finite-trace LTLf model checking with bottom-up DP (O(\|π\|×\|φ\|)); `WeakUntil` for "must-call-before" rules; YAML compiler | [docs/theory/ltl.md](docs/theory/ltl.md) |
 | [`shadow.conformal`](python/src/shadow/conformal.py) | Distribution-free split conformal (`conformal_calibrate`); Adaptive Conformal Inference (`ACIDetector`, Gibbs & Candès 2021) for distribution shift | [docs/theory/conformal.md](docs/theory/conformal.md) |
-| [`shadow.causal`](python/src/shadow/causal/) | Pearl-style do-calculus attribution: intervention-based ATE, percentile-bootstrap CIs (Efron 1979), back-door adjustment for named confounders, VanderWeele-Ding (2017) E-value sensitivity to unmeasured confounding | [docs/theory/causal.md](docs/theory/causal.md) |
+| [`shadow.causal`](python/src/shadow/causal/) | Intervention-based causal attribution foundation, inspired by Pearl-style causal inference: per-delta ATE, optional percentile-bootstrap CIs (Efron 1979), optional back-door adjustment for named confounders, optional VanderWeele-Ding (2017) E-value sensitivity. Not yet the default `shadow bisect` engine — that remains LASSO-based. | [docs/theory/causal.md](docs/theory/causal.md) |
 | [`shadow.diff_py`](python/src/shadow/diff_py/) | Scenario-aware multi-case diff: partition by `meta.scenario_id`, run per-scenario diffs without spurious "dropped turns" |  |
 | [`shadow.policy_suggest`](python/src/shadow/policy_suggest/) | Mine baseline traces for `must_call_before` patterns; suggest policies the operator approves before adding |  |
 | [`shadow.storage`](python/src/shadow/storage/) | Pluggable Storage interface (FileStore + InMemoryStore in OSS; cloud backends plug in) |  |

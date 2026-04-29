@@ -30,7 +30,6 @@ keywords = [
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
-    "License :: OSI Approved :: MIT License",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -162,12 +161,13 @@ manifest-path = "../crates/shadow-core/Cargo.toml"
 module-name = "shadow._core"
 features = ["extension"]
 python-source = "src"
-# Explicitly include the dual-license files in the sdist so PyPI's
-# validator can find them at the expected path (LICENSE-File entries
-# in PKG-INFO must resolve inside the distribution archive).
+# Explicitly include the Apache-2.0 license file in the sdist so
+# PyPI's validator can find it at the expected path (LICENSE-File
+# entries in PKG-INFO must resolve inside the distribution archive).
+# Project consolidated to Apache-2.0 only at v2.6.0; the MIT file
+# was removed from the repo and the include list at the same time.
 include = [
-    { path = "LICENSE-APACHE", format = "sdist" },
-    { path = "LICENSE-MIT", format = "sdist" },
+    { path = "LICENSE", format = "sdist" },
 ]
 
 [tool.ruff]

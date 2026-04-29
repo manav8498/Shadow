@@ -33,9 +33,14 @@ Privacy guarantees
 Backend
 -------
 Events are sent to a PostHog free-tier project. The endpoint and
-project key are baked into this module; nobody else can write to
-them. PostHog's privacy posture: GDPR-compliant, EU data residency
-available, IP addresses NOT stored.
+project key are baked into this module. The key is a public PostHog
+**ingest** key — it can submit events but cannot read analytics back
+out. Public ingest keys are by design write-only; in the worst case
+a key can be abused for spam (anyone could send junk events to our
+project). If we observe abuse we will rotate the key, add server-
+side filtering / rate limits, or front the endpoint with a light-
+weight proxy. PostHog's privacy posture: GDPR-compliant, EU data
+residency available, IP addresses NOT stored.
 
 Configuration is read on import; toggling telemetry mid-process
 requires re-importing or restarting the process.
