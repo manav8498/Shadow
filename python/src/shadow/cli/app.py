@@ -320,6 +320,88 @@ def demo() -> None:
     )
 
 
+# ---- call ------------------------------------------------------------------
+
+
+@app.command()
+def call(
+    baseline: Annotated[
+        Path, typer.Argument(help="Anchor .agentlog file (the known-good reference)")
+    ],
+    candidate: Annotated[
+        Path, typer.Argument(help="Candidate .agentlog file (the trace under review)")
+    ],
+    seed: Annotated[int, typer.Option("--seed", help="RNG seed for the bootstrap")] = 42,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Emit the call as JSON to stdout instead of the rendered panel. "
+            "Useful for piping into CI gate scripts.",
+        ),
+    ] = False,
+    strict: Annotated[
+        bool,
+        typer.Option(
+            "--strict",
+            help="Treat `probe` and `hold` as merge-blocking too. Default: only "
+            "`stop` blocks (exit 1); `ship` / `hold` / `probe` exit 0.",
+        ),
+    ] = False,
+) -> None:
+    """Render a single ship-readiness call from two traces.
+
+    Compares two `.agentlog` traces and emits one of four tiers:
+    `ship` (safe to merge), `hold` (review before merging), `probe`
+    (insufficient data — record more), or `stop` (severe regression).
+
+    The panel surfaces the dominant driver of any regression, the worst
+    axes with bootstrap confidence intervals, and the next commands a
+    reviewer would run. Statistical confidence is graded `firm` / `fair`
+    / `faint` based on the CI's relationship to zero.
+
+    Example:
+        shadow call anchor.agentlog candidate.agentlog
+        shadow call anchor.agentlog candidate.agentlog --json | jq .tier
+    """
+    import json as _json
+
+    from shadow.call import compute_call, render_call
+
+    try:
+        b = _core.parse_agentlog(baseline.read_bytes())
+        c = _core.parse_agentlog(candidate.read_bytes())
+        report = _core.compute_diff_report(b, c, None, seed)
+    except (FileNotFoundError, PermissionError) as e:
+        _fail(e)
+        return
+    except ShadowError as e:
+        _fail(e)
+        return
+    except Exception as e:  # pragma: no cover — defensive: parser surfaces ShadowError.
+        _fail(e)
+        return
+
+    result = compute_call(report)
+
+    if json_output:
+        # Bypass Rich for JSON: Rich's word-wrapping inserts newlines
+        # inside long strings (e.g. divergence explanations) which breaks
+        # JSON consumers downstream. Plain stdout keeps the payload
+        # byte-faithful for `jq` and similar pipelines.
+        sys.stdout.write(_json.dumps(result.to_dict(), indent=2) + "\n")
+    else:
+        render_call(result, console=console)
+
+    # Exit code policy:
+    #   default — only `stop` blocks the merge (exit 1)
+    #   --strict — `hold` and `probe` block too (exit 1)
+    #   `ship` always exits 0
+    if strict and result.tier.rank >= 1:  # HOLD or worse
+        raise typer.Exit(code=1)
+    raise typer.Exit(code=result.exit_code())
+
+
 # ---- autopr ----------------------------------------------------------------
 
 
