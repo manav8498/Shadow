@@ -629,18 +629,17 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
         let cost_d = axis_delta(report, Axis::Cost);
         let reason_d = axis_delta(report, Axis::Reasoning);
         // Don't double-fire when model_swap already explains the cost shift.
-        let model_swap_active = out.iter().any(|r| {
-            r.action == ActionKind::RootCause && r.message.contains("model change")
-        });
+        let model_swap_active = out
+            .iter()
+            .any(|r| r.action == ActionKind::RootCause && r.message.contains("model change"));
         if !model_swap_active && cost_d > 0.0 {
             out.push(Recommendation {
                 severity: RecommendationSeverity::Error,
                 action: ActionKind::RootCause,
                 turn: 0,
-                message:
-                    "Possible context-window overflow. Cost spiked severely without a model \
+                message: "Possible context-window overflow. Cost spiked severely without a model \
                      change, and reasoning shifted with it."
-                        .to_string(),
+                    .to_string(),
                 rationale: format!(
                     "Cross-axis signature: cost Δ {cost_d:+.3} (severe) with reasoning \
                      Δ {reason_d:+.3}, model unchanged. Common cause: prompt-length growth \
@@ -767,8 +766,7 @@ fn detect_cross_axis_patterns(report: &DiffReport) -> Vec<Recommendation> {
         // explains the latency.
         let already_explained = out.iter().any(|r| {
             r.action == ActionKind::RootCause
-                && (r.message.contains("model change")
-                    || r.message.contains("context-window"))
+                && (r.message.contains("model change") || r.message.contains("context-window"))
         });
         if !already_explained && lat_d > 0.0 {
             out.push(Recommendation {
@@ -1163,7 +1161,10 @@ mod tests {
             .filter(|r| r.action == ActionKind::RootCause && r.message.contains("prompt"))
             .count();
         assert_eq!(n_model, 1);
-        assert_eq!(n_prompt, 0, "prompt drift should be suppressed; got {n_root_cause} root-causes");
+        assert_eq!(
+            n_prompt, 0,
+            "prompt drift should be suppressed; got {n_root_cause} root-causes"
+        );
     }
 
     #[test]
@@ -1230,7 +1231,10 @@ mod tests {
             .iter()
             .filter(|r| r.action == ActionKind::RootCause)
             .count();
-        assert!(n_root <= 1, "single-axis trajectory fired {n_root} root-causes: {recs:#?}");
+        assert!(
+            n_root <= 1,
+            "single-axis trajectory fired {n_root} root-causes: {recs:#?}"
+        );
     }
 
     #[test]
@@ -1272,7 +1276,11 @@ mod tests {
             .filter(|r| r.action == ActionKind::RootCause && r.message.contains("context-window"))
             .count();
         assert_eq!(n_model, 1);
-        assert_eq!(n_context, 0, "context-window should be suppressed; got {:#?}", recs);
+        assert_eq!(
+            n_context, 0,
+            "context-window should be suppressed; got {:#?}",
+            recs
+        );
     }
 
     #[test]
@@ -1325,9 +1333,9 @@ mod tests {
         force_axis_severe(&mut r, Axis::Trajectory, 0.5);
         force_axis_moderate(&mut r, Axis::Safety, -0.4); // refusing LESS
         let recs = generate(&r);
-        let inj_rec = recs.iter().find(|r| {
-            r.action == ActionKind::RootCause && r.message.contains("prompt-injection")
-        });
+        let inj_rec = recs
+            .iter()
+            .find(|r| r.action == ActionKind::RootCause && r.message.contains("prompt-injection"));
         assert!(inj_rec.is_some(), "got {:#?}", recs);
     }
 
@@ -1338,9 +1346,9 @@ mod tests {
         force_axis_severe(&mut r, Axis::Trajectory, 0.5);
         force_axis_moderate(&mut r, Axis::Safety, 0.4);
         let recs = generate(&r);
-        let inj_rec = recs.iter().find(|r| {
-            r.action == ActionKind::RootCause && r.message.contains("prompt-injection")
-        });
+        let inj_rec = recs
+            .iter()
+            .find(|r| r.action == ActionKind::RootCause && r.message.contains("prompt-injection"));
         assert!(inj_rec.is_none());
     }
 
@@ -1368,9 +1376,12 @@ mod tests {
             .iter()
             .filter(|r| r.action == ActionKind::RootCause && r.message.contains("model change"))
             .count();
-        let n_lat_alone = recs.iter().filter(|r| {
-            r.action == ActionKind::RootCause && r.message.contains("Provider-side capacity")
-        }).count();
+        let n_lat_alone = recs
+            .iter()
+            .filter(|r| {
+                r.action == ActionKind::RootCause && r.message.contains("Provider-side capacity")
+            })
+            .count();
         assert_eq!(n_model, 1);
         assert_eq!(n_lat_alone, 0);
     }
