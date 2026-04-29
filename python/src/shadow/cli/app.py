@@ -426,6 +426,96 @@ def call(
     raise typer.Exit(code=result.exit_code())
 
 
+# ---- ledger ----------------------------------------------------------------
+
+
+@app.command("ledger")
+def ledger_cmd(
+    since: Annotated[
+        str,
+        typer.Option(
+            "--since",
+            help="Only show entries newer than this window. Use values like "
+            "`7d`, `3h`, `30m`, `60s`. Default: `14d`.",
+        ),
+    ] = "14d",
+    limit: Annotated[
+        int,
+        typer.Option(
+            "--limit",
+            help="Maximum number of entries to read. Larger values mean a "
+            "longer scan over the ledger directory.",
+        ),
+    ] = 50,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Emit the view as JSON to stdout instead of the rendered "
+            "panel. Useful for piping into other tools.",
+        ),
+    ] = False,
+    base: Annotated[
+        Path | None,
+        typer.Option(
+            "--base",
+            help="Override the ledger root. Default: `.shadow/ledger/` "
+            "under the current directory.",
+        ),
+    ] = None,
+) -> None:
+    """Show recent Shadow artifacts at a glance.
+
+    Reads the local artifact ledger (populated by `shadow call --log`
+    or `shadow log`) and renders a compact panel with anchor pass-rate,
+    a 95% Wilson confidence interval, the most-concerning recent entry,
+    and two suggested next commands.
+
+    The ledger is opt-in. The first time you run this on a fresh repo
+    it shows a friendly "no entries yet" panel pointing at the commands
+    that turn logging on.
+
+    Example:
+        shadow ledger
+        shadow ledger --since 7d --limit 100
+        shadow ledger --json | jq '.entries[0].tier'
+    """
+    import json as _json
+    from datetime import UTC
+    from datetime import datetime as _datetime
+
+    from shadow.ledger import compute_view, parse_since, read_recent, render_ledger
+
+    try:
+        window = parse_since(since)
+    except ValueError as e:
+        _fail(e)
+        return
+
+    entries = read_recent(base=base, limit=limit)
+    now = _datetime.now(UTC)
+    view = compute_view(entries, now=now, since=window)
+
+    if json_output:
+        payload = {
+            "since": since,
+            "now": now.isoformat(),
+            "pass_rate": {
+                "successes": view.pass_rate.successes,
+                "total": view.pass_rate.total,
+                "rate": view.pass_rate.rate,
+                "ci_low": view.pass_rate.ci_low,
+                "ci_high": view.pass_rate.ci_high,
+            },
+            "most_concerning": (view.most_concerning.to_dict() if view.most_concerning else None),
+            "entries": [e.to_dict() for e in view.entries],
+        }
+        sys.stdout.write(_json.dumps(payload, indent=2, default=str) + "\n")
+        return
+
+    render_ledger(view, console=console)
+
+
 # ---- log -------------------------------------------------------------------
 
 
