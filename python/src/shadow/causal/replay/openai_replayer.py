@@ -119,7 +119,7 @@ class OpenAIReplayer:
                 "file before instantiating."
             )
         try:
-            from openai import OpenAI  # type: ignore[import-not-found]
+            from openai import OpenAI
         except ImportError as e:
             raise RuntimeError(
                 "openai package is not installed. "
@@ -178,7 +178,7 @@ class OpenAIReplayer:
 
         result = self._call_with_retry(
             model=model,
-            messages=messages,
+            messages=messages,  # type: ignore[arg-type, unused-ignore]
             temperature=temperature,
             seed=seed,
         )
@@ -195,7 +195,7 @@ class OpenAIReplayer:
     ) -> ReplayResult:
         """Call the API with exponential-backoff retry on transient
         errors, then convert the response to a ReplayResult."""
-        from openai import (  # type: ignore[import-not-found]
+        from openai import (
             APIError,
             APITimeoutError,
             RateLimitError,
@@ -208,7 +208,7 @@ class OpenAIReplayer:
             try:
                 resp = self._client.chat.completions.create(
                     model=model,
-                    messages=messages,  # type: ignore[arg-type]
+                    messages=messages,  # type: ignore[arg-type, unused-ignore]
                     temperature=temperature,
                     max_tokens=self._cfg.max_tokens,
                     seed=seed,
