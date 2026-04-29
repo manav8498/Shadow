@@ -262,6 +262,64 @@ def quickstart(
         err_console.print("[dim]See QUICKSTART.md for how to record your own agent's traces.[/]")
 
 
+# ---- demo ------------------------------------------------------------------
+
+
+@app.command()
+def demo() -> None:
+    """Run a nine-axis diff on bundled fixtures. No setup, no API keys.
+
+    The fastest way to see what Shadow's output looks like — one
+    command, no scaffolding, no files written to your working directory.
+    Use `shadow quickstart` instead when you want a writable copy of
+    the demo files (agent.py, configs, fixtures) so you can edit and
+    re-run.
+    """
+    from importlib import resources
+
+    from shadow.report import render_terminal
+    from shadow.report.summary import summarise_report
+
+    try:
+        import shadow.quickstart_data as _qs_data
+    except ImportError as e:  # pragma: no cover — wheel always ships this
+        _fail(Exception(f"shadow[quickstart-data] missing from install: {e}"))
+        return
+
+    root = resources.files(_qs_data) / "fixtures"
+    try:
+        baseline_bytes = root.joinpath("baseline.agentlog").read_bytes()
+        candidate_bytes = root.joinpath("candidate.agentlog").read_bytes()
+    except Exception as e:
+        _fail(Exception(f"could not read bundled fixtures: {e}"))
+        return
+
+    try:
+        b = _core.parse_agentlog(baseline_bytes)
+        c = _core.parse_agentlog(candidate_bytes)
+        report = _core.compute_diff_report(b, c, None, 42)
+    except ShadowError as e:
+        _fail(e)
+        return
+    except Exception as e:
+        _fail(e)
+        return
+
+    render_terminal(report, console=console)
+
+    summary = summarise_report(report)
+    if summary:
+        console.print("")
+        console.print("[bold]What this means[/]")
+        console.print(summary)
+
+    err_console.print("")
+    err_console.print(
+        "[dim]Next: `shadow quickstart` to scaffold a writable copy "
+        "(agent.py, configs, fixtures) you can edit and re-run.[/]"
+    )
+
+
 # ---- record ----------------------------------------------------------------
 
 
@@ -2274,6 +2332,19 @@ def version() -> None:
 
 def _fail(e: BaseException) -> None:
     err_console.print(f"[bold red]error[/]: {e}")
+    # Hint for the most common first-contact failures. The original
+    # message is unchanged (log-scrapers keep working); we just append
+    # one extra line pointing at recovery for two specific error classes.
+    if isinstance(e, FileNotFoundError):
+        err_console.print(
+            "[dim]hint: check the path. New to Shadow? `shadow demo` "
+            "runs a real diff against bundled fixtures with no setup.[/]"
+        )
+    elif isinstance(e, PermissionError):
+        err_console.print(
+            "[dim]hint: file exists but isn't readable. Check ownership "
+            "and permissions with `ls -l <path>`.[/]"
+        )
     raise typer.Exit(code=1)
 
 

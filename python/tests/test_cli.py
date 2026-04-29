@@ -477,3 +477,90 @@ def test_load_pricing_file_round_trips_repo_pricing(tmp_path: Path) -> None:
     assert "_comment" not in out
     assert "_updated" not in out
     assert "gpt-4o-mini" in out
+
+
+# ---- shadow quickstart (trial-path scaffold) ----------------------------
+
+
+def test_quickstart_scaffolds_runnable_demo_files(tmp_path: Path) -> None:
+    """`shadow quickstart <dir>` must drop the four files a fresh user
+    needs to run a real diff: agent.py, two configs, QUICKSTART.md, and
+    the two .agentlog fixtures under fixtures/. The whole point of the
+    command is the trial path — if it ever stops writing one of these,
+    the README's 'sixty-second' promise breaks silently."""
+    dest = tmp_path / "sandbox"
+    result = runner.invoke(app, ["quickstart", str(dest)])
+    assert result.exit_code == 0, result.output
+    assert (dest / "agent.py").is_file()
+    assert (dest / "config_a.yaml").is_file()
+    assert (dest / "config_b.yaml").is_file()
+    assert (dest / "QUICKSTART.md").is_file()
+    assert (dest / "fixtures" / "baseline.agentlog").is_file()
+    assert (dest / "fixtures" / "candidate.agentlog").is_file()
+
+
+def test_quickstart_skips_existing_without_force(tmp_path: Path) -> None:
+    """Re-running `quickstart` over an existing scaffold must not
+    silently overwrite the user's edits. Without --force, the second
+    run must be a no-op on every file that already exists."""
+    dest = tmp_path / "sandbox"
+    runner.invoke(app, ["quickstart", str(dest)])
+    sentinel = dest / "agent.py"
+    sentinel.write_text("# user edited this\n")
+
+    result = runner.invoke(app, ["quickstart", str(dest)])
+    assert result.exit_code == 0, result.output
+    assert sentinel.read_text() == "# user edited this\n"
+
+
+def test_quickstart_force_overwrites(tmp_path: Path) -> None:
+    """`--force` must overwrite, otherwise users have no recovery path
+    when the scaffold drifts."""
+    dest = tmp_path / "sandbox"
+    runner.invoke(app, ["quickstart", str(dest)])
+    sentinel = dest / "agent.py"
+    sentinel.write_text("# user edited this\n")
+
+    result = runner.invoke(app, ["quickstart", str(dest), "--force"])
+    assert result.exit_code == 0, result.output
+    assert sentinel.read_text() != "# user edited this\n"
+
+
+# ---- shadow demo (zero-setup trial) -------------------------------------
+
+
+def test_demo_runs_and_emits_nine_axis_table(tmp_path: Path, monkeypatch: Any) -> None:
+    """`shadow demo` must work with no arguments, no API keys, and no
+    files in the working directory. It's the README's 'try it in five
+    seconds' promise — must produce a real diff against the bundled
+    fixtures."""
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["demo"])
+    assert result.exit_code == 0, result.output
+    # The fixture set has known regressions; the diff must surface them.
+    assert "semantic" in result.output
+    assert "trajectory" in result.output
+    assert "severe" in result.output
+
+
+def test_demo_writes_nothing_to_cwd(tmp_path: Path, monkeypatch: Any) -> None:
+    """`shadow demo` is the no-scaffold variant. Quickstart writes files;
+    demo must not. Otherwise we leak temp artefacts into the user's repo
+    when they're just trying to see what Shadow looks like."""
+    monkeypatch.chdir(tmp_path)
+    before = sorted(p.name for p in tmp_path.iterdir())
+    result = runner.invoke(app, ["demo"])
+    after = sorted(p.name for p in tmp_path.iterdir())
+    assert result.exit_code == 0, result.output
+    assert before == after
+
+
+def test_demo_prints_plain_english_summary(tmp_path: Path, monkeypatch: Any) -> None:
+    """The deterministic 'What this means' summary must always run on
+    `shadow demo` so first-time users see the plain-English readout
+    next to the numeric table — that's the part most readers actually
+    parse on first contact."""
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["demo"])
+    assert result.exit_code == 0, result.output
+    assert "What this means" in result.output

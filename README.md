@@ -101,12 +101,18 @@ is enabled are listed in the module docstring.
 ## Try it in sixty seconds
 
 ```bash
+shadow demo
+```
+
+That runs a real nine-axis diff on bundled `.agentlog` fixtures. No API key, no agent code, nothing written to your working directory. Use `shadow quickstart` instead when you want a writable copy of the demo files (agent.py, configs, fixtures) to edit and re-run:
+
+```bash
 shadow quickstart
 shadow diff shadow-quickstart/fixtures/baseline.agentlog \
             shadow-quickstart/fixtures/candidate.agentlog
 ```
 
-That runs a real nine-axis diff on recorded `.agentlog` fixtures. No API key, no agent code. The output looks like this:
+The output looks like this:
 
 ```
 axis         baseline  candidate     delta     severity
@@ -519,7 +525,8 @@ The validation suite at [`python/tests/test_statistical_validation.py`](python/t
 
 | Command | Does |
 |---|---|
-| `shadow quickstart` | Drop a working demo scenario. No API key needed. |
+| `shadow demo` | Run a nine-axis diff against bundled fixtures. One command, no API key, no files written. |
+| `shadow quickstart` | Drop a writable working demo scenario (agent.py, configs, fixtures) to edit and re-run. No API key needed. |
 | `shadow init` | Scaffold a `.shadow/` folder. `--github-action` drops a CI workflow. |
 | `shadow record -- <cmd>` | Run `<cmd>`, auto-capture its LLM calls. Zero code changes. |
 | `shadow replay <cfg> --baseline <trace>` | Replay baseline through a new config. `--partial --branch-at N` locks a prefix, replays only the suffix. |
