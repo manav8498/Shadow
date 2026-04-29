@@ -30,6 +30,20 @@ from shadow.causal.replay.openai_replayer import (
     _relative_delta,
 )
 
+
+try:
+    import openai as _openai  # noqa: F401
+
+    _OPENAI_AVAILABLE = True
+except ImportError:
+    _OPENAI_AVAILABLE = False
+
+_needs_openai = pytest.mark.skipif(
+    not _OPENAI_AVAILABLE,
+    reason="install shadow-diff[openai] to run replayer construction tests",
+)
+
+
 # ---------------------------------------------------------------------------
 # RecordedReplayer
 # ---------------------------------------------------------------------------
@@ -88,8 +102,12 @@ class TestOpenAIReplayerConstruction:
         assert "key" not in param_names
 
     def test_constructor_succeeds_with_env_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Doesn't make any API calls — just verifies the class
+        # Doesn't make any API calls - just verifies the class
         # constructs cleanly when the env is set.
+        try:
+            import openai  # noqa: F401
+        except ImportError:
+            pytest.skip("install shadow-diff[openai] to construct OpenAIReplayer")
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test-construction-only")
         replayer = OpenAIReplayer(baseline_response_text="hello")
         assert replayer.cache_size == 0
@@ -193,6 +211,7 @@ class TestCausalAttributionWithRecordedReplayer:
 # ---------------------------------------------------------------------------
 
 
+@_needs_openai
 class TestOpenAIReplayerNeverLogsKey:
     def test_repr_does_not_contain_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test-leak-check-XYZ")
@@ -228,6 +247,7 @@ def _set_dummy_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test-unit-only")
 
 
+@_needs_openai
 class TestDefaultJaccardPath:
     def test_no_embedder_uses_jaccard(self) -> None:
         """When embedder is omitted, semantic divergence is Jaccard
@@ -263,6 +283,7 @@ class TestDefaultJaccardPath:
         assert div["semantic"] == 1.0
 
 
+@_needs_openai
 class TestEmbedderPath:
     def test_identical_text_gives_zero(self) -> None:
         replayer = OpenAIReplayer(
@@ -340,6 +361,7 @@ class TestEmbedderPath:
         assert div["semantic"] < div_no_emb["semantic"]
 
 
+@_needs_openai
 class TestEmbedderFailureModes:
     def test_embedder_returns_wrong_count_treated_as_max_divergence(self) -> None:
         def bad(texts: list[str]) -> list[list[float]]:
@@ -415,6 +437,7 @@ class TestEmbedderFailureModes:
         assert div["semantic"] == 0.0
 
 
+@_needs_openai
 class TestAgreementWithRustSemanticAxis:
     """Cross-validation: the embedder-aware semantic divergence in
     the OpenAIReplayer must produce the SAME numeric result as the
