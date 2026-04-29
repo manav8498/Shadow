@@ -173,7 +173,7 @@ LLMCaller = Callable[[str], str]
 
 def _default_openai_caller(summary: str) -> str:
     """Default LLM caller using OpenAI's structured-output API."""
-    from openai import OpenAI
+    from openai import OpenAI  # type: ignore[import-not-found, unused-ignore]
 
     client = OpenAI()
     completion = client.chat.completions.create(
