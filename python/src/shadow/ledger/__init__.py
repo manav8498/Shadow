@@ -16,6 +16,12 @@ with atomic write (temp file + rename) so partial writes never expose
 half-formed JSON to readers running concurrently.
 """
 
+from shadow.ledger.brief import (
+    format_brief_markdown,
+    format_brief_slack,
+    format_brief_terminal,
+    post_to_slack,
+)
 from shadow.ledger.render import render_ledger, render_trail
 from shadow.ledger.store import (
     LedgerEntry,
@@ -51,7 +57,11 @@ __all__ = [
     "default_base_path",
     "entry_from_call",
     "entry_from_diff_report",
+    "format_brief_markdown",
+    "format_brief_slack",
+    "format_brief_terminal",
     "parse_since",
+    "post_to_slack",
     "read_recent",
     "relative_time",
     "render_ledger",
