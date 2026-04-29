@@ -348,6 +348,15 @@ def call(
             "`stop` blocks (exit 1); `ship` / `hold` / `probe` exit 0.",
         ),
     ] = False,
+    log: Annotated[
+        bool,
+        typer.Option(
+            "--log",
+            help="Append the call to the local artifact ledger under "
+            "`.shadow/ledger/`. Default: off (no files written outside what "
+            "you explicitly produce).",
+        ),
+    ] = False,
 ) -> None:
     """Render a single ship-readiness call from two traces.
 
@@ -393,6 +402,21 @@ def call(
     else:
         render_call(result, console=console)
 
+    if log:
+        # Opt-in artifact ledger entry. Default off — `shadow call`
+        # without `--log` still writes nothing outside what the user
+        # asked for.
+        from shadow.ledger import entry_from_call, write_entry
+
+        try:
+            entry = entry_from_call(result.to_dict(), source_command="shadow call")
+            path = write_entry(entry)
+            err_console.print(f"[dim]✓ logged to {path}[/]")
+        except OSError as e:
+            # Logging must never break the call itself — surface a
+            # warning and continue.
+            err_console.print(f"[yellow]warning[/]: ledger write failed: {e}")
+
     # Exit code policy:
     #   default — only `stop` blocks the merge (exit 1)
     #   --strict — `hold` and `probe` block too (exit 1)
@@ -400,6 +424,73 @@ def call(
     if strict and result.tier.rank >= 1:  # HOLD or worse
         raise typer.Exit(code=1)
     raise typer.Exit(code=result.exit_code())
+
+
+# ---- log -------------------------------------------------------------------
+
+
+@app.command("log")
+def log_cmd(
+    report_path: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to a Shadow diff or call report JSON file (e.g. produced "
+            "by `shadow diff --output-json` or `shadow call --json`).",
+        ),
+    ],
+    base: Annotated[
+        Path | None,
+        typer.Option(
+            "--base",
+            help="Override the ledger root. Default: `.shadow/ledger/` under "
+            "the current directory.",
+        ),
+    ] = None,
+) -> None:
+    """Append a Shadow report to the local artifact ledger.
+
+    Use this when you've already produced a JSON report (from
+    `shadow diff --output-json` or `shadow call --json`) and want to
+    record it for later inspection by `shadow ledger` or `shadow trail`.
+
+    The ledger is opt-in. Default `shadow diff` writes nothing; this
+    command is the explicit way to land an entry from a CI artifact.
+    """
+    import json as _json
+
+    from shadow.ledger import entry_from_call, entry_from_diff_report, write_entry
+
+    try:
+        payload = _json.loads(report_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, PermissionError) as e:
+        _fail(e)
+        return
+    except _json.JSONDecodeError as e:
+        _fail(Exception(f"could not parse {report_path}: {e}"))
+        return
+
+    # Tell diff and call apart by shape: a diff report carries `rows`
+    # and `pair_count`; a call payload carries `tier` and `worst_axes`.
+    if isinstance(payload, dict) and "tier" in payload and "worst_axes" in payload:
+        entry = entry_from_call(payload, source_command="shadow log (call)")
+    elif isinstance(payload, dict) and "rows" in payload:
+        entry = entry_from_diff_report(payload, source_command="shadow log (diff)")
+    else:
+        _fail(
+            Exception(
+                f"{report_path} doesn't look like a Shadow diff or call report "
+                "(expected `rows` or `tier` at the top level)."
+            )
+        )
+        return
+
+    try:
+        path = write_entry(entry, base=base)
+    except OSError as e:
+        _fail(e)
+        return
+
+    err_console.print(f"[green]✓[/] logged {entry.kind} to {path}")
 
 
 # ---- autopr ----------------------------------------------------------------
