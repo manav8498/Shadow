@@ -7,8 +7,14 @@ better to ask than to guess.
 ## Ground rules
 
 1. **Small, reviewable PRs.** One logical change per PR.
-2. **Conventional Commits** ([conventionalcommits.org](https://www.conventionalcommits.org/)), `feat(scope):`, `fix(scope):`, `docs:`, `test:`, `chore:`, `refactor:`,
-   `spec:` (for `SPEC.md` changes).
+2. **Conventional Commits** ([conventionalcommits.org](https://www.conventionalcommits.org/)) — **required** for release automation.
+   The supported types are `feat(scope):`, `fix(scope):`, `perf:`, `docs:`, `test:`, `refactor:`, `build:`, `ci:`, `chore:`, `revert:`,
+   plus the project-specific `spec:` for `SPEC.md` changes.
+   Release-please reads commit types between releases to compute the
+   next version: `feat:` → minor, `fix:` / `perf:` → patch, any with
+   `!` after the type or a `BREAKING CHANGE:` footer → major.
+   Commits without a recognised type still land but don't trigger a
+   bump and don't appear in the auto-generated CHANGELOG section.
 3. **TDD preferred.** Write the failing test first, commit; implement, commit.
    `CONTRIBUTING.md` §Workflow has the full protocol. Exception: typo fixes, docs-only
    changes, and trivial refactors can skip TDD.
@@ -207,18 +213,47 @@ no-confusion when filing issues.
 The release pipeline (`.github/workflows/release.yml`) checks all three
 versions match before tagging. CI fails if they drift.
 
-Release steps:
+### Release flow
 
-- Bump all four version pins in lockstep:
-  - `Cargo.toml` workspace `version`
-  - `python/pyproject.toml` `[project] version`
-  - `python/src/shadow/__init__.py` `__version__`
-  - `typescript/package.json` `version`
-- CHANGELOG.md: move the unreleased section under a new `[x.y.z] - YYYY-MM-DD`
-  header. Note any component that had no functional change as `(no-op bump)`.
-- Tag with `git tag -a vX.Y.Z -m "..."` and push tags.
-- The release workflow handles publishing to PyPI / crates.io / npm and
-  attaches signed artifacts + SBOMs to the GitHub Release.
+Releases are automated via [release-please](https://github.com/googleapis/release-please).
+On every push to `main`, release-please scans Conventional Commits since
+the last `v*` tag and maintains a long-running PR titled
+`chore(main): release X.Y.Z`. That PR contains:
+
+- A CHANGELOG diff grouped by commit type (feat → Added, fix → Fixed, …)
+- Synchronised version bumps across every file that pins a version
+  (handled by `release-please-config.json`):
+    - `Cargo.toml` (`workspace.package.version`)
+    - `python/pyproject.toml` (`[project] version`)
+    - `python/src/shadow/__init__.py` (`__version__`, marked with
+      `# x-release-please-version`)
+    - `typescript/package.json` (`version`)
+    - `typescript/package-lock.json` (root + `packages.""` version)
+    - `README.md` version badge (between `<!-- x-release-please-start-version -->`
+      and `<!-- x-release-please-end -->` markers)
+
+Maintainer steps for a release:
+
+1. Wait for the release-please PR on `main` to reflect the desired
+   bump. If the wrong bump is shown, check that contributors are
+   using `feat:` / `fix:` / `feat!:` correctly in commit subjects.
+2. Manual override (if needed): land an empty commit with footer
+   `Release-As: X.Y.Z` to force a specific version on the next PR.
+3. Approve and merge the release PR. Release-please tags the merge
+   commit `vX.Y.Z` and creates a GitHub Release with the CHANGELOG
+   notes attached.
+4. The existing `release.yml` fires on the new tag, builds signed
+   artifacts (Python wheel, sdist, Rust crate, TS package, SBOMs,
+   sigstore signatures), and publishes to PyPI / crates.io / npm.
+
+What release-please does **not** touch (intentionally):
+
+- `python/src/shadow/_telemetry.py` — the version reference there
+  is a docstring example, not a literal to bump.
+- `typescript/PARITY.md` — "last reviewed against" stamp, bumped by
+  hand when parity is re-verified.
+- Any of the documentation under `docs/` that references a version
+  in prose.
 
 ## Developer Certificate of Origin (DCO)
 

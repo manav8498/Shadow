@@ -1,0 +1,55 @@
+name: release-please
+
+# Owns version bumps + CHANGELOG generation + release tag creation.
+#
+# How it works
+# ────────────
+# 1. On every push to `main`, release-please scans Conventional Commits
+#    since the last release tag and maintains a long-running PR titled
+#    "chore(main): release X.Y.Z" with the proposed version bump and
+#    CHANGELOG diff.
+# 2. Merging that PR creates the `vX.Y.Z` tag and a GitHub Release.
+# 3. The existing `release.yml` workflow listens for `tags: v*` push,
+#    builds the signed artifacts, and publishes to PyPI / npm /
+#    crates.io. release-please does NOT publish — it only orchestrates
+#    the version bump and tag.
+#
+# What gets bumped
+# ────────────────
+# Configured in `release-please-config.json`:
+#   - Cargo.toml (workspace.package.version)
+#   - python/pyproject.toml (project.version)
+#   - python/src/shadow/__init__.py (__version__)
+#   - typescript/package.json (version)
+#   - typescript/package-lock.json (root + packages."" version)
+#   - README.md (version badge)
+#
+# Conventional Commits dictate the bump level:
+#   - `fix:` / `perf:` → patch (2.9.0 → 2.9.1)
+#   - `feat:`          → minor (2.9.0 → 2.10.0)
+#   - any with `!` or `BREAKING CHANGE:` footer → major (2.9.0 → 3.0.0)
+#   - `docs:`, `refactor:`, `chore:`, etc. → no bump (still in CHANGELOG)
+#
+# Manual override: include `Release-As: X.Y.Z` in the most recent
+# commit footer to force a specific version on the next PR.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          # Pinned to v4 (manifest mode). v3 is single-package only.
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
