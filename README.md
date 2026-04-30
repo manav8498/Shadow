@@ -8,7 +8,7 @@
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1%20%2B%20v0.2%20kinds-6f4cff.svg)](SPEC.md)
 <!-- x-release-please-start-version -->
-[![version](https://img.shields.io/static/v1?label=version&message=3.0.0&color=brightgreen)](CHANGELOG.md)
+[![version](https://img.shields.io/static/v1?label=version&message=3.0.1&color=brightgreen)](CHANGELOG.md)
 <!-- x-release-please-end -->
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)

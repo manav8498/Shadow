@@ -9,13 +9,15 @@ build-backend = "maturin"
 # the CLI stays `shadow`, and the repo stays Shadow — only the
 # `pip install` name is different.
 name = "shadow-diff"
-version = "3.0.0"
+version = "3.0.1"
 description = "Git-native behavioral diff and shadow deployment for LLM agents."
 license = "Apache-2.0"
-# LICENSE files live at the workspace root; we copy them into the Python
-# build context at wheel-build time (see justfile `build-wheel`) rather
-# than referencing them here, because PEP 639's `license-files` glob
-# doesn't support `..` paths.
+# Pin the license-files list explicitly so maturin's auto-detection
+# doesn't propose files (LICENSE / LICENSE-MIT / etc.) that aren't
+# packaged into the wheel. PyPI's PEP 639 validator (strict since
+# 2025) rejects any wheel whose METADATA declares a License-File
+# entry that the wheel itself doesn't contain.
+license-files = ["LICENSE-APACHE"]
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "manav8498" }]
@@ -161,14 +163,12 @@ manifest-path = "../crates/shadow-core/Cargo.toml"
 module-name = "shadow._core"
 features = ["extension"]
 python-source = "src"
-# Explicitly include the Apache-2.0 license file in the sdist so
-# PyPI's validator can find it at the expected path (LICENSE-File
-# entries in PKG-INFO must resolve inside the distribution archive).
-# Project consolidated to Apache-2.0 only at v2.6.0; the MIT file
-# was removed from the repo and the include list at the same time.
-include = [
-    { path = "LICENSE", format = "sdist" },
-]
+# The project's `license-files` field above tells maturin which
+# license files to package into both the sdist and wheel. We don't
+# need an explicit `include` rule for license files anymore —
+# maturin honours `license-files` for both formats. Keep this block
+# empty so future include rules (test fixtures, etc.) have a clear
+# home.
 
 [tool.ruff]
 line-length = 100
