@@ -426,6 +426,163 @@ def call(
     raise typer.Exit(code=result.exit_code())
 
 
+# ---- holdout ---------------------------------------------------------------
+
+holdout_app = typer.Typer(
+    name="holdout",
+    help="Manage held-out trace ids (acknowledged-but-not-blocking).",
+    no_args_is_help=True,
+    add_completion=False,
+)
+
+
+@holdout_app.command("add")
+def holdout_add_cmd(
+    trace_id: Annotated[str, typer.Argument(help="Trace id (8-char prefix is enough).")],
+    reason: Annotated[
+        str,
+        typer.Option(
+            "--reason",
+            help="Why this trace is held out. Surface it next to the entry "
+            "in `shadow holdout list` so the team remembers the triage.",
+        ),
+    ],
+    owner: Annotated[
+        str,
+        typer.Option(
+            "--owner",
+            help="Who is responsible for the holdout. Free-form (e.g. `@alice`).",
+        ),
+    ],
+    ttl: Annotated[
+        str,
+        typer.Option(
+            "--ttl",
+            help="How long before the holdout goes stale and demands review. "
+            "Default `30d`. Sub-day units round up to one day.",
+        ),
+    ] = "30d",
+    base: Annotated[
+        Path | None,
+        typer.Option(
+            "--base",
+            help="Override the holdout file path. Default `.shadow/holdout.json`.",
+        ),
+    ] = None,
+) -> None:
+    """Add a trace id to the holdout set, or refresh an existing one."""
+    from datetime import UTC
+    from datetime import datetime as _datetime
+
+    from shadow.holdout import add_entry, load, parse_ttl, save
+
+    try:
+        ttl_days = parse_ttl(ttl)
+    except ValueError as e:
+        _fail(e)
+        return
+
+    holdouts = load(path=base)
+    holdouts = add_entry(
+        holdouts,
+        trace_id=trace_id,
+        reason=reason,
+        owner=owner,
+        ttl_days=ttl_days,
+        now=_datetime.now(UTC),
+    )
+    out = save(holdouts, path=base)
+    err_console.print(f"[green]✓[/] held out [cyan]{trace_id}[/] (file: {out})")
+
+
+@holdout_app.command("remove")
+def holdout_remove_cmd(
+    trace_id: Annotated[str, typer.Argument(help="Trace id to drop from the holdout set.")],
+    base: Annotated[
+        Path | None,
+        typer.Option("--base", help="Override the holdout file path."),
+    ] = None,
+) -> None:
+    """Drop a trace id from the holdout set."""
+    from shadow.holdout import load, remove_entry, save
+
+    holdouts = load(path=base)
+    holdouts, found = remove_entry(holdouts, trace_id)
+    if not found:
+        err_console.print(f"[yellow]warning[/]: {trace_id!r} is not in the holdout set.")
+        return
+    save(holdouts, path=base)
+    err_console.print(f"[green]✓[/] removed [cyan]{trace_id}[/]")
+
+
+@holdout_app.command("reset")
+def holdout_reset_cmd(
+    trace_id: Annotated[str, typer.Argument(help="Trace id whose review window to restart.")],
+    base: Annotated[
+        Path | None,
+        typer.Option("--base", help="Override the holdout file path."),
+    ] = None,
+) -> None:
+    """Restart the review window for an existing holdout entry."""
+    from datetime import UTC
+    from datetime import datetime as _datetime
+
+    from shadow.holdout import load, reset_entry, save
+
+    holdouts = load(path=base)
+    holdouts, found = reset_entry(holdouts, trace_id, now=_datetime.now(UTC))
+    if not found:
+        err_console.print(f"[yellow]warning[/]: {trace_id!r} is not in the holdout set.")
+        return
+    save(holdouts, path=base)
+    err_console.print(f"[green]✓[/] reset review window for [cyan]{trace_id}[/]")
+
+
+@holdout_app.command("list")
+def holdout_list_cmd(
+    stale: Annotated[
+        bool,
+        typer.Option(
+            "--stale",
+            help="Only show entries past their review window.",
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Emit the holdout set as JSON instead of the rendered panel.",
+        ),
+    ] = False,
+    base: Annotated[
+        Path | None,
+        typer.Option("--base", help="Override the holdout file path."),
+    ] = None,
+) -> None:
+    """List held-out trace ids."""
+    import json as _json
+    from datetime import UTC
+    from datetime import datetime as _datetime
+
+    from shadow.holdout import Holdouts, load, render
+
+    now = _datetime.now(UTC)
+    holdouts = load(path=base)
+
+    if stale:
+        filtered = {tid: e for tid, e in holdouts.entries.items() if e.is_stale(now=now)}
+        holdouts = Holdouts(entries=filtered, schema_version=holdouts.schema_version)
+
+    if json_output:
+        sys.stdout.write(_json.dumps(holdouts.to_dict(), indent=2) + "\n")
+        return
+
+    render(holdouts, now=now, console=console)
+
+
+app.add_typer(holdout_app)
+
+
 # ---- listen ----------------------------------------------------------------
 
 
