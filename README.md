@@ -19,7 +19,14 @@
 
 <p align="center">
   <sub>
-    Watch as video:
+    Launch video (1080p, 84 s, with audio):
+    <a href="https://github.com/manav8498/Shadow/blob/main/.github/assets/launch.mp4">play inline</a>
+    ·
+    <a href="https://github.com/manav8498/Shadow/releases/download/demo-assets/launch.mp4">MP4</a>
+    ·
+    <a href="https://github.com/manav8498/Shadow/releases/download/demo-assets/launch.webm">WebM</a>
+    <br/>
+    Workflow walkthrough (silent):
     <a href="https://github.com/manav8498/Shadow/releases/download/demo-assets/demo.mp4">MP4</a>
     ·
     <a href="https://github.com/manav8498/Shadow/releases/download/demo-assets/demo.webm">WebM</a>
