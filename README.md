@@ -634,6 +634,7 @@ Shadow/
 ├── CHANGELOG.md                Release notes
 ├── SECURITY.md                 Security policy and vulnerability reporting
 ├── CONTRIBUTING.md             How to contribute
+├── RELEASE.md                  Maintainer guide: cutting a release, troubleshooting publish failures
 ├── GOVERNANCE.md               Project governance
 ├── Cargo.toml                  Rust workspace manifest
 ├── justfile                    Common dev tasks (just setup, just test, just demo)
