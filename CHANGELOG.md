@@ -4,6 +4,125 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.0.0](https://github.com/manav8498/Shadow/compare/v2.9.0...v3.0.0) (2026-04-30)
+
+Workflow-loop release. Ships the full PR-to-runtime arc — `shadow demo` /
+`call` / `autopr` / `ledger` / `trail` / `brief` / `listen` / `holdout` /
+`heal` — alongside a switch to release-please for synchronised version
+bumps, a corrected back-door causal estimator, and a complete
+presentation overhaul of the diff output so non-expert reviewers can
+read a Shadow PR comment top-to-bottom and act on it without consulting
+the spec. The major-version bump is driven by the stricter
+`causal_attribution` API; everything else is additive.
+
+### ⚠ BREAKING CHANGES
+
+* **`causal_attribution(confounders=[...])` requires `confounder_weights`.**
+  Declaring confounders without supplying weights now raises `ValueError`.
+  The previous silent fallback to uniform 1/n weighting biased the
+  back-door estimate toward the simple average for any non-uniform
+  P(C=c) — a quiet correctness gap that read as "the Pearl ATE" to
+  callers who never supplied weights. Two opt-ins replace the silent
+  default: `confounder_weights="uniform"` (sentinel acknowledging the
+  uniform-P(C=c) assumption) or `confounder_weights={(combo,): w, ...}`
+  (empirical weights). The bootstrap CI now honours the same weights
+  as the point estimate; previously it always used 1/n regardless.
+  ([38ea15c](https://github.com/manav8498/Shadow/commit/38ea15cdc0d17ca15593440a3b246be503b17aed))
+
+### Added — workflow-loop CLI commands
+
+* **`shadow demo`** — one-line trial against bundled fixtures. No
+  arguments, no setup, no API key. ([cea859c](https://github.com/manav8498/Shadow/commit/cea859cf03bc0a6d3a86d2bbe33f9bbcd5bb44eb))
+* **`shadow autopr`** — synthesise a policy YAML from a regression so
+  the same diff pattern fails CI on the next PR. ([58693f9](https://github.com/manav8498/Shadow/commit/58693f9eb88b1b2027eda63e6e3023fec00b7651))
+* **`shadow call`** — one-line ship / hold / probe / stop verdict on a
+  baseline + candidate pair. ([201e32a](https://github.com/manav8498/Shadow/commit/201e32a7f47a85aef739ef27e1fbf99ac5cb2bcd))
+* **`shadow ledger`** — daily glance over recent artifacts, plus the
+  underlying opt-in `shadow.ledger` artifact record store.
+  ([d59241c](https://github.com/manav8498/Shadow/commit/d59241cf26f1afaa7f8acaad5aabbeb3d5c9e7ef),
+  [be310f6](https://github.com/manav8498/Shadow/commit/be310f6f9d5cca0ec9a93ac0d1a39dc1f9c3a09b))
+* **`shadow trail`** — walk back through the artifact graph from any
+  trace id. ([9913732](https://github.com/manav8498/Shadow/commit/9913732d83100e7e7c4c5db40e6c51b51c87f90b))
+* **`shadow brief`** — share recent state in three formats (terminal /
+  markdown / Slack). ([8339bca](https://github.com/manav8498/Shadow/commit/8339bca830db6d3a7a8a1cae6f4a66c5be7b7d57))
+* **`shadow listen`** — stream calls as new `.agentlog` files land.
+  ([2e47d7e](https://github.com/manav8498/Shadow/commit/2e47d7eed7eb066a72c81dec7e93f8ff3ca8b8be))
+* **`shadow holdout`** — manage held-out trace ids with TTL + owner.
+  ([320db0e](https://github.com/manav8498/Shadow/commit/320db0e3c2bbd4ead72cf2e2bbf1d44dd2ffabe7))
+* **`shadow heal`** — causal classifier (audit-only, no actions yet).
+  ([b4aa4c4](https://github.com/manav8498/Shadow/commit/b4aa4c44e90d1a14a89ee13deddca3ed1c4cb27c))
+
+### Added — readability and ease-of-use
+
+* **Plain-English diff output.** All three renderers (PR comment,
+  markdown, terminal) now use display labels for the nine axes
+  ("response meaning" / "tool calls" / "refusals" / "response length" /
+  "response time" / "token cost" / "reasoning depth" / "LLM-judge
+  score" / "output format") instead of the internal axis names
+  ("semantic" / "trajectory" / "safety" / …). Internal names stay
+  unchanged in the `.agentlog` format and the JSON `rows[].axis`
+  field — only the rendered presentation switches.
+  ([23d9886](https://github.com/manav8498/Shadow/commit/23d98868f8ec9983911e94c8335c8b2d334f0413))
+* **PR comment ordering inverted.** Reviewers now read, top to bottom:
+  a one-sentence verdict line ("Shadow recommends: hold this PR for
+  review"), then "What probably broke" with the engine's plain-English
+  recommendations as the headline, then "What changed at the turn
+  level" as prose, then the nine-axis numbers in a `<details>` fold.
+  Previously the math came first and the recommendations were buried.
+* **Universal `low_power` flag suppressed** when it applies to every
+  row — fires once in the banner above the table instead of cluttering
+  every line.
+* **`shadow --help` tiered into five panels** — Setup / Common /
+  Replay & analysis / Reporting & history / Release & integrations.
+  Same 27 commands, no longer a flat wall.
+  ([a4dce9f](https://github.com/manav8498/Shadow/commit/a4dce9fdb3c69d128e50c363f0f8c013f12c9204))
+* **README rewritten with a "first PR comment in 10 minutes"
+  walkthrough.** Concrete four-step path from `pip install` to seeing
+  a Shadow comment land on a real PR. Optional-extras table collapsed
+  into a `<details>` fold so the install section stays scannable.
+
+### Added — launch media + miscellaneous
+
+* **Launch video** — 1080p, 84 s, six-beat product walkthrough with
+  intro / outro cards and ambient music bed. Built by
+  `scripts/build_launch_video.py`. ([19e1442](https://github.com/manav8498/Shadow/commit/19e1442d55256917a08ba71325b1430a4ab95d5d))
+* **Workflow demo GIF + MP4 + WebM** — silent walkthrough alternative
+  for embedded README playback. ([a2af843](https://github.com/manav8498/Shadow/commit/a2af843), [d34842e](https://github.com/manav8498/Shadow/commit/d34842e))
+* `Recommendation.{baseline_turn, candidate_turn}` fields. ([902aefb](https://github.com/manav8498/Shadow/commit/902aefb))
+
+### Fixed
+
+* `shadow holdout add --base <existing-dir>` no longer leaks a Python
+  traceback; raises typed `HoldoutPathError` instead. ([c960678](https://github.com/manav8498/Shadow/commit/c960678))
+* Flaky holdout test on narrow CI terminals (Rich line-wrapping
+  artifact). ([5166520](https://github.com/manav8498/Shadow/commit/5166520))
+
+### Documentation
+
+* Related sections in new command help + README CLI table. ([6f82520](https://github.com/manav8498/Shadow/commit/6f82520))
+* Launch video links in README (inline play + MP4 / WebM). ([3aba1b4](https://github.com/manav8498/Shadow/commit/3aba1b4))
+* License / causal / telemetry text tightened. ([ae5b81a](https://github.com/manav8498/Shadow/commit/ae5b81a83624025196b75e9fd0278b25ccc67d27),
+  [f5f94ec](https://github.com/manav8498/Shadow/commit/f5f94ec0bd9bedf57d36a8a803f0241b79829595))
+
+### Reverted
+
+* Embedded `<video>` player in README — GitHub's markdown sanitizer
+  strips `<video>` tags from non-user-attachment URLs. Reverted to GIF
+  inline + MP4 / WebM links. ([4c89c25](https://github.com/manav8498/Shadow/commit/4c89c25))
+
+### Build
+
+* Adopted [release-please](https://github.com/googleapis/release-please)
+  for synchronised version bumps across `Cargo.toml`,
+  `python/pyproject.toml`, `python/src/shadow/__init__.py`,
+  `typescript/package.json`, `typescript/package-lock.json`, and the
+  README badge. The `release.yml` publish workflow now also fires on
+  `release: published` so the chain completes when release-please
+  creates the GitHub Release. Switched the README version badge from
+  `img.shields.io/badge/...` to `img.shields.io/static/v1?...` so the
+  release-please semver regex doesn't greedy-match the trailing
+  colour suffix as a prerelease tag. ([8d85ec3](https://github.com/manav8498/Shadow/commit/8d85ec3))
+
 ## [Unreleased]
 
 ## [2.9.0] - 2026-04-28
