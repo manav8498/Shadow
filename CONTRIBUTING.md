@@ -215,45 +215,12 @@ versions match before tagging. CI fails if they drift.
 
 ### Release flow
 
-Releases are automated via [release-please](https://github.com/googleapis/release-please).
-On every push to `main`, release-please scans Conventional Commits since
-the last `v*` tag and maintains a long-running PR titled
-`chore(main): release X.Y.Z`. That PR contains:
-
-- A CHANGELOG diff grouped by commit type (feat → Added, fix → Fixed, …)
-- Synchronised version bumps across every file that pins a version
-  (handled by `release-please-config.json`):
-    - `Cargo.toml` (`workspace.package.version`)
-    - `python/pyproject.toml` (`[project] version`)
-    - `python/src/shadow/__init__.py` (`__version__`, marked with
-      `# x-release-please-version`)
-    - `typescript/package.json` (`version`)
-    - `typescript/package-lock.json` (root + `packages.""` version)
-    - `README.md` version badge (between `<!-- x-release-please-start-version -->`
-      and `<!-- x-release-please-end -->` markers)
-
-Maintainer steps for a release:
-
-1. Wait for the release-please PR on `main` to reflect the desired
-   bump. If the wrong bump is shown, check that contributors are
-   using `feat:` / `fix:` / `feat!:` correctly in commit subjects.
-2. Manual override (if needed): land an empty commit with footer
-   `Release-As: X.Y.Z` to force a specific version on the next PR.
-3. Approve and merge the release PR. Release-please tags the merge
-   commit `vX.Y.Z` and creates a GitHub Release with the CHANGELOG
-   notes attached.
-4. The existing `release.yml` fires on the new tag, builds signed
-   artifacts (Python wheel, sdist, Rust crate, TS package, SBOMs,
-   sigstore signatures), and publishes to PyPI / crates.io / npm.
-
-What release-please does **not** touch (intentionally):
-
-- `python/src/shadow/_telemetry.py` — the version reference there
-  is a docstring example, not a literal to bump.
-- `typescript/PARITY.md` — "last reviewed against" stamp, bumped by
-  hand when parity is re-verified.
-- Any of the documentation under `docs/` that references a version
-  in prose.
+The full release flow — including one-time secret setup, manual
+override paths, troubleshooting known failures, and how to yank a
+broken release — lives in [RELEASE.md](RELEASE.md). Short version:
+land Conventional Commit-formatted PRs on `main`, merge the
+long-running `chore: release X.Y.Z` PR that release-please
+maintains, and the publish chain fires automatically.
 
 ## Developer Certificate of Origin (DCO)
 
