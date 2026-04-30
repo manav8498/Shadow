@@ -1,5 +1,5 @@
 {
-  "name": "@shadow/sdk",
+  "name": "shadow-diff",
   "version": "3.0.1",
   "description": "Shadow — Git-native behavioral diff for LLM agents (TypeScript SDK)",
   "license": "Apache-2.0",

@@ -1,5 +1,10 @@
 [package]
-name = "shadow-core"
+# Crate is published to crates.io as `shadow-diff` so all three SDKs
+# (PyPI, npm, crates.io) share one user-facing name. The internal Rust
+# library name stays `shadow_core` (see `[lib] name` below) so existing
+# `use shadow_core::...` import paths in the codebase keep compiling
+# unchanged.
+name = "shadow-diff"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,7 +15,7 @@ authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "Core parser, writer, content-addressed store, replay engine, and nine-axis behavioral differ for the Shadow tool."
-documentation = "https://docs.rs/shadow-core"
+documentation = "https://docs.rs/shadow-diff"
 # Point at the workspace-root README via a relative path (cargo resolves
 # `readme` relative to the crate's Cargo.toml, not the workspace root).
 readme = "../../README.md"
@@ -23,7 +28,6 @@ include = [
     # published crate fails to compile.
     "src/**/*.sql",
     "Cargo.toml",
-    "LICENSE-MIT",
     "LICENSE-APACHE",
 ]
 

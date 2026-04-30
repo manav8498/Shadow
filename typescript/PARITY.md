@@ -2,7 +2,7 @@
 
 **Last reviewed:** 2026-04-28 against Python `shadow-diff==2.9.0`.
 
-The TypeScript SDK (`@shadow/sdk`) is intentionally **trace-recording-
+The TypeScript SDK (`shadow-diff`) is intentionally **trace-recording-
 focused**, not feature-parity. It exists so JS / TS agents can write
 `.agentlog` files that the Python toolchain analyzes. This document
 makes that boundary explicit so users don't expect Python behavior
@@ -29,7 +29,7 @@ implementations and asserts equality on the
 `(rule_id, pair_index, kind)` tuples and per-formula pass/fail.
 
 All TS APIs round-trip with the Python parser: a trace recorded by
-`@shadow/sdk` parses cleanly with `shadow._core.parse_agentlog`, and
+`shadow-diff` parses cleanly with `shadow._core.parse_agentlog`, and
 the content-hash IDs match.
 
 ## What the TS SDK does NOT ship (use Python)
@@ -50,7 +50,7 @@ These features live only in the Python distribution:
 
 ## Recommended workflow for TS-only teams
 
-1. Use `@shadow/sdk` to record traces from your JS/TS agent code.
+1. Use `shadow-diff` to record traces from your JS/TS agent code.
 2. Commit `.agentlog` fixtures to your repo.
 3. Use the **Python** `shadow` CLI in CI to diff, gate, certify,
    and bisect those traces:

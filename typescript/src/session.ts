@@ -50,7 +50,7 @@ function _readSdkVersion(): string {
       try {
         const raw = readFileSync(candidate, 'utf-8');
         const parsed = JSON.parse(raw) as { version?: string; name?: string };
-        if (parsed.name === '@shadow/sdk' && typeof parsed.version === 'string') {
+        if (parsed.name === 'shadow-diff' && typeof parsed.version === 'string') {
           return parsed.version;
         }
       } catch {
