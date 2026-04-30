@@ -4,6 +4,31 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.0.1](https://github.com/manav8498/Shadow/compare/v3.0.0...v3.0.1) (2026-04-30)
+
+### Fixed
+
+* **PyPI publish.** v3.0.0's wheel METADATA declared
+  `License-File: LICENSE-APACHE` (auto-discovered by maturin from
+  `python/LICENSE-APACHE`) but the wheel itself didn't include the
+  file because the explicit `[tool.maturin] include` rule pointed
+  at a non-existent `LICENSE` path. PyPI's PEP 639 validator (now
+  strict) rejected the upload with `400 License-File LICENSE-APACHE
+  does not exist in distribution`. Crates.io and npm published
+  3.0.0 fine; PyPI never accepted it.
+
+  The fix:
+    - Added `license-files = ["LICENSE-APACHE"]` to `[project]` in
+      `python/pyproject.toml` so maturin both packages the file
+      AND declares it in METADATA, with no auto-detection drift.
+    - Removed the stale `python/LICENSE-MIT` (project consolidated
+      to Apache-2.0 only at v2.6.0; the MIT file lingered).
+    - Removed the broken `[tool.maturin] include` entry that
+      referenced a non-existent `LICENSE` file.
+
+  No code or behaviour changes — purely a packaging metadata fix
+  to make the v3.0.x line publishable on PyPI.
+
 ## [3.0.0](https://github.com/manav8498/Shadow/compare/v2.9.0...v3.0.0) (2026-04-30)
 
 Workflow-loop release. Ships the full PR-to-runtime arc — `shadow demo` /
