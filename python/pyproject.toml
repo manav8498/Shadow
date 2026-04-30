@@ -99,7 +99,7 @@ mcp = ["mcp>=0.9,<2"]
 # when these aren't installed, so the dep is genuinely optional — the
 # extra is here so users opting in to multimodal traces have a single
 # `pip install shadow-diff[multimodal]` instead of two manual installs.
-multimodal = ["Pillow>=10,<12", "imagehash>=4.3,<5"]
+multimodal = ["Pillow>=10,<13", "imagehash>=4.3,<5"]
 # Cosign / sigstore signing for Agent Behavior Certificates. Enables
 # `shadow certify --sign` and `shadow verify-cert --verify-signature`.
 # Optional because sigstore pulls a non-trivial transitive tree
@@ -133,7 +133,7 @@ all = [
     "uvicorn>=0.32,<1",
     "websockets>=13.1,<16",
     "mcp>=0.9,<2",
-    "Pillow>=10,<12",
+    "Pillow>=10,<13",
     "imagehash>=4.3,<5",
     "sigstore>=3.0,<4",
     "langgraph>=1,<2",
