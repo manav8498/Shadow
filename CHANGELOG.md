@@ -4,6 +4,18 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.0.3](https://github.com/manav8498/Shadow/compare/v3.0.2...v3.0.3) (2026-04-30)
+
+### Fixed
+
+* **crates.io publish.** v3.0.2's crates.io step failed with
+  `400 Bad Request: A verified email address is required to publish
+  crates to crates.io` — a one-time account-level prerequisite the
+  maintainer hadn't completed. Email is now verified; this release
+  triggers the publish chain again to land `shadow-diff` on
+  crates.io and align all three registries on the same version.
+  No code or behaviour changes from 3.0.2.
+
 ## [3.0.2](https://github.com/manav8498/Shadow/compare/v3.0.1...v3.0.2) (2026-04-30)
 
 
