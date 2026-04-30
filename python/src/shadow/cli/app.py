@@ -109,7 +109,7 @@ jobs:
 """
 
 
-@app.command()
+@app.command(rich_help_panel="Setup")
 def init(
     path: Annotated[Path, typer.Argument(help="Project root (defaults to cwd)")] = Path("."),
     github_action: Annotated[
@@ -160,7 +160,7 @@ def init(
 # ---- quickstart ------------------------------------------------------------
 
 
-@app.command()
+@app.command(rich_help_panel="Setup")
 def quickstart(
     path: Annotated[
         Path,
@@ -265,7 +265,7 @@ def quickstart(
 # ---- demo ------------------------------------------------------------------
 
 
-@app.command()
+@app.command(rich_help_panel="Common")
 def demo() -> None:
     """Run a nine-axis diff on bundled fixtures. No setup, no API keys.
 
@@ -323,7 +323,7 @@ def demo() -> None:
 # ---- call ------------------------------------------------------------------
 
 
-@app.command()
+@app.command(rich_help_panel="Common")
 def call(
     baseline: Annotated[
         Path, typer.Argument(help="Anchor .agentlog file (the known-good reference)")
@@ -433,7 +433,7 @@ def call(
 # ---- heal ------------------------------------------------------------------
 
 
-@app.command("heal")
+@app.command("heal", rich_help_panel="Replay & analysis")
 def heal_cmd(
     baseline: Annotated[
         Path, typer.Argument(help="Anchor .agentlog file (the known-good reference)")
@@ -712,13 +712,13 @@ def holdout_list_cmd(
     render(holdouts, now=now, console=console)
 
 
-app.add_typer(holdout_app)
+app.add_typer(holdout_app, rich_help_panel="Reporting & history")
 
 
 # ---- listen ----------------------------------------------------------------
 
 
-@app.command("listen")
+@app.command("listen", rich_help_panel="Reporting & history")
 def listen_cmd(
     watch_dir: Annotated[
         Path,
@@ -866,7 +866,7 @@ def listen_cmd(
 # ---- brief -----------------------------------------------------------------
 
 
-@app.command("brief")
+@app.command("brief", rich_help_panel="Reporting & history")
 def brief_cmd(
     fmt: Annotated[
         str,
@@ -981,7 +981,7 @@ def brief_cmd(
 # ---- trail -----------------------------------------------------------------
 
 
-@app.command("trail")
+@app.command("trail", rich_help_panel="Reporting & history")
 def trail_cmd(
     trace_id: Annotated[
         str,
@@ -1064,7 +1064,7 @@ def trail_cmd(
 # ---- ledger ----------------------------------------------------------------
 
 
-@app.command("ledger")
+@app.command("ledger", rich_help_panel="Reporting & history")
 def ledger_cmd(
     since: Annotated[
         str,
@@ -1159,7 +1159,7 @@ def ledger_cmd(
 # ---- log -------------------------------------------------------------------
 
 
-@app.command("log")
+@app.command("log", rich_help_panel="Reporting & history")
 def log_cmd(
     report_path: Annotated[
         Path,
@@ -1226,7 +1226,7 @@ def log_cmd(
 # ---- autopr ----------------------------------------------------------------
 
 
-@app.command()
+@app.command(rich_help_panel="Common")
 def autopr(
     baseline: Annotated[Path, typer.Argument(help="Baseline .agentlog file (good behaviour)")],
     candidate: Annotated[
@@ -1361,6 +1361,7 @@ def autopr(
     # after it. Explicit per-command allow_extra_args forwards the
     # tokens after `--` to ctx.args as raw strings.
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    rich_help_panel="Common",
 )
 def record(
     ctx: typer.Context,
@@ -1477,7 +1478,7 @@ class NovelToolPolicyKind(StrEnum):
     fuzzy = "fuzzy"
 
 
-@app.command()
+@app.command(rich_help_panel="Replay & analysis")
 def replay(
     config_path: Annotated[Path, typer.Argument(help="Candidate config YAML")],
     baseline: Annotated[Path, typer.Option("--baseline", help="Baseline .agentlog file")],
@@ -1695,7 +1696,7 @@ class JudgeBackend(StrEnum):
     openai = "openai"
 
 
-@app.command("diff")
+@app.command("diff", rich_help_panel="Common")
 def diff_cmd(
     baseline: Annotated[Path, typer.Argument(help="Baseline .agentlog file")],
     candidate: Annotated[Path, typer.Argument(help="Candidate .agentlog file")],
@@ -2060,7 +2061,7 @@ def _apply_gate(
         raise typer.Exit(code=1)
 
 
-@app.command("gate")
+@app.command("gate", rich_help_panel="Replay & analysis")
 def gate_cmd(
     report_json: Annotated[
         Path,
@@ -2504,7 +2505,7 @@ class BisectFormat(StrEnum):
     json = "json"
 
 
-@app.command()
+@app.command(rich_help_panel="Replay & analysis")
 def bisect(
     config_a: Annotated[Path, typer.Argument(help="Baseline config YAML")],
     config_b: Annotated[Path, typer.Argument(help="Candidate config YAML")],
@@ -2639,7 +2640,7 @@ class ReportFormat(StrEnum):
     github_pr = "github-pr"
 
 
-@app.command()
+@app.command(rich_help_panel="Common")
 def report(
     input_json: Annotated[Path, typer.Argument(help="DiffReport JSON file")],
     fmt: Annotated[
@@ -2664,7 +2665,7 @@ def report(
 # ---- join -----------------------------------------------------------------
 
 
-@app.command()
+@app.command(rich_help_panel="Release & integrations")
 def join(
     inputs: Annotated[
         list[Path], typer.Argument(help="Input .agentlog files to merge", metavar="INPUTS...")
@@ -2729,7 +2730,7 @@ class ImportFormat(StrEnum):
     a2a = "a2a"
 
 
-@app.command("import")
+@app.command("import", rich_help_panel="Release & integrations")
 def import_cmd(
     source: Annotated[Path, typer.Argument(help="Foreign-format export file (.json or .jsonl)")],
     fmt: Annotated[
@@ -2887,7 +2888,7 @@ class ExportFormat(StrEnum):
     otel = "otel"
 
 
-@app.command()
+@app.command(rich_help_panel="Release & integrations")
 def export(
     trace: Annotated[Path, typer.Argument(help="Input .agentlog file")],
     fmt: Annotated[
@@ -2924,7 +2925,7 @@ def export(
 # ---- serve ----------------------------------------------------------------
 
 
-@app.command()
+@app.command(rich_help_panel="Release & integrations")
 def serve(
     root: Annotated[str, typer.Option("--root", help="Shadow root dir to tail")] = ".shadow",
     host: Annotated[str, typer.Option("--host", help="Listen host")] = "127.0.0.1",
@@ -2950,7 +2951,7 @@ class SchemaWatchFormat(StrEnum):
     json = "json"
 
 
-@app.command("schema-watch")
+@app.command("schema-watch", rich_help_panel="Replay & analysis")
 def schema_watch_cmd(
     old_config: Annotated[Path, typer.Argument(help="Baseline config YAML")],
     new_config: Annotated[Path, typer.Argument(help="Candidate config YAML")],
@@ -3031,7 +3032,7 @@ def schema_watch_cmd(
 # ---- mine -----------------------------------------------------------------
 
 
-@app.command("mine")
+@app.command("mine", rich_help_panel="Replay & analysis")
 def mine_cmd(
     traces: Annotated[
         list[Path],
@@ -3103,7 +3104,7 @@ def mine_cmd(
 # ---- mcp-serve ------------------------------------------------------------
 
 
-@app.command("mcp-serve")
+@app.command("mcp-serve", rich_help_panel="Release & integrations")
 def mcp_serve() -> None:
     """Run Shadow as a Model Context Protocol server over stdio.
 
@@ -3131,7 +3132,7 @@ def mcp_serve() -> None:
 # ---- version (hidden convenience) -----------------------------------------
 
 
-@app.command("certify")
+@app.command("certify", rich_help_panel="Release & integrations")
 def certify_cmd(
     trace: Annotated[
         Path, typer.Argument(help="Trace .agentlog file to certify (the candidate release).")
@@ -3254,7 +3255,7 @@ def certify_cmd(
         _fail(e)
 
 
-@app.command("verify-cert")
+@app.command("verify-cert", rich_help_panel="Release & integrations")
 def verify_cert_cmd(
     cert_path: Annotated[
         Path, typer.Argument(help="Path to a certificate JSON produced by `shadow certify`.")
@@ -3353,7 +3354,7 @@ def verify_cert_cmd(
         console.print(f"[green]signature ok[/]: {sig_detail}")
 
 
-@app.command()
+@app.command(rich_help_panel="Setup")
 def version() -> None:
     """Print the installed shadow version."""
     console.print(f"shadow {__version__} (spec {_core.SPEC_VERSION})")
