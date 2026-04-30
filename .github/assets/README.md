@@ -1,16 +1,19 @@
 # Shadow assets
 
-Static images embedded in `README.md`.
+Static images and videos embedded in `README.md`.
 
 | File | Source | Notes |
 |---|---|---|
 | `logo.png` | hand-drawn | Used as the README header. |
-| `demo.gif` | rendered from `demo.tape` | Workflow-loop walkthrough. ~1 MB, 1400 × 900, 59 s. |
+| `demo.gif` | rendered from `demo.tape` | Workflow-loop walkthrough. ~860 KB, 1400 × 900, 59 s, animated GIF (auto-plays). |
+| `demo.mp4` | rendered from `demo.tape` | Same content, H.264 video. ~600 KB, 1400 × 900, 25 fps, 59 s. |
+| `demo.webm` | rendered from `demo.tape` | Same content, VP9 video. ~700 KB, 1400 × 900, 59 s. |
 | `demo.tape` | hand-written | [vhs](https://github.com/charmbracelet/vhs) script. |
 
-## Regenerating `demo.gif`
+## Regenerating the demo assets
 
-The GIF is a vhs render of `demo.tape`. To re-render after editing:
+All three demo files (`demo.gif`, `demo.mp4`, `demo.webm`) are rendered
+from a single vhs run over `demo.tape`. To re-render after editing:
 
 ```bash
 # Local install (macOS)
@@ -27,5 +30,5 @@ The tape assumes `shadow` is on `PATH` and the bundled fixtures
 `pip install shadow-diff` followed by `maturin develop` in this repo.
 
 If you change a command's output formatting, re-render and commit
-the resulting `demo.gif` alongside the source change. The tape is
-the source of truth; the GIF is the artifact.
+all three artifacts alongside the source change. The tape is the
+source of truth; the GIF / MP4 / WebM are derivatives.
