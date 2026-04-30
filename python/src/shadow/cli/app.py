@@ -372,6 +372,10 @@ def call(
     Example:
         shadow call anchor.agentlog candidate.agentlog
         shadow call anchor.agentlog candidate.agentlog --json | jq .tier
+
+    Related:
+        shadow autopr   pin a regression as a policy after a `stop` call
+        shadow ledger   record this call to the ledger with `--log`
     """
     import json as _json
 
@@ -639,6 +643,10 @@ def listen_cmd(
     Example:
         shadow listen runs/ --anchor anchor.agentlog
         shadow listen runs/ --anchor anchor.agentlog --log
+
+    Related:
+        shadow record   produce the candidate `.agentlog` files this watches
+        shadow ledger   review the calls accumulated in the watched session
     """
     import time
     from datetime import datetime as _datetime
@@ -787,6 +795,10 @@ def brief_cmd(
         shadow brief
         shadow brief --format markdown >> CHANGELOG.md
         shadow brief --slack-webhook "$SLACK_WEBHOOK"
+
+    Related:
+        shadow ledger   the data source — opt in with `shadow call --log`
+        shadow trail    walk back from any trace id surfaced in the brief
     """
     import json as _json
     from datetime import UTC
@@ -896,6 +908,10 @@ def trail_cmd(
         shadow trail ba5e1a92
         shadow trail ba5e1a92 --depth 10
         shadow trail ba5e1a92 --json | jq '.steps[].tier'
+
+    Related:
+        shadow ledger   find a concerning trace id to walk back from
+        shadow autopr   pin the cause as a policy once you've found it
     """
     import json as _json
 
@@ -970,6 +986,11 @@ def ledger_cmd(
         shadow ledger
         shadow ledger --since 7d --limit 100
         shadow ledger --json | jq '.entries[0].tier'
+
+    Related:
+        shadow trail    walk back from a concerning trace id
+        shadow brief    broadcast the recent state in markdown or Slack
+        shadow holdout  park flaky trace ids the team has acknowledged
     """
     import json as _json
     from datetime import UTC
@@ -1133,6 +1154,10 @@ def autopr(
         shadow autopr baseline.agentlog candidate.agentlog \\
                       --output tests/regressions/refund-flow.yaml \\
                       --name refund-flow-2026-04-29
+
+    Related:
+        shadow call    decide whether the regression warrants pinning
+        shadow trail   walk back to the cause before pinning it
     """
     from shadow.autopr import synthesize_policy, verify_policy
 

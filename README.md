@@ -531,7 +531,15 @@ The validation suite at [`python/tests/test_statistical_validation.py`](python/t
 | `shadow record -- <cmd>` | Run `<cmd>`, auto-capture its LLM calls. Zero code changes. |
 | `shadow replay <cfg> --baseline <trace>` | Replay baseline through a new config. `--partial --branch-at N` locks a prefix, replays only the suffix. |
 | `shadow diff <baseline> <candidate>` | Nine-axis behavior diff. `--policy <f>` to enforce rules. `--fail-on {minor,moderate,severe}` to gate the merge. `--token-diff` for per-turn token distribution. `--suggest-fixes` for LLM-assisted fix proposals. |
+| `shadow call <baseline> <candidate>` | One-line ship-readiness call: `ship` / `hold` / `probe` / `stop`, with the dominant driver, worst axes (with bootstrap CIs), and suggested next commands. `--strict` makes hold/probe block; `--log` records to the ledger. |
+| `shadow autopr <baseline> <candidate>` | Synthesise a Shadow policy from a regression. Pure deterministic — emits rules in the existing 12-kind language; `--verify` (default on) confirms each rule fires on the candidate and stays silent on the baseline. |
 | `shadow bisect <cfg-a> <cfg-b> --traces <set>` | Attribute each axis regression to specific config deltas. |
+| `shadow ledger` | Compact panel of recent artifacts: pass rate with 95% Wilson CI, most-concerning entry, suggested next commands. Reads `.shadow/ledger/`. Opt-in via `--log` on call/diff or via `shadow log`. |
+| `shadow trail <trace-id>` | Walk back through the (anchor → candidate) edges from a trace id. Vertical chain showing each step's tier and driver, plus inline commands to re-verify or pin. |
+| `shadow brief` | Tight summary in three formats: `terminal` (default), `markdown` (PR comments), `slack` (Block Kit). `--slack-webhook URL` posts directly via stdlib. |
+| `shadow listen <dir> --anchor <path>` | Polling-based file-save trigger. Streams a one-line call as each new `.agentlog` candidate lands in the watched directory. |
+| `shadow holdout add/remove/list/reset` | Manage held-out trace ids (acknowledged-but-not-blocking) with owner tags, reasons, and TTL-based staleness tracking. |
+| `shadow log <report.json>` | Append a diff or call report to the ledger. Default `shadow diff` writes nothing; this is the explicit way to land an entry from a CI artifact. |
 | `shadow schema-watch <cfg-a> <cfg-b>` | Classify tool-schema changes before replaying. |
 | `shadow import <src> --format <fmt>` | Import foreign traces (langfuse, braintrust, langsmith, openai-evals, otel, mcp, a2a, vercel-ai, pydantic-ai). |
 | `shadow mine <traces...>` | Cluster production traces and pick representative cases as a regression suite. |
