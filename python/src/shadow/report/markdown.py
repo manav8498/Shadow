@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from shadow.report.labels import axis_label
+
 
 def render_markdown(report: dict[str, Any]) -> str:
     """Render a DiffReport dict as a PR-friendly markdown table."""
@@ -37,23 +39,35 @@ def render_markdown(report: dict[str, Any]) -> str:
         )
         lines.append("")
 
-    lines.append("| axis | baseline | candidate | delta | 95% CI | severity | flags | n |")
-    lines.append("|------|---------:|----------:|------:|:-------|:---------|:------|---:|")
+    rows_list = list(report.get("rows", []))
+    # `low_power` fires on every row when n is small (typical in real
+    # traces with under ten paired responses). Showing it on every row
+    # makes the table look broken; collapse the universal case to a
+    # single banner above the table.
+    flag_universal = (
+        "low_power"
+        if rows_list and all("low_power" in (r.get("flags") or []) for r in rows_list)
+        else None
+    )
+    lines.append("| signal | baseline | candidate | change | 95% CI | severity | n |")
+    lines.append("|--------|---------:|----------:|-------:|:-------|:---------|---:|")
     worst = "none"
-    for row in report.get("rows", []):
+    for row in rows_list:
         sev = row.get("severity", "none")
         if _sev_rank(sev) > _sev_rank(worst):
             worst = sev
-        flags = row.get("flags", []) or []
-        flags_str = ", ".join(f"`{f}`" for f in flags) if flags else ""
+        # Drop the universal `low_power` flag and any non-actionable
+        # flags from per-row display; keep specific flags that change
+        # the reading (e.g. `ci_crosses_zero`, `no_pricing`).
+        flags = [f for f in (row.get("flags") or []) if f != flag_universal]
+        flag_suffix = f" _({', '.join(flags)})_" if flags else ""
         lines.append(
-            f"| {row.get('axis', '')} "
+            f"| {axis_label(str(row.get('axis', '')))} "
             f"| {row.get('baseline_median', 0.0):.3f} "
             f"| {row.get('candidate_median', 0.0):.3f} "
             f"| {row.get('delta', 0.0):+.3f} "
             f"| [{row.get('ci95_low', 0.0):+.2f}, {row.get('ci95_high', 0.0):+.2f}] "
-            f"| {_sev_label(sev)} "
-            f"| {flags_str} "
+            f"| {_sev_label(sev)}{flag_suffix} "
             f"| {row.get('n', 0)} |"
         )
     lines.append("")
@@ -149,10 +163,10 @@ def render_markdown(report: dict[str, Any]) -> str:
 def _render_drill_down_row_markdown(row: dict[str, Any]) -> str:
     """One drill-down pair as a markdown sub-list."""
     idx = row.get("pair_index", 0)
-    axis = row.get("dominant_axis", "")
+    axis = axis_label(str(row.get("dominant_axis", "")))
     score = float(row.get("regression_score", 0.0))
     parts = [
-        f"- **pair `#{idx}`** &nbsp;·&nbsp; dominant: `{axis}` "
+        f"- **pair `#{idx}`** &nbsp;·&nbsp; biggest mover: {axis} "
         f"&nbsp;·&nbsp; score `{score:.2f}`"
     ]
     scores = sorted(
@@ -167,8 +181,8 @@ def _render_drill_down_row_markdown(row: dict[str, Any]) -> str:
         delta = float(s.get("delta", 0.0))
         norm = float(s.get("normalized_delta", 0.0))
         parts.append(
-            f"  - `{s.get('axis', '')}`: {bv:.2f} → {cv:.2f} "
-            f"&nbsp;(delta `{delta:+.2f}`, norm `{norm:.2f}`)"
+            f"  - {axis_label(str(s.get('axis', '')))}: {bv:.2f} → {cv:.2f} "
+            f"&nbsp;(Δ `{delta:+.2f}`, norm `{norm:.2f}`)"
         )
     return "\n".join(parts)
 
@@ -196,7 +210,7 @@ def _render_recommendation_markdown(rec: dict[str, Any]) -> str:
 def _render_divergence_markdown(dv: dict[str, Any], rank: int, total: int) -> str:
     """One divergence as a markdown block with a rank header."""
     kind = dv.get("kind", "")
-    axis = dv.get("primary_axis", "")
+    axis = axis_label(str(dv.get("primary_axis", "")))
     bt = dv.get("baseline_turn", 0)
     ct = dv.get("candidate_turn", 0)
     conf = dv.get("confidence", 0.0)
@@ -204,7 +218,7 @@ def _render_divergence_markdown(dv: dict[str, Any], rank: int, total: int) -> st
     rank_prefix = f"**#{rank}" + (f" of {total}**" if total > 1 else "**")
     return (
         f"\n{rank_prefix} &nbsp; **Turn** baseline `#{bt}` ↔ candidate `#{ct}` "
-        f"&nbsp; · &nbsp; **Kind** `{kind}` &nbsp; · &nbsp; **Axis** `{axis}` "
+        f"&nbsp; · &nbsp; **Kind** `{kind}` &nbsp; · &nbsp; **Signal** {axis} "
         f"&nbsp; · &nbsp; **Confidence** {conf * 100:.0f}%\n\n> {exp}"
     )
 

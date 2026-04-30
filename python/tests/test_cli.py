@@ -137,7 +137,10 @@ def test_report_renders_markdown_and_github_pr(tmp_path: Path) -> None:
 
     md = runner.invoke(app, ["report", str(path), "--format", "markdown"])
     assert md.exit_code == 0, md.output
-    assert "| axis |" in md.stdout
+    # v3.0+: markdown table column header is "signal" (a friendlier
+    # word for "axis"); the report still ends with a "Worst severity"
+    # line, case-insensitively.
+    assert "| signal |" in md.stdout
     assert "worst severity" in md.stdout.lower()
 
     gh = runner.invoke(app, ["report", str(path), "--format", "github-pr"])
@@ -147,7 +150,7 @@ def test_report_renders_markdown_and_github_pr(tmp_path: Path) -> None:
 
 def test_github_pr_report_has_no_regressions_header_when_clean() -> None:
     """When all axes are 'none' and no recommendations, the PR comment
-    leads with the green 'no regressions' header."""
+    leads with a green 'no behaviour regressions' verdict."""
     from shadow.report.github_pr import render_github_pr
 
     report = {
@@ -169,13 +172,16 @@ def test_github_pr_report_has_no_regressions_header_when_clean() -> None:
         "candidate_trace_id": "sha256:" + "b" * 64,
     }
     out = render_github_pr(report)
-    assert "no regressions" in out.lower()
+    assert "no behaviour regressions" in out.lower()
     assert "✅" in out
 
 
 def test_github_pr_report_surfaces_severe_axis_in_critical_tier() -> None:
-    """B-1: A severe axis regression must surface as CRITICAL in the
-    risk summary header — not buried in the per-axis table."""
+    """B-1: A severe regression must surface in the verdict line, the
+    'What probably broke' recommendations section, and the per-axis
+    table fold — not buried under jargon. v3.0+ inverts the previous
+    'CRITICAL tier' header into a plain-language 'Shadow recommends:
+    hold this PR' line."""
     from shadow.report.github_pr import render_github_pr
 
     report = {
@@ -214,17 +220,24 @@ def test_github_pr_report_surfaces_severe_axis_in_critical_tier() -> None:
         "candidate_trace_id": "sha256:" + "b" * 64,
     }
     out = render_github_pr(report)
-    # Header must lead with CRITICAL.
-    assert "CRITICAL" in out
-    # Specific axis name and recommendation message both surface.
-    assert "trajectory" in out
+    # v3.0+: verdict line uses plain-language rather than "CRITICAL".
+    assert "hold this PR" in out
+    # Plain-English axis label surfaces in the table fold ("tool calls"
+    # is the display label for the internal "trajectory" axis).
+    assert "tool calls" in out
+    # Recommendation message and 'What probably broke' header surface.
     assert "lookup_order" in out
-    # Per-axis table still rendered.
-    assert "| axis |" in out
+    assert "What probably broke" in out
+    # Numbers section is rendered inside a `<details>` fold.
+    assert "<details>" in out
+    assert "| signal |" in out
 
 
-def test_github_pr_report_caps_per_tier_listing() -> None:
-    """When >5 items are in one tier, the header caps at 5 + summary line."""
+def test_github_pr_report_renders_many_severe_axes_into_table() -> None:
+    """v3.0+: many severe axes are rendered as table rows in the
+    `<details>` fold rather than cap-listed in a CRITICAL tier header.
+    The verdict line + per-row severity emoji still surface every row;
+    no row is elided."""
     from shadow.report.github_pr import render_github_pr
 
     rows = [
@@ -248,7 +261,11 @@ def test_github_pr_report_caps_per_tier_listing() -> None:
         "candidate_trace_id": "sha256:" + "b" * 64,
     }
     out = render_github_pr(report)
-    assert "and 3 more" in out  # 8 - 5 = 3 elided
+    # Every row appears in the table.
+    for i in range(8):
+        assert f"axis_{i}" in out
+    # Verdict line still leads with "hold this PR".
+    assert "hold this PR" in out
 
 
 def test_replay_uses_mock_backend_on_matching_baseline(tmp_path: Path) -> None:
@@ -538,8 +555,11 @@ def test_demo_runs_and_emits_nine_axis_table(tmp_path: Path, monkeypatch: Any) -
     result = runner.invoke(app, ["demo"])
     assert result.exit_code == 0, result.output
     # The fixture set has known regressions; the diff must surface them.
-    assert "semantic" in result.output
-    assert "trajectory" in result.output
+    # v3.0+ renders user-facing axis labels ("response meaning" /
+    # "tool calls") instead of the internal axis names ("semantic" /
+    # "trajectory") in terminal output.
+    assert "response meaning" in result.output
+    assert "tool calls" in result.output
     assert "severe" in result.output
 
 

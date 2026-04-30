@@ -88,7 +88,8 @@ def test_markdown_renders_top_regressive_pairs_section() -> None:
     assert "### Top regressive pairs" in md
     assert "pair `#0`" in md
     assert "pair `#3`" in md
-    assert "`trajectory`" in md
+    # v3.0+ uses plain-English axis labels ("tool calls" not "trajectory").
+    assert "tool calls" in md
     assert "score `4.20`" in md
 
 
@@ -116,7 +117,8 @@ def test_terminal_renders_drill_down() -> None:
     assert "top regressive pairs" in out
     assert "pair #2" in out
     assert "pair #4" in out
-    assert "semantic" in out
+    # v3.0+ uses plain-English axis labels ("response meaning" not "semantic").
+    assert "response meaning" in out
 
 
 def test_terminal_silent_when_drill_down_empty() -> None:
@@ -131,10 +133,13 @@ def test_terminal_silent_when_drill_down_empty() -> None:
 
 
 def test_github_pr_includes_drill_down_when_present() -> None:
+    """v3.0+: github-pr renderer puts top regressive pairs into a
+    dedicated `<details>` fold with a plain-English summary; the
+    'Top regressive pairs' header is no longer in the body verbatim."""
     report = _stub_report([_stub_row(1, "conformance", 2.9)])
     body = render_github_pr(report)
-    assert "Top regressive pairs" in body
-    assert "pair `#1`" in body
+    assert "top regressive turn pairs" in body
+    assert "pair #1" in body
 
 
 # ---- end-to-end through the Rust differ ---------------------------------
