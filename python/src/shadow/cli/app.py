@@ -426,6 +426,150 @@ def call(
     raise typer.Exit(code=result.exit_code())
 
 
+# ---- listen ----------------------------------------------------------------
+
+
+@app.command("listen")
+def listen_cmd(
+    watch_dir: Annotated[
+        Path,
+        typer.Argument(help="Directory to watch for new or changed `.agentlog` files."),
+    ],
+    anchor: Annotated[
+        Path,
+        typer.Option(
+            "--anchor",
+            help="Anchor `.agentlog` file. Each new candidate in the watched "
+            "directory is paired against this for the call.",
+        ),
+    ],
+    interval: Annotated[
+        float,
+        typer.Option(
+            "--interval",
+            help="Polling interval in seconds. Default 1.0 — keeps CPU near "
+            "zero on idle, 1-second response on changes.",
+        ),
+    ] = 1.0,
+    once: Annotated[
+        bool,
+        typer.Option(
+            "--once",
+            help="Run a single polling tick and exit. Useful for tests and "
+            "CI smoke checks; the streaming loop is the default.",
+        ),
+    ] = False,
+    log: Annotated[
+        bool,
+        typer.Option(
+            "--log",
+            help="Also append a ledger entry per event so `shadow ledger` "
+            "and `shadow trail` see the changes later.",
+        ),
+    ] = False,
+) -> None:
+    """Stream calls as new `.agentlog` files land in a directory.
+
+    Run in one terminal while you iterate on your agent. Each time you
+    re-record a candidate trace into the watched directory, the listener
+    pairs it with the anchor, runs `shadow call`, and emits a single
+    coloured line.
+
+    Polling-based — zero new dependencies. Default interval is one
+    second, which is fast enough to feel live while keeping CPU near
+    zero on idle. Press Ctrl-C to exit.
+
+    Example:
+        shadow listen runs/ --anchor anchor.agentlog
+        shadow listen runs/ --anchor anchor.agentlog --log
+    """
+    import time
+    from datetime import datetime as _datetime
+
+    from shadow.call import compute_call
+    from shadow.listen import FileEvent, listen_once
+
+    if not anchor.is_file():
+        _fail(FileNotFoundError(f"anchor file not found: {anchor}"))
+        return
+
+    if not watch_dir.is_dir():
+        _fail(FileNotFoundError(f"watch directory not found: {watch_dir}"))
+        return
+
+    err_console.print(
+        f"[dim]Listening on {watch_dir}/   anchor={anchor.name}   "
+        f"interval={interval:.1f}s.   Ctrl-C to exit.[/]"
+    )
+
+    state: dict[Path, float] = {}
+    # In streaming mode, seed silently so files already present at start
+    # time don't all fire as "added" — only changes from this point
+    # forward produce events. In `--once` mode, the user is asking
+    # "what's in the directory right now?", so skip the seed and let
+    # the first tick emit events for every existing file.
+    if not once:
+        state, _seed = listen_once(state, watch_dir, anchor_path=anchor)
+
+    def _handle_event(event: FileEvent) -> None:
+        marker = "+" if event.kind == "added" else "~"
+        rel = (
+            event.path.relative_to(Path.cwd())
+            if event.path.is_relative_to(Path.cwd())
+            else event.path
+        )
+        try:
+            anchor_records = _core.parse_agentlog(anchor.read_bytes())
+            cand_records = _core.parse_agentlog(event.path.read_bytes())
+            report = _core.compute_diff_report(anchor_records, cand_records, None, 42)
+            result = compute_call(report)
+        except Exception as e:
+            stamp = _datetime.fromtimestamp(event.mtime).strftime("%H:%M:%S")
+            err_console.print(f"[dim]{stamp}[/]  {marker}{rel}   [yellow]warning[/]: {e}")
+            return
+
+        tier_label = {
+            "ship": ("✓ ship", "green"),
+            "hold": ("⚠ hold", "yellow"),
+            "probe": ("◎ probe", "cyan"),
+            "stop": ("⛔ stop", "red"),
+        }.get(result.tier.value, (result.tier.value, "white"))
+        label, colour = tier_label
+
+        stamp = _datetime.fromtimestamp(event.mtime).strftime("%H:%M:%S")
+        summary = result.driver.summary if result.driver else "no regression detected"
+        console.print(
+            f"[dim]{stamp}[/]  {marker}{rel}   "
+            f"[bold {colour}]{label}[/]   "
+            f"[dim]{summary}[/]"
+        )
+
+        if log:
+            from shadow.ledger import entry_from_call, write_entry
+
+            try:
+                write_entry(
+                    entry_from_call(result.to_dict(), source_command="shadow listen"),
+                )
+            except OSError as e:
+                err_console.print(f"[yellow]warning[/]: ledger write failed: {e}")
+
+    try:
+        if once:
+            state, events = listen_once(state, watch_dir, anchor_path=anchor)
+            for event in events:
+                _handle_event(event)
+            return
+
+        while True:
+            time.sleep(interval)
+            state, events = listen_once(state, watch_dir, anchor_path=anchor)
+            for event in events:
+                _handle_event(event)
+    except KeyboardInterrupt:
+        err_console.print("\n[dim]listener stopped.[/]")
+
+
 # ---- brief -----------------------------------------------------------------
 
 
