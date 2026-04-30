@@ -1,5 +1,5 @@
 /**
- * @shadow/sdk — TypeScript SDK for Shadow (behavioral diff for LLM agents).
+ * shadow-diff — TypeScript SDK for Shadow (behavioral diff for LLM agents).
  *
  * Mirrors the Python SDK surface: a `Session` context that records
  * chat request/response pairs into a `.agentlog` file using the
@@ -8,7 +8,7 @@
  *
  * Usage:
  *
- *     import { Session, autoInstrument } from '@shadow/sdk';
+ *     import { Session, autoInstrument } from 'shadow-diff';
  *     import OpenAI from 'openai';
  *
  *     const session = new Session({ outputPath: 'trace.agentlog' });

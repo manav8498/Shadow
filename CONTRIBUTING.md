@@ -81,11 +81,11 @@ use `just lint` to get full strict mypy locally before pushing.
 
 ## Working on each layer
 
-### shadow-core (Rust)
+### shadow-diff core crate (Rust, source dir `crates/shadow-core/`)
 
 ```bash
-cargo test -p shadow-core                 # unit tests
-cargo test -p shadow-core <filter>        # one module / test
+cargo test -p shadow-diff                 # unit tests
+cargo test -p shadow-diff <filter>        # one module / test
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all
 cargo llvm-cov --workspace                # coverage (gate: ≥85% line)
@@ -201,8 +201,8 @@ compatibility).
 Shadow ships three artifacts that share a single version number:
 
 - Python wheel (`shadow-diff` on PyPI) — `python/pyproject.toml` + `python/src/shadow/__init__.py`
-- Rust crate (`shadow-core` on crates.io) — `Cargo.toml` workspace
-- TypeScript SDK (`@shadow/sdk` on npm) — `typescript/package.json`
+- Rust crate (`shadow-diff` on crates.io, source in `crates/shadow-core/`) — `Cargo.toml` workspace
+- TypeScript SDK (`shadow-diff` on npm) — `typescript/package.json`
 
 **All three bump together on every release.** A v2.5.0 release means the
 Python wheel, Rust crate, and TypeScript SDK are all at 2.5.0, even if a

@@ -1,4 +1,4 @@
-# @shadow/sdk
+# shadow-diff
 
 TypeScript SDK for **Shadow**, Git-native behavioral diff for LLM agents.
 
@@ -15,7 +15,7 @@ reads the same trace format without translation.
 ## Install
 
 ```bash
-npm install @shadow/sdk
+npm install shadow-diff
 # optional, whichever LLM SDKs your agent uses:
 npm install openai @anthropic-ai/sdk
 ```
@@ -23,7 +23,7 @@ npm install openai @anthropic-ai/sdk
 ## Usage
 
 ```ts
-import { Session } from '@shadow/sdk';
+import { Session } from 'shadow-diff';
 import OpenAI from 'openai';
 
 const session = new Session({
