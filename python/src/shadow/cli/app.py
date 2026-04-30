@@ -3072,12 +3072,47 @@ def mine_cmd(
 
     The result is a compact, representative fixture set suitable for
     running `shadow diff` in CI against every PR.
+
+    Each positional ``traces`` argument can be either a single
+    ``.agentlog`` file or a directory; directories are recursively
+    walked and every ``*.agentlog`` file inside is mined. This makes
+    pointing the command at a production trace dump (the typical
+    use case) a one-liner instead of a shell-glob dance.
     """
     from shadow.mine import mine as do_mine
 
+    # Expand each input into the concrete list of .agentlog files to
+    # mine. A directory expands to every `*.agentlog` underneath it
+    # (recursively); a file passes through unchanged. Missing paths
+    # and directories without any traces raise typed errors so the
+    # CLI surfaces a hint instead of leaking IsADirectoryError /
+    # FileNotFoundError tracebacks. Same UX as `shadow holdout` does
+    # for its `--base` argument when a directory is passed.
+    expanded: list[Path] = []
+    for path in traces:
+        if not path.exists():
+            _fail(
+                ShadowError(
+                    f"`{path}` does not exist; pass an existing .agentlog "
+                    f"file or a directory containing them."
+                )
+            )
+        if path.is_dir():
+            matched = sorted(path.rglob("*.agentlog"))
+            if not matched:
+                _fail(
+                    ShadowError(
+                        f"`{path}` is a directory but contains no `*.agentlog` files; "
+                        f"point at a trace dump or pass individual files."
+                    )
+                )
+            expanded.extend(matched)
+        else:
+            expanded.append(path)
+
     try:
         parsed_traces = []
-        for path in traces:
+        for path in expanded:
             parsed_traces.append(_core.parse_agentlog(path.read_bytes()))
         price_map: dict[str, Any] | None = None
         if pricing is not None:
