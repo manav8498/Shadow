@@ -573,8 +573,7 @@ def _bootstrap_ci_per_axis(
         # 0; this matches the validation contract that
         # `_validate_and_normalise_weights` already enforces.
         weight_per_stratum = [
-            float(confounder_weights.get(stratum_combos[int(s)], 0.0))
-            for s in stratum_keys
+            float(confounder_weights.get(stratum_combos[int(s)], 0.0)) for s in stratum_keys
         ]
         total = sum(weight_per_stratum)
         if total > 0:
@@ -606,8 +605,7 @@ def _bootstrap_ci_per_axis(
         # Combine across strata using the same weights as the point estimate.
         for ax in all_axes:
             ax_combined = sum(
-                w * s.get(ax, 0.0)
-                for w, s in zip(weight_per_stratum, stratum_ates, strict=True)
+                w * s.get(ax, 0.0) for w, s in zip(weight_per_stratum, stratum_ates, strict=True)
             )
             bootstrap_ates[ax].append(ax_combined)
 
