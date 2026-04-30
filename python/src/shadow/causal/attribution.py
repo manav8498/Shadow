@@ -33,12 +33,17 @@ Design notes
       ``(c_1, c_2, ...)`` tuples to weights, those weights are
       normalised to sum to 1 and applied directly. Use this when
       you have measured P(C=c) in the target population.
-    * When ``confounder_weights`` is omitted, the estimator falls
-      back to **uniform** weights. This is the unbiased estimator
-      under the Pearl formula only when P(C=c) is itself uniform;
-      under any other distribution it is biased toward the simple
-      average. The fallback is documented but it is the caller's
-      responsibility to supply real weights for production use.
+    * When ``confounder_weights="uniform"`` is supplied, every
+      stratum gets weight ``1/n``. This is unbiased under the
+      Pearl formula only when P(C=c) is itself uniform — pass the
+      sentinel only when you've explicitly verified that, or when
+      you understand the resulting estimate is the simple average.
+    * Omitting ``confounder_weights`` while declaring confounders
+      is now an error: the estimator refuses to silently assume
+      uniform P(C=c). Earlier versions of Shadow defaulted to
+      uniform here; that default is removed in v3.0 because it
+      produced a biased estimate that read as "the Pearl ATE"
+      to callers who never supplied weights.
 - E-value uses the VanderWeele-Ding closed form for continuous
   outcomes via the standardized mean difference. The pooled SD
   comes from the union of baseline and intervened replay outputs.
@@ -59,7 +64,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from itertools import product
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -67,6 +72,7 @@ import numpy as np
 DeltaName = str
 AxisName = str
 DivergenceVector = dict[AxisName, float]
+ConfounderWeights = dict[tuple[Any, ...], float] | Literal["uniform"]
 
 
 @dataclass(frozen=True)
@@ -140,7 +146,7 @@ def causal_attribution(
     n_replays: int = 1,
     n_bootstrap: int = 0,
     confounders: list[DeltaName] | None = None,
-    confounder_weights: dict[tuple[Any, ...], float] | None = None,
+    confounder_weights: ConfounderWeights | None = None,
     sensitivity: bool = False,
     confidence_level: float = 0.95,
     seed: int = 42,
@@ -172,15 +178,23 @@ def causal_attribution(
         ``ATE = Σ_c P(C=c) · ATE_c``. See ``confounder_weights`` for
         how P(C=c) is supplied.
     confounder_weights :
-        Optional explicit weights for the back-door combination,
-        keyed by the tuple of confounder values in the same order as
-        ``confounders``. Keys that need to appear: every cartesian
-        combination of (baseline_value, candidate_value) for each
-        confounder. Weights are normalised to sum to 1; raw counts are
-        accepted. When omitted, **uniform weights** are applied. The
-        uniform default is correct only when P(C=c) is itself uniform;
-        for any non-uniform distribution this estimate is biased and
-        the caller should pass measured weights.
+        Per-stratum weights for the back-door combination. Required
+        when ``confounders`` is non-empty. One of:
+
+          * ``dict[tuple, float]`` — explicit weights keyed by the
+            tuple of confounder values in the same order as
+            ``confounders``. Every cartesian combination of
+            (baseline_value, candidate_value) across confounders
+            must have a weight. Raw counts are accepted; the
+            estimator normalises to sum to 1.
+          * ``"uniform"`` — sentinel that distributes weight
+            equally across strata (1/n). Only correct when P(C=c)
+            is itself uniform; pass it explicitly to acknowledge
+            the assumption.
+
+        Omitting this argument while declaring confounders raises
+        ``ValueError``. The previous silent uniform default is
+        removed.
     sensitivity :
         When True, compute the VanderWeele-Ding E-value per (delta, axis).
         Requires ``n_replays ≥ 2`` for a non-degenerate pooled SD; with
@@ -286,6 +300,7 @@ def causal_attribution(
                 confidence_level=confidence_level,
                 rng=rng,
                 axes_filter=axes,
+                confounder_weights=normalised_weights,
             )
 
         if sensitivity:
@@ -316,11 +331,11 @@ def _ate_for_delta(
     replay_fn: ReplayFn,
     n_replays: int,
     confounder_keys: list[DeltaName],
-    confounder_weights: dict[tuple[Any, ...], float] | None,
+    confounder_weights: dict[tuple[Any, ...], float] | Literal["uniform"] | None,
     axes: list[AxisName] | None,
 ) -> tuple[
     dict[AxisName, float],
-    dict[str, list[DivergenceVector]],
+    dict[str, Any],
 ]:
     """Compute the ATE for a single target delta, optionally adjusting
     for confounders via back-door stratification.
@@ -334,8 +349,12 @@ def _ate_for_delta(
         - ``"intervention_runs__<stratum>"`` : list of intervention replays
         - ``"__last_intervention__"`` : the last intervention run set
           (for the diagnostic ``InterventionResult``).
+        - ``"__stratum_combos__"`` : per-stratum confounder-value tuple,
+          indexed by the stratum integer; only set when confounders are
+          declared. Lets the bootstrap CI honour the same per-stratum
+          weights as the point estimate.
     """
-    runs: dict[str, list[DivergenceVector]] = {}
+    runs: dict[str, Any] = {}
 
     if not confounder_keys:
         # No back-door adjustment: a single stratum.
@@ -381,6 +400,12 @@ def _ate_for_delta(
         stratum_ates.append((combo, _ate_from_runs(control_runs, intervention_runs, axes)))
 
     runs["__last_intervention__"] = last_intervention_runs
+    # Stratum index → confounder combo, so the bootstrap CI can apply
+    # the same weights as the point estimate. Stored as a sentinel
+    # alongside the run lists rather than passed as a separate arg, so
+    # callers downstream of `_ate_for_delta` see the mapping next to
+    # the runs themselves.
+    runs["__stratum_combos__"] = [combo for combo, _ in stratum_ates]
 
     all_axes: set[str] = set()
     for _, s in stratum_ates:
@@ -388,9 +413,20 @@ def _ate_for_delta(
     if axes is not None:
         all_axes &= set(axes)
 
-    if confounder_weights is None:
-        # Uniform-average fallback (correct only when P(C=c) is uniform).
+    if confounder_weights == "uniform":
+        # Caller explicitly opted into 1/n weighting. Documented as
+        # "unbiased only when P(C=c) is itself uniform" in the public
+        # docstring; the sentinel forces the caller to acknowledge it.
         weights = {combo: 1.0 / len(stratum_ates) for combo, _ in stratum_ates}
+    elif confounder_weights is None:
+        # Should be unreachable: _validate_and_normalise_weights raises
+        # before we get here when confounders are declared without
+        # weights. Kept defensive in case the validation contract drifts.
+        raise ValueError(
+            "confounder_weights is required when confounders are declared; "
+            "pass 'uniform' to acknowledge a uniform-P(C=c) assumption or "
+            "provide a dict of per-stratum weights"
+        )
     else:
         weights = confounder_weights
 
@@ -402,16 +438,37 @@ def _validate_and_normalise_weights(
     confounder_keys: list[DeltaName],
     baseline_config: dict[DeltaName, Any],
     candidate_config: dict[DeltaName, Any],
-    confounder_weights: dict[tuple[Any, ...], float] | None,
-) -> dict[tuple[Any, ...], float] | None:
+    confounder_weights: dict[tuple[Any, ...], float] | Literal["uniform"] | None,
+) -> dict[tuple[Any, ...], float] | Literal["uniform"] | None:
     """Validate user-supplied weights against the cartesian product of
     confounder values, normalise to sum to 1, and return the result.
 
-    ``None`` propagates as ``None`` (signals uniform fallback in
-    ``_ate_for_delta``).
+    Contract:
+      * ``None`` + no confounders → ``None`` passes through.
+      * ``None`` + 1+ confounders → raises (the caller must opt into
+        a P(C=c) assumption explicitly; previously this silently used
+        uniform 1/n weights, which biased the back-door estimate
+        toward the simple average for non-uniform stratum
+        distributions).
+      * ``"uniform"`` + no confounders → raises (no strata to weight).
+      * ``"uniform"`` + 1+ confounders → ``"uniform"`` passes through;
+        the back-door step interprets the sentinel as 1/n.
+      * dict + no confounders → raises (no strata to weight).
+      * dict + 1+ confounders → validated against the cartesian
+        product of (baseline, candidate) values, then normalised.
     """
     if confounder_weights is None:
+        if confounder_keys:
+            raise ValueError(
+                "confounder_weights is required when confounders are declared. "
+                "Pass 'uniform' to acknowledge a uniform-P(C=c) assumption, "
+                "or supply a dict of per-stratum weights derived from your "
+                "target population. The previous silent uniform default was "
+                "removed because it produced a biased estimate that read as "
+                "'the Pearl ATE' to callers who never supplied weights."
+            )
         return None
+
     if not confounder_keys:
         # No back-door adjustment requested but weights were supplied —
         # weights are meaningless without confounders. Treat as a usage
@@ -420,6 +477,9 @@ def _validate_and_normalise_weights(
             "confounder_weights supplied but `confounders` is empty — "
             "weights have no strata to apply to"
         )
+
+    if confounder_weights == "uniform":
+        return "uniform"
 
     grids = [(baseline_config[c], candidate_config[c]) for c in confounder_keys]
     expected_combos = list(product(*grids))
@@ -457,11 +517,12 @@ def _ate_from_runs(
 
 def _bootstrap_ci_per_axis(
     *,
-    per_axis_runs: dict[str, list[DivergenceVector]],
+    per_axis_runs: dict[str, Any],
     n_bootstrap: int,
     confidence_level: float,
     rng: np.random.Generator,
     axes_filter: list[AxisName] | None,
+    confounder_weights: dict[tuple[Any, ...], float] | Literal["uniform"] | None,
 ) -> tuple[dict[AxisName, float], dict[AxisName, float]]:
     """Percentile-bootstrap CI on the ATE.
 
@@ -469,23 +530,55 @@ def _bootstrap_ci_per_axis(
     replacement, computes the resampled ATE on each draw, and reports
     the (alpha/2, 1-alpha/2) percentiles across draws.
 
-    For multi-stratum (back-door-adjusted) ATEs, the resampling is done
-    within each stratum and the stratum ATEs are recombined with the
-    same uniform weights as the point estimate.
+    For multi-stratum (back-door-adjusted) ATEs, the resampling is
+    done within each stratum and the stratum ATEs are recombined
+    using the same ``confounder_weights`` as the point estimate.
+    Without the weights match, the CI bounds would be uniform-weighted
+    while the point estimate honours the user's P(C=c) — they would
+    not refer to the same statistic.
     """
-    # Identify the strata.
+    # Identify the strata. Sorted as integers so the order matches
+    # the enumerate() order in `_ate_for_delta` (the strata indices
+    # are written as integer-valued strings).
     stratum_keys = sorted(
-        {k.removeprefix("control_runs__") for k in per_axis_runs if k.startswith("control_runs__")}
+        {k.removeprefix("control_runs__") for k in per_axis_runs if k.startswith("control_runs__")},
+        key=lambda s: int(s) if s.isdigit() else 0,
     )
 
     # Discover all axes present.
     all_axes: set[str] = set()
     for k in per_axis_runs:
         if k.startswith("control_runs__") or k.startswith("intervention_runs__"):
-            for run in per_axis_runs[k]:
-                all_axes.update(run.keys())
+            runs_list = per_axis_runs[k]
+            if isinstance(runs_list, list):
+                for run in runs_list:
+                    if isinstance(run, dict):
+                        all_axes.update(run.keys())
     if axes_filter is not None:
         all_axes &= set(axes_filter)
+
+    # Resolve per-stratum weights so the CI uses the same combination
+    # rule as the point estimate.
+    stratum_combos = per_axis_runs.get("__stratum_combos__")
+    weight_per_stratum: list[float]
+    if confounder_weights == "uniform" or confounder_weights is None or stratum_combos is None:
+        # Uniform fallback covers: caller opted into "uniform"; no
+        # confounders (single stratum, weight = 1); or the combo
+        # mapping is missing (legacy callers calling this internal
+        # helper directly).
+        n = len(stratum_keys) or 1
+        weight_per_stratum = [1.0 / n] * len(stratum_keys)
+    else:
+        # Map stratum index → combo → weight. Missing combos fall to
+        # 0; this matches the validation contract that
+        # `_validate_and_normalise_weights` already enforces.
+        weight_per_stratum = [
+            float(confounder_weights.get(stratum_combos[int(s)], 0.0))
+            for s in stratum_keys
+        ]
+        total = sum(weight_per_stratum)
+        if total > 0:
+            weight_per_stratum = [w / total for w in weight_per_stratum]
 
     alpha = 1.0 - confidence_level
     lo_pct = 100.0 * (alpha / 2.0)
@@ -510,10 +603,13 @@ def _bootstrap_ci_per_axis(
             i_resample = [interventions[int(j)] for j in i_idx]
             stratum_ates.append(_ate_from_runs(c_resample, i_resample, axes_filter))
 
-        # Average across strata for this bootstrap replicate.
+        # Combine across strata using the same weights as the point estimate.
         for ax in all_axes:
-            ax_mean = sum(s.get(ax, 0.0) for s in stratum_ates) / len(stratum_ates)
-            bootstrap_ates[ax].append(ax_mean)
+            ax_combined = sum(
+                w * s.get(ax, 0.0)
+                for w, s in zip(weight_per_stratum, stratum_ates, strict=True)
+            )
+            bootstrap_ates[ax].append(ax_combined)
 
     ci_low = {ax: float(np.percentile(vals, lo_pct)) for ax, vals in bootstrap_ates.items()}
     ci_high = {ax: float(np.percentile(vals, hi_pct)) for ax, vals in bootstrap_ates.items()}
@@ -530,8 +626,12 @@ def _e_values_per_axis(
     Procedure
     ---------
     1. Collect all per-stratum control and intervention runs.
-    2. Compute the unstratified ATE (consistent with the back-door
-       adjusted point estimate when used with confounders).
+    2. Compute the unstratified pooled ATE. Note: this E-value is a
+       sensitivity check on the *unadjusted* effect, not on the
+       back-door adjusted estimate. When ``confounder_weights`` is
+       non-uniform the two ATEs differ; the E-value here gives a
+       conservative robustness floor against unmeasured confounders
+       beyond those modelled.
     3. Compute pooled SD over the union of control and intervention
        runs.
     4. Standardize: ``d = ATE / SD_pooled`` (Cohen's d for two

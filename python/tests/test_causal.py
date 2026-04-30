@@ -13,6 +13,7 @@ import math
 import random
 from typing import Any
 
+import numpy as np
 import pytest
 
 from shadow.causal import (
@@ -411,11 +412,15 @@ class TestBackdoorAdjustment:
         assert naive.ate["delta_x"]["verbosity"] == pytest.approx(0.4, abs=1e-9)
 
         # Back-door adjustment averages over both strata of `model`.
+        # The "uniform" sentinel acknowledges the assumption that
+        # P(model=A) = P(model=B) — required since v3.0; previously
+        # this was the silent default.
         adjusted = causal_attribution(
             baseline_config={"delta_x": "off", "model": "B"},
             candidate_config={"delta_x": "on", "model": "A"},
             replay_fn=interactive_replay,
             confounders=["model"],
+            confounder_weights="uniform",
         )
         # Average of (0.6 + 0.4) / 2 = 0.5
         assert adjusted.ate["delta_x"]["verbosity"] == pytest.approx(0.5, abs=1e-9)
@@ -488,9 +493,11 @@ class TestBackdoorAdjustment:
                 confounder_weights={("A",): 1.0},  # ("B",) missing
             )
 
-    def test_uniform_weights_default_unchanged(self) -> None:
-        """Backward-compat: omitting confounder_weights keeps the prior
-        uniform-average behaviour. Existing tests rely on this."""
+    def test_uniform_sentinel_distributes_weight_equally(self) -> None:
+        """``confounder_weights="uniform"`` is the explicit opt-in for
+        1/n stratum weighting. The previous silent uniform default was
+        removed because it produced a biased Pearl estimate without
+        any caller awareness."""
 
         def interactive_replay(config: dict[str, Any]) -> dict[str, float]:
             v = 0.0
@@ -507,8 +514,83 @@ class TestBackdoorAdjustment:
             candidate_config={"delta_x": "on", "model": "A"},
             replay_fn=interactive_replay,
             confounders=["model"],
+            confounder_weights="uniform",
         )
         assert result.ate["delta_x"]["verbosity"] == pytest.approx(0.5, abs=1e-9)
+
+    def test_omitting_weights_with_confounders_raises(self) -> None:
+        """Declaring confounders without supplying ``confounder_weights``
+        is rejected: the estimator refuses to silently assume uniform
+        P(C=c). The error message names both opt-ins (``"uniform"``
+        sentinel or explicit dict) so the migration path is obvious.
+
+        Why: under non-uniform P(C=c), uniform-1/n weighting biases
+        the back-door estimate toward the simple average. Earlier
+        Shadow versions defaulted to that silently; this change
+        forces callers to acknowledge the assumption."""
+        with pytest.raises(ValueError, match="uniform"):
+            causal_attribution(
+                baseline_config={"delta_x": "off", "model": "B"},
+                candidate_config={"delta_x": "on", "model": "A"},
+                replay_fn=_real_replay,
+                confounders=["model"],
+            )
+
+    def test_bootstrap_ci_honours_explicit_weights(self) -> None:
+        """The bootstrap CI must use the same per-stratum weights as the
+        point estimate. With heavily skewed weights, the CI must shift
+        toward the favoured stratum's empirical noise — uniform-weighted
+        CIs would not reflect the supplied P(C=c).
+
+        Regression test for an earlier bug where ``_bootstrap_ci_per_axis``
+        always recombined strata with 1/n weights regardless of what
+        ``confounder_weights`` the caller passed. Symptoms: the point
+        estimate honoured the weights, the CI did not, and bounds
+        described a different statistic than the centre."""
+
+        # Stratum-A has tight noise around 0.6; stratum-B has wider
+        # noise around 0.4. Each call to the replay function draws a
+        # fresh sample, so within-stratum variance feeds the bootstrap.
+        replay_rng = np.random.default_rng(123)
+
+        def stochastic_replay(config: dict[str, Any]) -> dict[str, float]:
+            x = config.get("delta_x") == "on"
+            m = config.get("model") == "A"
+            if not x:
+                return {"v": float(replay_rng.normal(0.0, 0.001))}
+            base = 0.6 if m else 0.4
+            sigma = 0.001 if m else 0.2
+            return {"v": float(base + replay_rng.normal(0.0, sigma))}
+
+        # Heavy weight on A (tight stratum) → narrow CI.
+        a_heavy = causal_attribution(
+            baseline_config={"delta_x": "off", "model": "B"},
+            candidate_config={"delta_x": "on", "model": "A"},
+            replay_fn=stochastic_replay,
+            n_replays=8,
+            n_bootstrap=400,
+            confounders=["model"],
+            confounder_weights={("A",): 0.99, ("B",): 0.01},
+            seed=42,
+        )
+
+        # Heavy weight on B (wide stratum) → wider CI.
+        b_heavy = causal_attribution(
+            baseline_config={"delta_x": "off", "model": "B"},
+            candidate_config={"delta_x": "on", "model": "A"},
+            replay_fn=stochastic_replay,
+            n_replays=8,
+            n_bootstrap=400,
+            confounders=["model"],
+            confounder_weights={("A",): 0.01, ("B",): 0.99},
+            seed=42,
+        )
+
+        a_width = a_heavy.ci_high["delta_x"]["v"] - a_heavy.ci_low["delta_x"]["v"]
+        b_width = b_heavy.ci_high["delta_x"]["v"] - b_heavy.ci_low["delta_x"]["v"]
+        # B-stratum is 200x noisier than A-stratum; B-heavy CI must be
+        # at least an order of magnitude wider.
+        assert b_width > 10 * a_width, f"a_width={a_width}, b_width={b_width}"
 
     def test_unknown_confounder_raises(self) -> None:
         with pytest.raises(ValueError, match="confounder"):
