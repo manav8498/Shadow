@@ -80,13 +80,22 @@ pip install shadow-diff
 
 ### Optional extras
 
-Shadow's core install is intentionally lean. Optional integrations are gated behind extras so users only pay the dependency cost they actually need:
+Shadow's core install is lean. Most users want one of:
+
+```bash
+pip install 'shadow-diff[anthropic]'   # if your agent uses Claude
+pip install 'shadow-diff[openai]'      # if your agent uses GPT
+pip install 'shadow-diff[embeddings]'  # better paraphrase-robust diff
+```
+
+<details>
+<summary>All optional extras (framework adapters, dashboard, signing, OTel, …)</summary>
 
 | Extra | Pulls in | Use case |
 |---|---|---|
 | `shadow-diff[anthropic]` | `anthropic` | Live Anthropic client wrapper for `shadow record` |
 | `shadow-diff[openai]` | `openai` | Live OpenAI client wrapper for `shadow record` |
-| `shadow-diff[embeddings]` | `sentence-transformers` | Paraphrase-robust semantic-similarity axis. The default lexical TF-IDF path stays fast and dependency-free; the pluggable `Embedder` trait in `shadow-core::diff::embedder` accepts any backend (this extra, ONNX runtime, HF Inference API, OpenAI embeddings, ...). |
+| `shadow-diff[embeddings]` | `sentence-transformers` | Paraphrase-robust semantic-similarity axis. The default lexical TF-IDF path stays fast and dependency-free; the `Embedder` trait accepts any backend (this extra, ONNX runtime, HF Inference API, OpenAI embeddings, …). |
 | `shadow-diff[otel]` | `opentelemetry-sdk` | Export traces to any OTel-compatible backend |
 | `shadow-diff[serve]` | `fastapi`, `uvicorn`, `websockets` | `shadow serve` HTTP dashboard |
 | `shadow-diff[mcp]` | `mcp` | `shadow mcp-serve` Model Context Protocol server |
@@ -103,6 +112,7 @@ Combine extras with comma-separated form:
 ```bash
 pip install 'shadow-diff[anthropic,openai,embeddings,otel]'
 ```
+</details>
 
 ### Telemetry: off by default, opt-in only
 
@@ -126,7 +136,32 @@ is enabled are listed in the module docstring.
 shadow demo
 ```
 
-That runs a real nine-axis diff on bundled `.agentlog` fixtures. No API key, no agent code, nothing written to your working directory. Use `shadow quickstart` instead when you want a writable copy of the demo files (agent.py, configs, fixtures) to edit and re-run:
+That runs a real diff on bundled `.agentlog` fixtures. No API key, no agent code, nothing written to your working directory. The output looks like this (abbreviated):
+
+```
+signal             baseline  candidate    change     severity
+─────────────────────────────────────────────────────────────
+response meaning      1.000      0.435    -0.565     severe
+tool calls            0.000      0.000    +0.000     none
+refusals              0.000      0.333    +0.333     severe
+response length      26.000     52.000   +26.000     minor
+response time        98.000    412.000  +314.000     severe
+output format         1.000      0.000    -1.000     severe
+
+top divergences:
+  #1  turn 0 — tool set changed: removed `search_files(query)`,
+                                  added `search_files(limit,query)`
+  #2  turn 2 — stop_reason changed: `end_turn` → `content_filter`
+
+recommendations:
+  error   Refusal rate is up severely. Check for stricter system instructions.
+  error   Review tool-schema change at turn 0: call shape diverged.
+  warning Review response text at turn 1: semantic content shifted.
+```
+
+Three things to read top-to-bottom: the severity column tells you which signals moved, the top-divergences list names the specific changes, and the recommendations tell you what to check first. **A reviewer doesn't need to know any Shadow vocabulary** — the recommendation lines speak plain English.
+
+Use `shadow quickstart` when you want a writable copy of the demo files (agent.py, configs, fixtures) to edit and re-run:
 
 ```bash
 shadow quickstart
@@ -134,37 +169,45 @@ shadow diff shadow-quickstart/fixtures/baseline.agentlog \
             shadow-quickstart/fixtures/candidate.agentlog
 ```
 
-The output looks like this:
+## Get a Shadow comment on every PR (≈ 10 minutes)
 
-```
-axis         baseline  candidate     delta     severity
-─────────────────────────────────────────────────────────
-semantic        1.000      0.435    -0.565     severe
-trajectory      0.000      0.000    +0.000     none
-safety          0.000      0.333    +0.333     severe
-verbosity      26.000     52.000   +26.000     minor
-latency        98.000    412.000  +314.000     severe
-cost            0.000      0.000    +0.000     none
-reasoning       0.000      0.000    +0.000     none
-judge           0.000      0.000    +0.000     none
-conformance     1.000      0.000    -1.000     severe
+The end-to-end setup, from a fresh repo to seeing your first Shadow comment land on a real PR. Skip any step you've already done.
 
-top divergences (3 shown):
-  #1  baseline turn #0 ↔ candidate turn #0
-      kind: structural_drift  ·  axis: trajectory  ·  confidence: 56%
-      tool set changed: removed `search_files(query)`,
-                        added `search_files(limit,query)`
-  #2  baseline turn #2 ↔ candidate turn #2
-      kind: decision_drift    ·  axis: safety      ·  confidence: 32%
-      stop_reason changed: `end_turn` → `content_filter`
+**1. Install Shadow** (one line):
 
-recommendations (3):
-  error   REVIEW  Review tool-schema change at turn 0: call shape diverged.
-  error   REVIEW  Review refusal behaviour at turn 2: candidate may be over-refusing.
-  warning REVIEW  Review response text at turn 1: semantic content shifted.
+```bash
+pip install shadow-diff
 ```
 
-The severity column points the reviewer at the four axes that moved. The top-divergences list names the specific changes. The recommendations tell them what to check first.
+**2. Record a baseline.** Wrap the place where your agent runs in a `Session` block. Shadow auto-instruments OpenAI / Anthropic SDK calls and writes a content-addressed `.agentlog` file:
+
+```python
+# scripts/record_baseline.py
+import shadow
+
+with shadow.Session(output="baseline.agentlog"):
+    run_my_agent()   # whatever your existing entry-point is
+```
+
+```bash
+python scripts/record_baseline.py
+git add baseline.agentlog && git commit -m "chore: pin agent baseline trace"
+```
+
+The trace stays on your disk and inside your repo. Nothing is uploaded.
+
+**3. Drop in the GitHub Action.** One command scaffolds a workflow you can commit:
+
+```bash
+shadow init --github-action
+git add .github/workflows/shadow-diff.yml && git commit -m "ci: shadow PR diff"
+```
+
+The generated workflow runs your agent against the same inputs on every PR, diffs the new run against `baseline.agentlog`, posts a comment, and (optionally) blocks the merge if a severe regression is detected.
+
+**4. Open a PR.** The Shadow comment lands automatically. It's a markdown comment with a verdict line ("Shadow recommends: hold this PR for review"), one-bullet plain-English recommendations, and a collapsible details section for reviewers who want the numbers. See [`docs/sample-pr-comment.md`](docs/sample-pr-comment.md) for what it looks like.
+
+That's it. After this point everything below is optional depth.
 
 ## Writing behavior rules
 
