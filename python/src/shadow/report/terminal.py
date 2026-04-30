@@ -7,6 +7,8 @@ from typing import Any
 from rich.console import Console
 from rich.table import Table
 
+from shadow.report.labels import axis_label
+
 
 def render_terminal(report: dict[str, Any], console: Console | None = None) -> None:
     """Pretty-print a DiffReport dict to a Rich console (stderr by default)."""
@@ -25,12 +27,21 @@ def render_terminal(report: dict[str, Any], console: Console | None = None) -> N
             "stable confidence intervals.[/]"
         )
     con.print()
+    rows_list = list(report.get("rows", []))
+    # Suppress the universal `low_power` flag (already covered by the
+    # banner above) so the "flags" column doesn't read as redundant
+    # warnings on every row.
+    flag_universal = (
+        "low_power"
+        if rows_list and all("low_power" in (r.get("flags") or []) for r in rows_list)
+        else None
+    )
     table = Table(show_lines=False, pad_edge=False)
     for col, justify in (
-        ("axis", "left"),
+        ("signal", "left"),
         ("baseline", "right"),
         ("candidate", "right"),
-        ("delta", "right"),
+        ("change", "right"),
         ("95% CI", "right"),
         ("severity", "left"),
         ("flags", "left"),
@@ -38,14 +49,14 @@ def render_terminal(report: dict[str, Any], console: Console | None = None) -> N
     ):
         table.add_column(col, justify=justify)  # type: ignore[arg-type]
     worst = "none"
-    for row in report.get("rows", []):
+    for row in rows_list:
         sev = row.get("severity", "none")
         if _sev_rank(sev) > _sev_rank(worst):
             worst = sev
-        flags = row.get("flags", []) or []
+        flags = [f for f in (row.get("flags") or []) if f != flag_universal]
         flags_str = ",".join(flags) if flags else ""
         table.add_row(
-            str(row.get("axis", "")),
+            axis_label(str(row.get("axis", ""))),
             f"{row.get('baseline_median', 0.0):.3f}",
             f"{row.get('candidate_median', 0.0):.3f}",
             f"{row.get('delta', 0.0):+.3f}",
@@ -100,10 +111,10 @@ def render_terminal(report: dict[str, Any], console: Console | None = None) -> N
 
 def _print_drill_down_row_terminal(con: Console, row: dict[str, Any]) -> None:
     idx = row.get("pair_index", 0)
-    axis = row.get("dominant_axis", "")
+    axis = axis_label(str(row.get("dominant_axis", "")))
     score = float(row.get("regression_score", 0.0))
     con.print(
-        f"  pair [cyan]#{idx}[/]  ·  dominant: [magenta]{axis}[/]  "
+        f"  pair [cyan]#{idx}[/]  ·  biggest mover: [magenta]{axis}[/]  "
         f"·  score: [bold]{score:.2f}[/]"
     )
     scores = sorted(
@@ -118,9 +129,9 @@ def _print_drill_down_row_terminal(con: Console, row: dict[str, Any]) -> None:
         delta = float(s.get("delta", 0.0))
         norm = float(s.get("normalized_delta", 0.0))
         con.print(
-            f"    [dim]{s.get('axis', ''):<12}[/] "
+            f"    [dim]{axis_label(str(s.get('axis', ''))):<18}[/] "
             f"{bv:.2f} → {cv:.2f}  "
-            f"([italic]delta {delta:+.2f}, norm {norm:.2f}[/])"
+            f"([italic]Δ {delta:+.2f}, norm {norm:.2f}[/])"
         )
 
 
@@ -144,7 +155,7 @@ def _print_recommendation_terminal(con: Console, rec: dict[str, Any]) -> None:
 
 def _print_divergence_terminal(con: Console, dv: dict[str, Any], rank: int, total: int) -> None:
     kind = dv.get("kind", "")
-    axis = dv.get("primary_axis", "")
+    axis = axis_label(str(dv.get("primary_axis", "")))
     bt = dv.get("baseline_turn", 0)
     ct = dv.get("candidate_turn", 0)
     conf = dv.get("confidence", 0.0)
@@ -158,7 +169,7 @@ def _print_divergence_terminal(con: Console, dv: dict[str, Any], rank: int, tota
     prefix = f"[bold]{rank_label}[/] " if rank_label else ""
     con.print(f"  {prefix}baseline turn [cyan]#{bt}[/] ↔ candidate turn [cyan]#{ct}[/]")
     con.print(
-        f"    kind: [{style}]{kind}[/]  ·  axis: [magenta]{axis}[/]  "
+        f"    kind: [{style}]{kind}[/]  ·  signal: [magenta]{axis}[/]  "
         f"·  confidence: {conf * 100:.0f}%"
     )
     con.print(f"    [italic]{exp}[/]")
