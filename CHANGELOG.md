@@ -4,6 +4,23 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.0.2](https://github.com/manav8498/Shadow/compare/v3.0.1...v3.0.2) (2026-04-30)
+
+
+### Fixed
+
+* align package names across PyPI / npm / crates.io to shadow-diff ([40f3ace](https://github.com/manav8498/Shadow/commit/40f3aceaae13aed48d2a686a30714de7368271f8))
+
+
+### Documentation
+
+* add RELEASE.md with maintainer release / troubleshooting guide ([d82265d](https://github.com/manav8498/Shadow/commit/d82265dfdda3e0ba21c870a1dedce81d210bd1b0))
+
+
+### Chores
+
+* trigger 3.0.2 to publish to all three registries ([6646e6f](https://github.com/manav8498/Shadow/commit/6646e6fc845577bc48c0e3a08d018ac6ca2e81dc))
+
 ## [3.0.1](https://github.com/manav8498/Shadow/compare/v3.0.0...v3.0.1) (2026-04-30)
 
 ### Fixed
