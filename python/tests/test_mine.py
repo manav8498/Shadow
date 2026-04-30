@@ -231,3 +231,93 @@ def test_cli_mine_end_to_end(tmp_path: Path) -> None:
     mined = _core.parse_agentlog(dst.read_bytes())
     # At least metadata + one pair = 3 records minimum
     assert len(mined) >= 3
+
+
+def test_cli_mine_expands_directory_to_agentlog_files(tmp_path: Path) -> None:
+    """`shadow mine <dir>` recursively walks the directory and mines
+    every `*.agentlog` file inside.
+
+    Regression test for the bug where passing a directory path leaked
+    `IsADirectoryError` instead of either expanding the directory or
+    emitting a clear error. Production trace dumps are typically a
+    directory of many .agentlog files, so the natural fix is to expand
+    the directory rather than reject it. Same UX as `shadow holdout
+    --base <dir>`'s typed-error fix shipped at v3.0.x.
+    """
+    # Three traces in a nested directory layout — confirms recursive
+    # walk, not just top-level glob.
+    trace_dir = tmp_path / "prod_traces"
+    trace_dir.mkdir()
+    (trace_dir / "session-1.agentlog").write_bytes(
+        _core.write_agentlog(_trace([_pair(stop="error"), _pair(stop="end_turn")]))
+    )
+    (trace_dir / "session-2.agentlog").write_bytes(
+        _core.write_agentlog(_trace([_pair(stop="end_turn"), _pair(stop="end_turn")]))
+    )
+    nested = trace_dir / "subdir"
+    nested.mkdir()
+    (nested / "session-3.agentlog").write_bytes(
+        _core.write_agentlog(_trace([_pair(stop="end_turn", tool="search")]))
+    )
+
+    dst = tmp_path / "mined.agentlog"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "shadow.cli.app",
+            "mine",
+            str(trace_dir),
+            "--output",
+            str(dst),
+            "--max-cases",
+            "5",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert result.returncode == 0, result.stderr
+    assert dst.exists()
+    mined = _core.parse_agentlog(dst.read_bytes())
+    # All three traces contributed at least one record; total should
+    # exceed any single trace's record count.
+    assert len(mined) >= 3
+
+
+def test_cli_mine_directory_with_no_agentlog_files_errors_cleanly(tmp_path: Path) -> None:
+    """An empty directory (or one that contains no `*.agentlog` files)
+    must surface a clear error, not a Python traceback. Matches the
+    holdout-fix style: typed error with a remediation hint."""
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    (empty_dir / "not_a_trace.txt").write_text("noise")
+
+    dst = tmp_path / "mined.agentlog"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "shadow.cli.app",
+            "mine",
+            str(empty_dir),
+            "--output",
+            str(dst),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        encoding="utf-8",
+        errors="replace",
+    )
+    assert result.returncode == 1
+    # Clean error string with remediation hint, NOT a Python traceback.
+    # Normalise whitespace because Rich line-wraps error output to the
+    # detected terminal width, which can split phrases across lines on
+    # CI runners with narrow output.
+    stderr_normalised = " ".join(result.stderr.split())
+    assert "Traceback" not in result.stderr
+    assert "no `*.agentlog` files" in stderr_normalised
+    assert "trace dump" in stderr_normalised or "individual files" in stderr_normalised

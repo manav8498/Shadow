@@ -4,6 +4,22 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.0.4](https://github.com/manav8498/Shadow/compare/v3.0.3...v3.0.4) (2026-04-30)
+
+### Fixed
+
+* **`shadow mine` now accepts a directory path.** Previously,
+  `shadow mine /path/to/agentlogs` (a directory of trace files —
+  the natural shape of a production trace dump) leaked
+  `[Errno 21] Is a directory: ...`. The command now recursively
+  walks the directory and mines every `*.agentlog` file inside.
+  An empty directory or one containing no `*.agentlog` files
+  surfaces a clear error with a remediation hint instead of a
+  Python traceback. Same UX polish as the v3.0.0 fix to
+  `shadow holdout --base <directory>`. Two regression tests in
+  `python/tests/test_mine.py` cover the directory-walk and
+  empty-directory paths.
+
 ## [3.0.3](https://github.com/manav8498/Shadow/compare/v3.0.2...v3.0.3) (2026-04-30)
 
 ### Fixed

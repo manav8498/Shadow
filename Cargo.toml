@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/shadow-core"]
 
 [workspace.package]
-version = "3.0.3"
+version = "3.0.4"
 edition = "2021"
 rust-version = "1.95"
 license = "Apache-2.0"
