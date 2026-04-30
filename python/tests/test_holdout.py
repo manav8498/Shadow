@@ -152,6 +152,25 @@ def test_save_uses_atomic_rename_no_tmp_files(tmp_path: Path) -> None:
     assert tmps == []
 
 
+def test_save_rejects_directory_path_with_clear_message(tmp_path: Path) -> None:
+    """Passing an existing directory to save() must raise a typed
+    HoldoutPathError with a hint that names the file path the user
+    probably meant — not leak IsADirectoryError from os.replace."""
+    from shadow.holdout import HoldoutPathError
+
+    when = datetime(2026, 4, 29, 12, 0, 0, tzinfo=UTC)
+    h = Holdouts(entries={"a": _entry(trace_id="a", added=when)})
+    with pytest.raises(HoldoutPathError, match="is a directory"):
+        save(h, path=tmp_path)
+
+
+def test_load_returns_empty_when_path_is_a_directory(tmp_path: Path) -> None:
+    """Read side: a directory at `path` is treated as missing rather
+    than crashing. Daily-glance behaviour stays graceful."""
+    h = load(path=tmp_path)
+    assert h.entries == {}
+
+
 # ---------------------------------------------------------------------------
 # CRUD
 # ---------------------------------------------------------------------------
@@ -434,6 +453,38 @@ def test_cli_holdout_list_json_emits_payload(tmp_path: Path) -> None:
     data = json.loads(result.output.strip())
     assert "schema_version" in data
     assert "x" in data["entries"]
+
+
+def test_cli_holdout_add_directory_path_emits_friendly_error(tmp_path: Path) -> None:
+    """Regression: passing a directory to `--base` used to leak
+    IsADirectoryError. Now it surfaces as a clean error line with a
+    hint that names the file path the user probably meant."""
+    # tmp_path is itself a directory.
+    result = runner.invoke(
+        app,
+        [
+            "holdout",
+            "add",
+            "abc",
+            "--reason",
+            "r",
+            "--owner",
+            "@me",
+            "--base",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 1
+    assert "is a directory" in result.output
+    assert "holdout.json" in result.output
+
+
+def test_cli_holdout_list_directory_path_renders_empty(tmp_path: Path) -> None:
+    """`shadow holdout list --base <dir>` must render the empty-state
+    panel rather than crash on the directory."""
+    result = runner.invoke(app, ["holdout", "list", "--base", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+    assert "No held-out" in result.output
 
 
 def test_cli_holdout_add_garbled_ttl_errors(tmp_path: Path) -> None:

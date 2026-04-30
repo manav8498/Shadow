@@ -495,7 +495,11 @@ def holdout_add_cmd(
         ttl_days=ttl_days,
         now=_datetime.now(UTC),
     )
-    out = save(holdouts, path=base)
+    try:
+        out = save(holdouts, path=base)
+    except ValueError as e:
+        _fail(e)
+        return
     err_console.print(f"[green]✓[/] held out [cyan]{trace_id}[/] (file: {out})")
 
 
@@ -515,7 +519,11 @@ def holdout_remove_cmd(
     if not found:
         err_console.print(f"[yellow]warning[/]: {trace_id!r} is not in the holdout set.")
         return
-    save(holdouts, path=base)
+    try:
+        save(holdouts, path=base)
+    except ValueError as e:
+        _fail(e)
+        return
     err_console.print(f"[green]✓[/] removed [cyan]{trace_id}[/]")
 
 
@@ -538,7 +546,11 @@ def holdout_reset_cmd(
     if not found:
         err_console.print(f"[yellow]warning[/]: {trace_id!r} is not in the holdout set.")
         return
-    save(holdouts, path=base)
+    try:
+        save(holdouts, path=base)
+    except ValueError as e:
+        _fail(e)
+        return
     err_console.print(f"[green]✓[/] reset review window for [cyan]{trace_id}[/]")
 
 

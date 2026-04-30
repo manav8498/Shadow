@@ -122,11 +122,24 @@ def default_path() -> Path:
     return Path.cwd() / ".shadow" / _DEFAULT_FILENAME
 
 
+class HoldoutPathError(ValueError):
+    """``--base`` resolved to a path the holdout layer can't write through.
+
+    Raised when the caller passes a directory where a file path is
+    required. Carries a hint string the CLI surfaces verbatim.
+    """
+
+
 def load(*, path: Path | None = None) -> Holdouts:
     """Read the holdout file. Empty :class:`Holdouts` when the file
-    is missing — the normal first-run case."""
+    is missing — the normal first-run case.
+
+    A pre-existing directory at ``path`` is treated the same as missing:
+    we can't read holdouts from a directory, but a daily-glance command
+    shouldn't crash on user input that confuses file-vs-directory.
+    """
     target = (path or default_path()).resolve()
-    if not target.is_file():
+    if target.is_dir() or not target.is_file():
         return Holdouts()
     try:
         payload = json.loads(target.read_text(encoding="utf-8"))
@@ -142,8 +155,19 @@ def load(*, path: Path | None = None) -> Holdouts:
 
 def save(holdouts: Holdouts, *, path: Path | None = None) -> Path:
     """Write the holdout file atomically. Creates the parent directory
-    on demand."""
+    on demand.
+
+    Raises ``HoldoutPathError`` when ``path`` points at an existing
+    directory — surfacing this as a typed error lets the CLI show a
+    clear hint instead of leaking ``IsADirectoryError`` from the
+    underlying ``os.replace``.
+    """
     target = (path or default_path()).resolve()
+    if target.is_dir():
+        raise HoldoutPathError(
+            f"`{target}` is a directory; pass a file path instead "
+            f"(e.g. `{target / _DEFAULT_FILENAME}`)."
+        )
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + ".tmp")
     payload = json.dumps(holdouts.to_dict(), indent=2, sort_keys=False)
