@@ -14,6 +14,8 @@
 # Output: .github/assets/demo.gif
 
 Output .github/assets/demo.gif
+Output .github/assets/demo.mp4
+Output .github/assets/demo.webm
 
 # ─── Terminal config ─────────────────────────────────────────────
 Set Shell    "bash"

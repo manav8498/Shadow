@@ -15,6 +15,13 @@
 
 <p align="center">
   <img src=".github/assets/demo.gif" alt="Shadow workflow loop demo" width="900" />
+  <br />
+  <sub>
+    Demo also available as
+    <a href=".github/assets/demo.mp4">MP4</a>
+    ·
+    <a href=".github/assets/demo.webm">WebM</a>
+  </sub>
 </p>
 
 Shadow catches behavior regressions in AI agents before they merge. You change a prompt, swap a model, or rename a tool argument. Your agent still runs, tests still pass, but the behavior quietly shifts. Shadow replays your change against recorded agent traces and posts a behavior diff on the PR so a reviewer can see what broke and why.
