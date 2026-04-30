@@ -14,14 +14,17 @@
 **Behavior testing for LLM agents, in the pull request.**
 
 <p align="center">
-  <img src=".github/assets/demo.gif" alt="Shadow workflow loop demo" width="900" />
-  <br />
-  <sub>
-    Demo also available as
-    <a href=".github/assets/demo.mp4">MP4</a>
-    ·
-    <a href=".github/assets/demo.webm">WebM</a>
-  </sub>
+  <video
+    src="https://github.com/manav8498/Shadow/releases/download/demo-assets/demo.mp4"
+    poster=".github/assets/demo.gif"
+    controls
+    muted
+    autoplay
+    loop
+    playsinline
+    width="900">
+    <img src=".github/assets/demo.gif" alt="Shadow workflow loop demo" width="900" />
+  </video>
 </p>
 
 Shadow catches behavior regressions in AI agents before they merge. You change a prompt, swap a model, or rename a tool argument. Your agent still runs, tests still pass, but the behavior quietly shifts. Shadow replays your change against recorded agent traces and posts a behavior diff on the PR so a reviewer can see what broke and why.
