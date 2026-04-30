@@ -227,7 +227,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: release-artifacts
 
@@ -284,14 +284,14 @@ jobs:
       id-token: write
     steps:
       - name: Download all per-OS wheel artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: python-wheel-*
           path: wheels
           merge-multiple: true
 
       - name: Download sdist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: python-sdist
           path: sdist
