@@ -475,8 +475,12 @@ def test_cli_holdout_add_directory_path_emits_friendly_error(tmp_path: Path) -> 
         ],
     )
     assert result.exit_code == 1
-    assert "is a directory" in result.output
-    assert "holdout.json" in result.output
+    # Normalise whitespace before substring checks — Rich may insert
+    # line breaks inside the message when the rendered terminal is
+    # narrow (e.g. CI's default 80 columns + a long tmp path).
+    flat = " ".join(result.output.split())
+    assert "is a directory" in flat
+    assert "holdout.json" in flat
 
 
 def test_cli_holdout_list_directory_path_renders_empty(tmp_path: Path) -> None:
