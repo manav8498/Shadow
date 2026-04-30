@@ -430,6 +430,122 @@ def call(
     raise typer.Exit(code=result.exit_code())
 
 
+# ---- heal ------------------------------------------------------------------
+
+
+@app.command("heal")
+def heal_cmd(
+    baseline: Annotated[
+        Path, typer.Argument(help="Anchor .agentlog file (the known-good reference)")
+    ],
+    candidate: Annotated[
+        Path, typer.Argument(help="Candidate .agentlog file (the trace under review)")
+    ],
+    seed: Annotated[int, typer.Option("--seed", help="RNG seed for the bootstrap")] = 42,
+    json_output: Annotated[
+        bool,
+        typer.Option(
+            "--json",
+            help="Emit the decision as JSON to stdout instead of the rendered panel.",
+        ),
+    ] = False,
+    log: Annotated[
+        bool,
+        typer.Option(
+            "--log",
+            help="Append the heal decision to the local artifact ledger so "
+            "`shadow ledger` and `shadow trail` see it later. Default: off.",
+        ),
+    ] = False,
+) -> None:
+    """Classify a regression into one of three heal tiers.
+
+    Runs the audit-only causal classifier against two `.agentlog`
+    traces and prints one of three tiers:
+
+      * `heal`    — every gate passed; the change is provably cosmetic
+                    or below the noise floor.
+      * `propose` — gates passed but non-cosmetic divergences remain;
+                    a future auto-mode would save this as a candidate
+                    variant for the user to approve.
+      * `hold`    — at least one gate refused. No automatic action is
+                    safe; surface to a reviewer.
+
+    This phase ships *classification only* — no `--apply` flag, no
+    automatic action. The output is the decision plus the full list
+    of evidence each gate produced. Users act on the recommendation
+    manually; the classifier earns trust before automation is enabled.
+
+    Example:
+        shadow heal anchor.agentlog candidate.agentlog
+        shadow heal anchor.agentlog candidate.agentlog --json | jq .tier
+        shadow heal anchor.agentlog candidate.agentlog --log
+
+    Related:
+        shadow call    decide ship/hold/probe/stop on the same pair
+        shadow autopr  pin the regression as a policy when not healable
+        shadow trail   walk back through the artifact graph
+    """
+    import json as _json
+
+    from shadow.heal import classify, render_decision
+
+    try:
+        b = _core.parse_agentlog(baseline.read_bytes())
+        c = _core.parse_agentlog(candidate.read_bytes())
+        report = _core.compute_diff_report(b, c, None, seed)
+    except (FileNotFoundError, PermissionError) as e:
+        _fail(e)
+        return
+    except ShadowError as e:
+        _fail(e)
+        return
+    except Exception as e:  # pragma: no cover — defensive: parser surfaces ShadowError.
+        _fail(e)
+        return
+
+    decision = classify(report)
+
+    if json_output:
+        sys.stdout.write(_json.dumps(decision.to_dict(), indent=2) + "\n")
+    else:
+        render_decision(decision, console=console)
+
+    if log:
+        # Reuse the existing ledger by writing a `kind: heal` entry.
+        # The schema's ``kind`` field accepts free-form strings; the
+        # store's CRUD layer doesn't care which value lands.
+        from shadow.ledger import LedgerEntry, write_entry
+
+        try:
+            entry = LedgerEntry(
+                kind="heal",
+                timestamp=_now_iso_for_heal(),
+                anchor_id=decision.anchor_id,
+                candidate_id=decision.candidate_id,
+                tier=decision.tier.value,
+                pair_count=decision.pair_count,
+                driver_summary=decision.rationale[:200] if decision.rationale else None,
+                source_command="shadow heal",
+            )
+            path = write_entry(entry)
+            err_console.print(f"[dim]✓ logged heal decision to {path}[/]")
+        except OSError as e:
+            err_console.print(f"[yellow]warning[/]: ledger write failed: {e}")
+
+
+def _now_iso_for_heal() -> str:
+    """ISO-8601 UTC timestamp with microsecond precision.
+
+    Matches the format the ledger store uses internally so that
+    ``shadow ledger`` / ``shadow trail`` see heal entries on the same
+    timeline as call / diff entries.
+    """
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+
+
 # ---- holdout ---------------------------------------------------------------
 
 holdout_app = typer.Typer(
