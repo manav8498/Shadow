@@ -9,9 +9,19 @@ name: release
 #   - GitHub release with SLSA provenance attached
 
 on:
+  # Two trigger paths, both end at the same publish chain:
+  #   1. `push` of a `v*` tag — used when a maintainer cuts a release
+  #      manually with `git tag -a vX.Y.Z`.
+  #   2. `release: published` — fired when release-please merges its
+  #      release PR and creates a GitHub Release (the default
+  #      automated path; see `release-please.yml`). Required because
+  #      tag pushes from GITHUB_TOKEN don't cascade into other
+  #      workflows, but release-published events do.
   push:
     tags:
       - "v*"
+  release:
+    types: [published]
   # Allow manual invocation for dry-runs.
   workflow_dispatch:
 
