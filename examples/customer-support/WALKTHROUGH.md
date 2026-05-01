@@ -217,10 +217,16 @@ Remaining scope:
 
 ```bash
 # From the repo root, after `just setup`:
-.venv/bin/python examples/customer-support/generate_fixtures.py.venv/bin/shadow diff \
+.venv/bin/python examples/customer-support/generate_fixtures.py
+
+.venv/bin/shadow diff \
   examples/customer-support/fixtures/baseline.agentlog \
   examples/customer-support/fixtures/candidate.agentlog \
-  --output-json /tmp/cs_report.json.venv/bin/shadow report /tmp/cs_report.json --format github-pr.venv/bin/shadow bisect \
+  --output-json /tmp/cs_report.json
+
+.venv/bin/shadow report /tmp/cs_report.json --format github-pr
+
+.venv/bin/shadow bisect \
   examples/customer-support/config_a.yaml \
   examples/customer-support/config_b.yaml \
   --traces examples/customer-support/fixtures/baseline.agentlog \

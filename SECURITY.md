@@ -6,11 +6,12 @@ Shadow has not had a formal third-party security audit. The v1.1 hardening pass 
 
 | Version | Supported |
 |---------|:---------:|
-| `2.x`   | ✅ latest minor receives security patches |
-| `1.x`   | ✅ security fixes only on the latest `1.7.x` line |
+| `3.x`   | ✅ latest minor receives security patches |
+| `2.x`   | ✅ security fixes only on the latest `2.9.x` line |
+| `1.x`   | ❌ |
 | `0.x`   | ❌ |
 
-`2.0.0` was a major bump because the `shadow.policy_runtime` module added new public surface — all `1.x` APIs (`Session`, `policy_diff`, `shadow diff --policy`, certificate workflow, `.agentlog` format) remain backwards compatible at runtime and on the wire. See `SPEC.md §13` for `.agentlog` compatibility guarantees.
+`3.0.0` was a major bump because `causal_attribution` now requires explicit `confounder_weights` (the previous silent uniform-1/n default produced a biased back-door estimate when stratum probabilities are non-uniform — see CHANGELOG.md for the full BREAKING CHANGES section). Every other public surface — `Session`, `policy_diff`, `shadow diff --policy`, certificate workflow, `.agentlog` format — is backwards compatible at runtime and on the wire across the 2.x → 3.x boundary. See `SPEC.md §13` for `.agentlog` compatibility guarantees.
 
 ## Reporting a vulnerability
 

@@ -100,8 +100,8 @@ Per-agent registration is per-instance. A `GroupChat` of five agents needs five 
 All three adapters feed through the same `Session.record_chat` / `record_tool_call` / `record_tool_result` contract as direct SDK instrumentation, so every downstream feature works identically:
 
 - `shadow diff` produces the nine-axis behavioral diff
-- `shadow check-policy` with `scope: session` evaluates each framework's natural session boundary correctly
+- `shadow diff --policy <file>` evaluates a YAML policy with `scope: session` against each framework's natural session boundary
 - `shadow mine` clusters turn-pairs by tool sequence and selects representative cases
-- `shadow mcp-serve` exposes the captured traces to any MCP-aware client
+- `shadow mcp-serve` exposes the captured traces to any MCP-aware client (the MCP layer ships a `shadow_check_policy` tool name for the same job)
 
 If your trace contains multiple sessions (many kickoffs, many threads, many conversations) and you want a per-session breakdown, session-scoped policy rules work out of the box for LangGraph (via `thread_id`) and CrewAI (via kickoff markers). AG2 infers session boundaries from the prior response's `stop_reason`, so one `initiate_chat` cycle is one session.
