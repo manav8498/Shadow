@@ -1,11 +1,12 @@
 # Governance
 
-Shadow is a small project at v0.1. This document describes who decides
-what, how decisions are made, and how that will evolve.
+Shadow is a small, single-maintainer project. This document describes
+who decides what, how decisions are made, and how that will evolve as
+the contributor pool grows.
 
 ## Current model, BDFL with lazy consensus
 
-At v0.1, one person (the repo owner) has final say on:
+Today, one person (the repo owner) has final say on:
 
 - Merging to `main`
 - Releases and versioning

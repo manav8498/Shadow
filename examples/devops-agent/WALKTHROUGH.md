@@ -169,9 +169,14 @@ schema rename and the dropped protocol steps."
 
 ## Reproduce
 
-```bash.venv/bin/python examples/devops-agent/generate_fixtures.py.venv/bin/shadow diff \
+```bash
+.venv/bin/python examples/devops-agent/generate_fixtures.py
+
+.venv/bin/shadow diff \
   examples/devops-agent/fixtures/baseline.agentlog \
-  examples/devops-agent/fixtures/candidate.agentlog.venv/bin/shadow bisect \
+  examples/devops-agent/fixtures/candidate.agentlog
+
+.venv/bin/shadow bisect \
   examples/devops-agent/config_a.yaml \
   examples/devops-agent/config_b.yaml \
   --traces examples/devops-agent/fixtures/baseline.agentlog \

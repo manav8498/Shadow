@@ -1,24 +1,28 @@
-# shadow
+# shadow-diff
 
 **Catch AI-agent regressions before they hit production.**
 
-Shadow is a PR-native diff tool for LLM agents, it records your
+Shadow is a PR-native diff tool for LLM agents — it records your
 agent's calls, replays them under a new config, and tells you what
 changed across nine behavioural dimensions.
 
 ## Install
 
+The PyPI distribution name is `shadow-diff` (the bare `shadow` name
+on PyPI is an unrelated project). The Python import path is
+`shadow`, and the CLI is `shadow`.
+
 ```bash
-pip install shadow
+pip install shadow-diff
 
 # With Anthropic support:
-pip install 'shadow[anthropic]'
+pip install 'shadow-diff[anthropic]'
 
 # With OpenAI support:
-pip install 'shadow[openai]'
+pip install 'shadow-diff[openai]'
 
 # With both + embeddings:
-pip install 'shadow[anthropic,openai,embeddings]'
+pip install 'shadow-diff[anthropic,openai,embeddings]'
 ```
 
 Requires Python 3.11 or newer.

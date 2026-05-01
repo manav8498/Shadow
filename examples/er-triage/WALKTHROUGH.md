@@ -207,9 +207,14 @@ of Python.
 
 ## Reproduce
 
-```bash.venv/bin/python examples/er-triage/generate_fixtures.py.venv/bin/shadow diff \
+```bash
+.venv/bin/python examples/er-triage/generate_fixtures.py
+
+.venv/bin/shadow diff \
   examples/er-triage/fixtures/baseline.agentlog \
-  examples/er-triage/fixtures/candidate.agentlog.venv/bin/shadow bisect \
+  examples/er-triage/fixtures/candidate.agentlog
+
+.venv/bin/shadow bisect \
   examples/er-triage/config_a.yaml \
   examples/er-triage/config_b.yaml \
   --traces examples/er-triage/fixtures/baseline.agentlog \

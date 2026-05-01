@@ -6,7 +6,7 @@ without actually doing it?" The candidate's LLM picks tools, the engine
 dispatches them, results feed back, the loop runs to completion. No real
 network calls. No real database writes. No real charges. The output is an
 ordinary `.agentlog` so every existing Shadow command (`diff`,
-`check-policy`, `mine`, `mcp-serve`, `bisect`) reads it without changes.
+`diff --policy`, `mine`, `mcp-serve`, `bisect`) reads it without changes.
 
 This is the piece that turns "behavior diff CI" into "shadow deployment."
 
