@@ -23,37 +23,38 @@ Tested at PR-time. Enforced at runtime. Same YAML.
 
 <p align="center">
   <sub>
-    Launch video (1080p, 84 s, with audio):
-    <a href="https://github.com/manav8498/Shadow/blob/main/.github/assets/launch.mp4">play inline</a>
-    ·
+    <a href="docs/sample-pr-comment.md"><b>See a real Shadow PR comment ↗</b></a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/manav8498/Shadow/blob/main/.github/assets/launch.mp4">launch video (84 s)</a>
+    &nbsp;·&nbsp;
     <a href="https://github.com/manav8498/Shadow/releases/download/demo-assets/launch.mp4">MP4</a>
-    ·
+    /
     <a href="https://github.com/manav8498/Shadow/releases/download/demo-assets/launch.webm">WebM</a>
-    <br/>
-    Workflow walkthrough (silent):
-    <a href="https://github.com/manav8498/Shadow/releases/download/demo-assets/demo.mp4">MP4</a>
-    ·
-    <a href="https://github.com/manav8498/Shadow/releases/download/demo-assets/demo.webm">WebM</a>
   </sub>
 </p>
 
-Shadow turns "how should this agent behave?" into a **contract** — one YAML file your CI tests against every PR, and your runtime enforces against every tool call. Same rule, both places. You change a prompt, swap a model, or rename a tool argument; your agent still runs and tests still pass, but the behavior quietly shifts. Shadow replays your change against recorded agent traces, posts a plain-English diff on the PR so a reviewer can see what broke, and blocks the same drift in production before it reaches a user.
+## What Shadow is, and what it isn't
 
-## The problem
+- **IS** — behavior regression testing for AI agents. PR-time + runtime, one YAML rule.
+- **IS NOT** a hosted dashboard. (Use [Langfuse](https://langfuse.com), [Helicone](https://helicone.ai), or [Braintrust](https://braintrust.dev) — Shadow runs alongside them, not instead of them.)
+- **IS NOT** a general-purpose LLM observability platform. Same: pair with whichever you already use.
+- **IS NOT** a LangSmith replacement. Run both — LangSmith for the dashboard, Shadow for the merge-gate.
 
-You have a working agent in production. A teammate opens a PR that tweaks the system prompt, swaps GPT-4o for a cheaper model, or adjusts a tool schema. Code review looks fine. Unit tests pass. You merge.
+## Why this exists
 
-A week later a customer reports that the refund bot started issuing refunds without confirming the amount. It turns out the prompt edit dropped the "ask before refunding" step. The PR that caused it was merged days ago. Nobody saw it coming because the code looked harmless.
+Your teammate opens a PR that tweaks the system prompt, swaps GPT-4o for a cheaper model, or adjusts a tool schema. Code review looks fine. Unit tests pass. You merge.
 
-This is a common class of bug with LLM agents. The agent runs, responses look plausible, tests pass. The behavior just silently changed.
+A week later a customer reports that the refund agent started issuing refunds without confirming the amount. The prompt edit dropped the "ask before refunding" step. The PR that caused it was merged days ago. Nobody saw it coming because the code looked harmless.
 
-## What Shadow does
+That's the bug class Shadow exists to catch. Agent behavior silently changed. Tests still pass. Code review can't see it. **Shadow turns "how should this agent behave?" into a YAML contract** — your CI tests every PR against it; your runtime enforces it against every tool call. Same rule, both places.
 
-Shadow treats agent behavior as a thing you can test in CI, the same way you test code. Given a recorded set of real agent interactions (a baseline), and a candidate change (new prompt, new model, renamed tool), Shadow answers three questions on the PR:
+## What Shadow does, in one screen
 
-1. **What behavior changed?** A nine-axis diff scores the candidate against the baseline on things like meaning, tool use, refusals, latency, and output structure.
-2. **Why did it change?** If the PR touched multiple things at once, regression attribution estimates which specific change most likely explains each regression, then points you at the replay / counterfactual primitives to confirm it before merging. The stable CLI uses LASSO-based `shadow bisect`; the newer intervention-based `shadow.causal` module is opt-in.
-3. **Is it safe to merge?** A policy file lets you declare rules the agent must follow (tool ordering, output shape, token budgets, forbidden outputs). Shadow reports regressions against those rules.
+Given a baseline `.agentlog` and a candidate change, Shadow answers three questions on the PR:
+
+1. **What behaviour changed?** A nine-axis diff scores response meaning, tool calls, refusals, length, latency, cost, output format, and more — with a plain-English summary on top.
+2. **Why did it change?** If the PR touched multiple things at once, regression attribution names the specific change that most likely explains each regression.
+3. **Is it safe to merge?** A YAML policy declares rules the agent must follow (tool ordering, output shape, forbidden outputs). The same policy enforces at runtime.
 
 The report lands in the PR comment. No dashboard, no separate login, no trace upload. Traces stay on your disk.
 
@@ -302,9 +303,34 @@ result = guarded["delete_user"](user_id="u-42")
 
 The wrapper probes the enforcer with a synthesised candidate `tool_call` record. Tool-sequence rules (`no_call`, `must_call_before`, `must_call_once`) all work pre-dispatch. Response-text rules stay on `record_chat`. See [docs/features/runtime-enforcement.md](docs/features/runtime-enforcement.md) for the full surface, including standalone `wrap_tools(..., records_provider=...)` for framework-adapter integrations.
 
-## Recording real agent traces
+## Beyond the basics
 
-Shadow's SDK auto-instruments the Anthropic and OpenAI SDKs. No code changes to the agent itself:
+Everything above is the load-bearing pitch — install, the 10-minute walkthrough, writing a YAML rule, and runtime enforcement. **That's the whole product for most users.** What's below are the deeper features each backed by its own doc page; skip whichever isn't relevant to you.
+
+- **[Recording real agent traces](docs/quickstart/record.md)** — `shadow record -- python your_agent.py` auto-instruments Anthropic and OpenAI SDKs, redacts secrets by default, writes content-addressed `.agentlog` files. No code changes.
+- **[Framework adapters](docs/features/adapters.md)** — first-class hooks for LangGraph, CrewAI, and AG2. The chat client patches still cover everything; the adapter just pulls in the framework's structural metadata (graph nodes, crew kickoffs, agent boundaries).
+- **[Sandboxed deterministic replay](docs/features/sandboxed-replay.md)** — replay a candidate trace under a different config without touching production. Real tool functions run with network/subprocess/FS-write blocked; the output is an ordinary `.agentlog`.
+- **OpenTelemetry import** — `shadow import --format otel <export>` converts existing OTel GenAI semantic-convention spans to `.agentlog`. See [`docs/reference/cli.md`](docs/reference/cli.md) for the full flag set.
+- **[Agent Behavior Certificates](docs/features/certificate.md)** — `shadow certify` produces a content-addressed JSON release artifact (model + system prompt hash + tool-schema hash + policy hash + optional regression-suite rollup), signed via sigstore keyless. `shadow verify-cert` validates content-addressing and signature against a specific signer identity.
+- **[MCP server](docs/features/mcp-server.md)** — `shadow mcp-serve` exposes Shadow's diff / certify / verify / policy-check capabilities to any MCP-aware client over stdio. Lets agentic CLIs (Claude Desktop, Cline, etc.) treat Shadow as a tool.
+- **Production trace mining** — `shadow mine <traces>` clusters turn-pairs by tool sequence + stop reason and selects representative cases. Compresses a production trace dump into a regression suite. See [`docs/reference/cli.md`](docs/reference/cli.md#shadow-mine).
+- **[Why regressions happened, not just what](docs/features/bisect.md)** — `shadow bisect` (LASSO-based, stable CLI) attributes each regressing axis to the specific config delta most likely responsible. The opt-in [`shadow.causal`](docs/theory/causal.md) module adds intervention-based ATE with optional bootstrap CIs and back-door adjustment for confounders.
+- **[The nine behavioral dimensions](docs/features/nine-axis.md)** — `response meaning`, `tool calls`, `refusals`, `length`, `response time`, `cost`, `reasoning depth`, `LLM-judge score`, `output format`. Each measured independently with bootstrap 95% confidence intervals; severity bands tested empirically.
+- **[Statistical, formal, and causal primitives](docs/theory/)** — Hotelling T² with shrinkage, SPRT and mixture-SPRT, conformal coverage with adaptive drift, LTLf model checking with bottom-up DP. These compose with the nine-axis diff to make certificates evidence-backed instead of just claim-backed. Each has its own theory page; the validation suite empirically verifies Type-I rate, power, and coverage.
+- **[Worked examples](examples/)** — 9 runnable scenarios: refund bot regression after a prompt edit, devops agent with a tool-ordering bug, ER triage with safety rules, harmful-content domain judge, public-incident reproductions (Air Canada / Avianca / NEDA / McDonald's / Replit), production-trace mining, statistical safety audit. Every example runs offline from committed fixtures with no API key required.
+
+## Where Shadow fits
+
+Shadow is a CI/repo-native tool. **It does not replace your LLM observability platform — it complements one.** Most teams will end up using one of each.
+
+| Use [Langfuse](https://langfuse.com) / [Helicone](https://helicone.ai) / [Braintrust](https://braintrust.dev) for | Use Shadow for |
+|---|---|
+| Production trace logging + dashboards | Repo-native PR comments and merge-gating |
+| Cross-team trace search and visualization | Behavior contracts in YAML, enforced at PR-time **and** runtime |
+| Long-term observability storage | Content-addressed release certificates and supply-chain signing |
+| Custom evals you build in their UI | Pre-built nine-axis diff + statistical primitives |
+
+If you want a hosted dashboard for your traces, use whichever platform you already have. If you want behavior changes blocked in your PR before they merge — and the same rule enforced at runtime so a runtime override can't ship something CI rejected — that's what Shadow ships as a single command.
 
 ```bash
 shadow record -o baseline.agentlog -- python your_agent.py
@@ -348,245 +374,6 @@ The TypeScript SDK covers the recording side of this same workflow plus a CI-gat
 The Python SDK and TypeScript SDK ship lockstep at the same version. The `.agentlog` format itself is the contract — TS-recorded traces feed into Python's `shadow diff`, `shadow certify`, and the MCP server without translation. The TS gate decisions are byte-identical to the Python equivalents on the same fixtures (cross-validated by `python/tests/test_typescript_parity.py`). For deeper analyses (multi-axis diff, bisect, certify), run those from the Python CLI against the TS-recorded trace.
 
 If your agent is built on LangGraph, CrewAI, or AG2, prefer the matching adapter (next section) over auto-instrumentation. Auto-instrument patches `.create` on the underlying provider SDK, which is a moving target across SDK majors. The framework adapters hook each framework's documented extension surface, which is the more stable contract.
-
-## Record from agent frameworks
-
-If your agent runs on a framework, Shadow has a direct hook for each of the three most common ones. Install the matching extra and drop the handler in; no monkey-patch, nothing to rewrite in the agent.
-
-**LangGraph / LangChain**
-
-```python
-from shadow.sdk import Session
-from shadow.adapters.langgraph import ShadowLangChainHandler
-
-with Session(output_path="trace.agentlog") as s:
-    handler = ShadowLangChainHandler(s)
-    graph.invoke(
-        {"messages": [HumanMessage("...")]},
-        config={"callbacks": [handler],
-                "configurable": {"thread_id": "t-42"}},
-    )
-```
-
-`pip install 'shadow-diff[langgraph]'`. Works under `invoke` and `ainvoke`. The `thread_id` from the config carries through as the session boundary, so one `invoke` is one session even across tool loops and fan-outs.
-
-**CrewAI**
-
-```python
-from shadow.sdk import Session
-from shadow.adapters.crewai import ShadowCrewAIListener
-
-with Session(output_path="trace.agentlog") as s:
-    ShadowCrewAIListener(s)
-    crew.kickoff(inputs={"topic": "..."})
-```
-
-`pip install 'shadow-diff[crewai]'`. One `Crew.kickoff()` is one session, even when it triggers many LLM calls; the adapter marks the boundary on `CrewKickoffStartedEvent`.
-
-**AG2 (formerly AutoGen)**
-
-```python
-from shadow.sdk import Session
-from shadow.adapters.ag2 import ShadowAG2Adapter
-
-with Session(output_path="trace.agentlog") as s:
-    adapter = ShadowAG2Adapter(s)
-    adapter.install_all([planner, executor])
-    planner.initiate_chat(executor, message="...")
-```
-
-`pip install 'shadow-diff[ag2]'`. Captures the message bodies that `autogen.opentelemetry` redacts by default, so semantic diffs have something to compare against.
-
-## Replay the candidate, end-to-end, without touching production
-
-For a candidate change to a prompt or model, `shadow diff` shows what's different between two recorded traces. Sandboxed replay drives the candidate's agent loop *forward* against a baseline and produces a candidate trace without making any real LLM calls or running any real tool side effects:
-
-```bash
-shadow replay candidate.yaml \
-  --baseline baseline.agentlog \
-  --agent-loop \
-  --tool-backend replay \
-  --novel-tool-policy stub \
-  --output candidate.agentlog
-```
-
-`--tool-backend replay` resolves every tool call against the baseline's recorded results. `--novel-tool-policy` decides what happens when the candidate calls a tool the baseline didn't (`strict` aborts, `stub` returns a placeholder, `fuzzy` matches the nearest same-tool call by arg shape). For real tool functions with side effects you'd otherwise hit, the programmatic API exposes `SandboxedToolBackend` which patches `socket.connect`, `subprocess.run`, and write-mode `open()` calls during execution. Counterfactual primitives (`branch_at_turn`, `replace_tool_result`, `replace_tool_args`) let you isolate one variable at a time. See [docs/features/sandboxed-replay.md](docs/features/sandboxed-replay.md).
-
-## Import traces from any OpenTelemetry backend
-
-If you already export OTLP to Datadog, Honeycomb, or any OTel collector, pipe that same export into Shadow:
-
-```bash
-shadow import traces.json --format otel --output my.agentlog
-```
-
-Reads the full GenAI semantic convention v1.40 surface: structured `gen_ai.input.messages` / `gen_ai.output.messages`, `gen_ai.provider.name`, cache tokens, tool definitions, agent spans, evaluation events. Also accepts the older v1.28-v1.36 flat indexed attributes, so traces from OpenLLMetry and similar implementers that haven't tracked the v1.37 restructure still round-trip cleanly.
-
-## Wire it into every pull request
-
-```bash
-shadow init --github-action
-```
-
-Drops a ready-to-commit workflow at `.github/workflows/shadow-diff.yml`. Point the `BASELINE` and `CANDIDATE` paths at fixtures you commit, and every PR gets a behavior-diff comment.
-
-To gate the merge, add `--fail-on severe` (or `moderate` / `minor`) to the `shadow diff` step. The PR comment posts first; the gate runs as a separate step so a blocked PR still has the explanation.
-
-```bash
-shadow diff baseline.agentlog candidate.agentlog \
-  --policy shadow-policy.yaml \
-  --fail-on severe
-```
-
-Exits 1 when the worst axis severity or policy regression hits the threshold; 0 otherwise.
-
-## Sign every release with an Agent Behavior Certificate
-
-```bash
-shadow certify candidate.agentlog \
-  --agent-id refund-agent@2.3.0 \
-  --policy shadow-policy.yaml \
-  --baseline baseline.agentlog \
-  --output release.cert.json
-
-shadow verify-cert release.cert.json
-```
-
-Produces a content-addressed JSON release artifact (Agent Behavior Bill of Materials) that captures the trace's content-id, all distinct models observed, content-ids of system prompts and tool schemas, the policy file hash, and an optional baseline-vs-candidate nine-axis regression-suite rollup. The certificate is self-verifying: `verify-cert` recomputes the body hash and exits 1 on tamper, so it works as a release gate.
-
-Add `--sign` to layer cosign / sigstore keyless signing on top:
-
-```bash
-pip install 'shadow-diff[sign]'
-
-shadow certify candidate.agentlog \
-  --agent-id refund-agent@2.3.0 \
-  --output release.cert.json \
-  --sign
-
-shadow verify-cert release.cert.json \
-  --verify-signature \
-  --cert-identity 'https://github.com/org/repo/.github/workflows/release.yml@refs/tags/v2.3.0'
-```
-
-The signed payload is the canonical certificate body, so tampering breaks both `cert_id` and the signature. The signature is bound to a specific signer identity (a workflow URL or email) — a leaked Bundle signed by another identity won't verify even if the crypto is otherwise valid. See [docs/features/certificate.md](docs/features/certificate.md) for the full format, signing details, and MCP integration.
-
-## Use Shadow from an agentic CLI (MCP server)
-
-Shadow speaks the Model Context Protocol. Any MCP-aware client (Claude Desktop, Claude Code, Cursor, Zed, Windsurf, and others) can invoke Shadow as a tool:
-
-```json
-{
-  "mcpServers": {
-    "shadow": {
-      "command": "shadow",
-      "args": ["mcp-serve"]
-    }
-  }
-}
-```
-
-Tools exposed: `shadow_diff`, `shadow_check_policy`, `shadow_token_diff`, `shadow_schema_watch`, `shadow_summarise`, `shadow_certify`, `shadow_verify_cert`. Install the extra first: `pip install 'shadow-diff[mcp]'`. See [docs/features/mcp-server.md](docs/features/mcp-server.md) for the per-tool reference.
-
-## Mine production traces into a regression suite
-
-Most teams never write eval sets because it's tedious. Let Shadow do it from your production traces:
-
-```bash
-shadow mine production.agentlog --output suite.agentlog --max-cases 50
-```
-
-Clusters every turn-pair by tool sequence, stop reason, and verbosity, picks the most interesting example from each cluster (errors, refusals, high cost, heavy reasoning, very long or empty responses), and writes a new `.agentlog` you can commit as your CI baseline.
-
-## Why regressions happened, not just that they happened
-
-When a PR changes three things at once (prompt + model + tool schema), a diff alone cannot tell you which one broke the agent. `shadow bisect` fits a sparse linear model (LASSO over corners with Meinshausen-Bühlmann stability selection) that attributes each behavioral axis's regression to specific config deltas:
-
-```bash
-shadow bisect config_a.yaml config_b.yaml \
-  --traces baseline.agentlog --candidate-traces candidate.agentlog
-```
-
-Output:
-
-```
-attribution:
-  trajectory   ← search_files.arguments.limit added     (weight 0.72)
-  semantic     ← system_prompt line 42 changed          (weight 0.19)
-  latency      ← model: claude-haiku → gpt-4o-mini      (weight 0.61)
-```
-
-The review comment tells you: "72% of the trajectory regression is explained by the tool-schema change. Revert that line and the agent should behave."
-
-## The nine behavioral dimensions
-
-Each dimension is measured independently with a bootstrap 95% confidence interval. Severity is one of none, minor, moderate, severe:
-
-| # | Dimension | What it measures |
-|--:|---|---|
-| 1 | `semantic` | How different are the outputs' meanings? |
-| 2 | `trajectory` | Did the agent use a different sequence of tools? |
-| 3 | `safety` | Did refusal rates change? |
-| 4 | `verbosity` | Are outputs longer or shorter? |
-| 5 | `latency` | Is it slower or faster? |
-| 6 | `cost` | Are token costs up or down? |
-| 7 | `reasoning` | Is the agent thinking less or more? |
-| 8 | `judge` | Your own LLM-judge rubric (optional). |
-| 9 | `conformance` | Does the output match the expected structure? |
-
-Per-axis math, severity bands, and bootstrap details: [`docs/features/nine-axis.md`](docs/features/nine-axis.md). The on-disk trace format is in [`SPEC.md`](SPEC.md).
-
-## Where Shadow fits among existing tools
-
-| | Langfuse | Braintrust | LangSmith | **Shadow** |
-|---|:---:|:---:|:---:|:---:|
-| Trace logging | ✅ | ✅ | ✅ | ✅ |
-| Dashboard UI | ✅ | ✅ | ✅ | no |
-| Local-first / repo-native | partial (self-host) | partial (self-host) | no | ✅ |
-| PR comment from CI | partial | partial | partial | ✅ |
-| Declarative YAML behavior policy | partial via evals | partial via evals | partial via evals | ✅ |
-| Merge-blocking PR check | partial via webhooks | partial via webhooks | partial via webhooks | ✅ |
-| Content-addressed release certificate | no | no | no | ✅ |
-| Cosign / sigstore signing on certificate | no | no | no | ✅ |
-| Regression attribution (LASSO bisect, stable CLI) | no | no | no | ✅ |
-| Intervention-based causal attribution (foundation, opt-in) | no | no | no | ✅ |
-| Nine pre-built behavior axes | partial | partial | partial | ✅ |
-| Open content-addressed trace format | no | no | no | ✅ |
-
-The "partial" cells reflect that all three platforms support evals + webhooks + custom CI integrations that a determined team can build into a PR-comment / gate workflow. Shadow's claim isn't that those tools can't be wired up — it's that Shadow ships the workflow as a single command, and ships an open trace format, declarative policy language, and signed release certificate as primitives. Pair Shadow with any of these tools for the dashboard side.
-
-## Examples
-
-Every example runs offline from committed fixtures. No API key required:
-
-| Example | What it shows |
-|---|---|
-| [`examples/demo/`](examples/demo/) | The fastest working example. `just demo`. |
-| [`examples/customer-support/`](examples/customer-support/) | Refund bot that regresses after a well-meaning prompt edit |
-| [`examples/devops-agent/`](examples/devops-agent/) | Database agent with a tool-ordering bug that unit tests would miss |
-| [`examples/er-triage/`](examples/er-triage/) | High-stakes clinical scenario with safety rules |
-| [`examples/edge-cases/`](examples/edge-cases/) | 20 adversarial probes used as a regression guard |
-| [`examples/refund-agent-audit/`](examples/refund-agent-audit/) | Statistical safety audit on a model upgrade (Hotelling T² + SPRT + LTL + conformal) |
-| [`examples/canary-monitor/`](examples/canary-monitor/) | Production canary with always-valid mSPRT and Bonferroni-corrected family-wise error |
-| [`examples/harmful-content-judge/`](examples/harmful-content-judge/) | Domain-aware harm detection where the safety axis isn't enough |
-| [`examples/production-incident-suite/`](examples/production-incident-suite/) | Five public-incident patterns (Air Canada, Avianca, NEDA, McDonald's, Replit) caught by the v2.5+ pipeline |
-| [`examples/integrations/`](examples/integrations/) | Push traces to Datadog, Splunk, or any OTel collector |
-
-## Statistical, formal, and causal primitives (v2.5+)
-
-Shadow ships a layer most LLM-eval tools don't have — empirically-validated statistical and formal-methods-inspired primitives that make certificates more evidence-backed. The mix is heterogeneous: rigorous statistical tests (Hotelling T², SPRT, conformal coverage), genuine formal verification on traces (LTLf model checking with bottom-up DP), causal-inference-inspired attribution (intervention-based ATE, foundation), and signed certificates that compose all of the above. Not every certificate carries a formal proof; each component is documented for what it is. These compose with the nine-axis diff above.
-
-| Module | What it does | Reference |
-|---|---|---|
-| [`shadow.statistical`](python/src/shadow/statistical/) | Behavioral fingerprinting, Hotelling T² (with OAS shrinkage and permutation p-values), Wald + mixture SPRT, variance-adaptive `MSPRTtDetector` | [docs/theory/sprt.md](docs/theory/sprt.md), [docs/theory/hotelling.md](docs/theory/hotelling.md) |
-| [`shadow.ltl`](python/src/shadow/ltl/) | Finite-trace LTLf model checking with bottom-up DP (O(\|π\|×\|φ\|)); `WeakUntil` for "must-call-before" rules; YAML compiler | [docs/theory/ltl.md](docs/theory/ltl.md) |
-| [`shadow.conformal`](python/src/shadow/conformal.py) | Distribution-free split conformal (`conformal_calibrate`); Adaptive Conformal Inference (`ACIDetector`, Gibbs & Candès 2021) for distribution shift | [docs/theory/conformal.md](docs/theory/conformal.md) |
-| [`shadow.causal`](python/src/shadow/causal/) | Intervention-based causal attribution foundation, inspired by Pearl-style causal inference: per-delta ATE, optional percentile-bootstrap CIs (Efron 1979), optional back-door adjustment for named confounders **when users can supply or justify stratum weights** (the default uniform weights are unbiased only under uniform P(C=c)), optional VanderWeele-Ding (2017) E-value sensitivity. Not yet the default `shadow bisect` engine — that remains LASSO-based. | [docs/theory/causal.md](docs/theory/causal.md) |
-| [`shadow.diff_py`](python/src/shadow/diff_py/) | Scenario-aware multi-case diff: partition by `meta.scenario_id`, run per-scenario diffs without spurious "dropped turns" |  |
-| [`shadow.policy_suggest`](python/src/shadow/policy_suggest/) | Mine baseline traces for `must_call_before` patterns; suggest policies the operator approves before adding |  |
-| [`shadow.storage`](python/src/shadow/storage/) | Pluggable Storage interface (FileStore + InMemoryStore in OSS; cloud backends plug in) |  |
-
-The validation suite at [`python/tests/test_statistical_validation.py`](python/tests/test_statistical_validation.py) (run with `pytest -m slow`) empirically verifies Type-I rate, power across an effect-size × n grid, the always-valid bound under continuous peeking, and conformal coverage on heavy-tailed held-out data.
 
 ## CLI reference
 
