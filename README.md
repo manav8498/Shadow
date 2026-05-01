@@ -13,7 +13,9 @@
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
-**Behavior testing for LLM agents, in the pull request.**
+**Behavior contracts for AI agents.**
+
+Tested at PR-time. Enforced at runtime. Same YAML.
 
 <p align="center">
   <img src=".github/assets/demo.gif" alt="Shadow workflow loop demo" width="900" />
@@ -35,7 +37,7 @@
   </sub>
 </p>
 
-Shadow catches behavior regressions in AI agents before they merge. You change a prompt, swap a model, or rename a tool argument. Your agent still runs, tests still pass, but the behavior quietly shifts. Shadow replays your change against recorded agent traces and posts a behavior diff on the PR so a reviewer can see what broke and why.
+Shadow turns "how should this agent behave?" into a **contract** — one YAML file your CI tests against every PR, and your runtime enforces against every tool call. Same rule, both places. You change a prompt, swap a model, or rename a tool argument; your agent still runs and tests still pass, but the behavior quietly shifts. Shadow replays your change against recorded agent traces, posts a plain-English diff on the PR so a reviewer can see what broke, and blocks the same drift in production before it reaches a user.
 
 ## The problem
 

@@ -10,7 +10,7 @@ build-backend = "maturin"
 # `pip install` name is different.
 name = "shadow-diff"
 version = "3.0.4"
-description = "Git-native behavioral diff and shadow deployment for LLM agents."
+description = "Behavior contracts for AI agents — tested in your PR, enforced at runtime."
 license = "Apache-2.0"
 # Pin the license-files list explicitly so maturin's auto-detection
 # doesn't propose files (LICENSE / LICENSE-MIT / etc.) that aren't

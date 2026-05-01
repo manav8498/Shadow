@@ -1,7 +1,7 @@
 {
   "name": "shadow-diff",
   "version": "3.0.4",
-  "description": "Shadow — Git-native behavioral diff for LLM agents (TypeScript SDK)",
+  "description": "Behavior contracts for AI agents — tested in your PR, enforced at runtime. (TypeScript SDK)",
   "license": "Apache-2.0",
   "repository": "github:manav8498/Shadow",
   "homepage": "https://github.com/manav8498/Shadow",
