@@ -33,13 +33,6 @@ Tested at PR-time. Enforced at runtime. Same YAML.
   </sub>
 </p>
 
-## What Shadow is, and what it isn't
-
-- **IS** — behavior regression testing for AI agents. PR-time + runtime, one YAML rule.
-- **IS NOT** a hosted dashboard. (Use [Langfuse](https://langfuse.com), [Helicone](https://helicone.ai), or [Braintrust](https://braintrust.dev) — Shadow runs alongside them, not instead of them.)
-- **IS NOT** a general-purpose LLM observability platform. Same: pair with whichever you already use.
-- **IS NOT** a LangSmith replacement. Run both — LangSmith for the dashboard, Shadow for the merge-gate.
-
 ## Why this exists
 
 Your teammate opens a PR that tweaks the system prompt, swaps GPT-4o for a cheaper model, or adjusts a tool schema. Code review looks fine. Unit tests pass. You merge.
