@@ -14,7 +14,7 @@ homepage.workspace = true
 authors.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "Core parser, writer, content-addressed store, replay engine, and nine-axis behavioral differ for the Shadow tool."
+description = "Behavior contracts for AI agents — tested in your PR, enforced at runtime. Core engine: parser, writer, content-addressed store, replay, and nine-axis behavioral differ."
 documentation = "https://docs.rs/shadow-diff"
 # Point at the workspace-root README via a relative path (cargo resolves
 # `readme` relative to the crate's Cargo.toml, not the workspace root).
