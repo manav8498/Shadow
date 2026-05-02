@@ -9,7 +9,7 @@ build-backend = "maturin"
 # the CLI stays `shadow`, and the repo stays Shadow — only the
 # `pip install` name is different.
 name = "shadow-diff"
-version = "3.0.5"
+version = "3.0.6"
 description = "Behavior contracts for AI agents — tested in your PR, enforced at runtime."
 license = "Apache-2.0"
 # Pin the license-files list explicitly so maturin's auto-detection
@@ -101,13 +101,13 @@ mcp = ["mcp>=0.9,<2"]
 # when these aren't installed, so the dep is genuinely optional — the
 # extra is here so users opting in to multimodal traces have a single
 # `pip install shadow-diff[multimodal]` instead of two manual installs.
-multimodal = ["Pillow>=10,<12", "imagehash>=4.3,<5"]
+multimodal = ["Pillow>=10,<13", "imagehash>=4.3,<5"]
 # Cosign / sigstore signing for Agent Behavior Certificates. Enables
 # `shadow certify --sign` and `shadow verify-cert --verify-signature`.
 # Optional because sigstore pulls a non-trivial transitive tree
 # (cryptography, securesystemslib, tuf, rfc3161-client) that most
 # users running Shadow in tests don't need.
-sign = ["sigstore>=3.0,<4"]
+sign = ["sigstore>=3.0,<5"]
 # Framework adapters. Each pulls in the minimum surface needed for the
 # matching shadow.adapters.<framework> module. LangGraph's extra
 # additionally brings `langchain-openai` since that's what ~80% of
@@ -116,8 +116,8 @@ sign = ["sigstore>=3.0,<4"]
 # alongside without conflicts — the adapter itself is provider-neutral.
 langgraph = [
     "langchain-core>=0.3,<1",
-    "langgraph>=1,<2",
-    "langchain-openai>=0.2,<2",
+    "langgraph>=1.0.2,<2",
+    "langchain-openai>=0.3,<2",
 ]
 crewai = ["crewai>=1.14,<2"]
 ag2 = ["ag2>=0.9,<2"]
@@ -135,11 +135,11 @@ all = [
     "uvicorn>=0.32,<1",
     "websockets>=13.1,<16",
     "mcp>=0.9,<2",
-    "Pillow>=10,<12",
+    "Pillow>=10,<13",
     "imagehash>=4.3,<5",
-    "sigstore>=3.0,<4",
-    "langgraph>=1,<2",
-    "langchain-openai>=0.2,<2",
+    "sigstore>=3.0,<5",
+    "langgraph>=1.0.2,<2",
+    "langchain-openai>=0.3,<2",
     "crewai>=1.14,<2",
     "ag2>=0.9,<2",
 ]
@@ -148,7 +148,11 @@ dev = [
     "hypothesis==6.122.1",
     "mypy==1.14.0",
     "ruff==0.8.4",
-    "pytest==8.3.4",
+    # pytest 8.3.4 has known advisories; bump to the latest 8.x patch.
+    # Stay on 8.x rather than jumping to 9.x to avoid plugin breakage in
+    # this release; 9.x bump can land in a separate dev-environment
+    # refresh.
+    "pytest==8.4.2",
     "pytest-asyncio==0.25.0",
     "pytest-cov==6.0.0",
     "maturin==1.13.1",
