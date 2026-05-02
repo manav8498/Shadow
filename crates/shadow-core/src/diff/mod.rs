@@ -61,6 +61,41 @@ pub fn extract_response_pairs<'a>(
     b.into_iter().zip(c).collect()
 }
 
+/// Stable trace identifier for a `.agentlog` record stream.
+///
+/// Two-step resolution:
+///
+/// 1. **Envelope `meta.trace_id`** — preferred. The Python SDK's
+///    `Session` mints a unique 128-bit hex `trace_id` per instance and
+///    stamps it on every record's envelope `meta`. Envelope meta is
+///    deliberately *not* part of the content hash (SPEC §6), so this
+///    stays unique even when two sessions emit byte-identical
+///    metadata payloads.
+///
+/// 2. **First record's content id** — fallback. Used for traces that
+///    don't carry envelope-level `meta.trace_id` (third-party
+///    OpenTelemetry imports, hand-constructed fixtures, traces from
+///    SDK versions older than v1.x). The `id` field of the first
+///    record is the SHA-256 of its canonical payload, so this is
+///    stable for any given input but can collide across runs whose
+///    metadata payloads happen to match exactly — which is the case
+///    `meta.trace_id` exists to prevent.
+///
+/// Returns `String::new()` for an empty record list.
+fn trace_id_for(records: &[Record]) -> String {
+    records
+        .iter()
+        .find_map(|r| {
+            r.meta
+                .as_ref()
+                .and_then(|m| m.get("trace_id"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
+        .or_else(|| records.first().map(|r| r.id.clone()))
+        .unwrap_or_default()
+}
+
 /// Compute a [`DiffReport`] from a baseline and candidate trace.
 ///
 /// The Judge axis is set to `empty(Axis::Judge)` because no Judge is
@@ -88,8 +123,8 @@ pub fn compute_report(
     let drill_down = drill_down::compute(&pairs, pricing, drill_down::DEFAULT_K);
     let mut report = DiffReport {
         rows,
-        baseline_trace_id: baseline.first().map(|r| r.id.clone()).unwrap_or_default(),
-        candidate_trace_id: candidate.first().map(|r| r.id.clone()).unwrap_or_default(),
+        baseline_trace_id: trace_id_for(baseline),
+        candidate_trace_id: trace_id_for(candidate),
         pair_count: pairs.len(),
         first_divergence,
         divergences,
@@ -165,5 +200,63 @@ mod tests {
         let c = make_trace(vec![(1, "a"), (2, "b")]);
         let pairs = extract_response_pairs(&b, &c);
         assert_eq!(pairs.len(), 2);
+    }
+
+    #[test]
+    fn trace_ids_use_envelope_meta_to_avoid_payload_collisions() {
+        // Two traces with byte-identical metadata payloads (no tags
+        // distinguish them) but different envelope-level meta.trace_id.
+        // Before the fix, the diff report used `Record.id` (the content
+        // hash of the payload) for `baseline_trace_id` and
+        // `candidate_trace_id`, which collided whenever the metadata
+        // payload was the same — i.e. on every default-tagless run pair.
+        //
+        // After the fix: the report prefers `meta.trace_id` from the
+        // envelope, which the Python SDK Session mints uniquely per
+        // instance. Envelope meta is not part of the content hash, so it
+        // stays unique even when payloads match exactly.
+        fn stamp_meta(mut rec: Record, trace_id: &str) -> Record {
+            let mut m = serde_json::Map::new();
+            m.insert("trace_id".into(), json!(trace_id));
+            rec.meta = Some(m);
+            rec
+        }
+        let b = make_trace(vec![(1, "hello")])
+            .into_iter()
+            .map(|r| stamp_meta(r, "trace-aaaa"))
+            .collect::<Vec<_>>();
+        let c = make_trace(vec![(2, "hello")])
+            .into_iter()
+            .map(|r| stamp_meta(r, "trace-bbbb"))
+            .collect::<Vec<_>>();
+
+        // Sanity: the metadata payload (Record.id of the first record)
+        // is identical across baseline and candidate — this is the
+        // collision case the bug report cited.
+        assert_eq!(b[0].id, c[0].id);
+
+        let pricing = cost::Pricing::new();
+        let report = compute_report(&b, &c, &pricing, Some(42));
+
+        assert_eq!(report.baseline_trace_id, "trace-aaaa");
+        assert_eq!(report.candidate_trace_id, "trace-bbbb");
+        assert_ne!(report.baseline_trace_id, report.candidate_trace_id);
+    }
+
+    #[test]
+    fn trace_id_falls_back_to_first_record_id_when_meta_missing() {
+        // Traces without envelope meta.trace_id (third-party imports,
+        // hand-constructed fixtures, pre-1.0 SDK output) keep the
+        // pre-fix behaviour: use the first record's content id. This
+        // preserves backward compatibility for everything that doesn't
+        // have a Session-stamped envelope.
+        let b = make_trace(vec![(1, "hello")]);
+        let c = make_trace(vec![(2, "world")]);
+        let pricing = cost::Pricing::new();
+        let report = compute_report(&b, &c, &pricing, Some(42));
+        // The metadata payloads are identical so first-record content
+        // ids collide here — that's the documented fallback behaviour.
+        assert_eq!(report.baseline_trace_id, b[0].id);
+        assert_eq!(report.candidate_trace_id, c[0].id);
     }
 }

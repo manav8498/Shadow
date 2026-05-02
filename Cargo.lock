@@ -806,7 +806,7 @@ dependencies = [
 
 [[package]]
 name = "shadow-diff"
-version = "3.0.1"
+version = "3.0.4"
 dependencies = [
  "async-trait",
  "insta",
