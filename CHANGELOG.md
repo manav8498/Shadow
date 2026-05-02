@@ -4,6 +4,50 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.0.5](https://github.com/manav8498/Shadow/compare/v3.0.4...v3.0.5) (2026-05-02)
+
+External customer audit reported four production issues. All four
+reproduced locally; all four fixed; two regression tests added.
+
+### Fixed
+
+* **Trace IDs collide across runs (HIGH).** Two `Session()` calls
+  without distinguishing tags produced the same `baseline_trace_id`
+  and `candidate_trace_id` in the diff report, even though each
+  Session minted a unique 128-bit hex `trace_id` internally. Cause:
+  the diff report populated trace-id fields from the first record's
+  content hash, and the metadata payload `{"sdk": {"name": "shadow",
+  ...}}` is byte-identical across tagless runs. Meanwhile the actual
+  unique identifier the SDK mints lives in envelope `meta.trace_id`,
+  which is intentionally not part of the content hash (SPEC §6).
+
+  Fix: a new `trace_id_for(records)` helper in
+  `crates/shadow-core/src/diff/mod.rs` prefers envelope
+  `meta.trace_id` when present, falls back to the first record's
+  content id otherwise. Backward compatible — third-party imports
+  and hand-constructed fixtures without `meta.trace_id` keep their
+  pre-fix behaviour. ([56be371](https://github.com/manav8498/Shadow/commit/56be371))
+
+* **Generated GitHub Action installs old Shadow major.** `shadow init
+  --github-action` scaffolded a workflow with `pip install --upgrade
+  "shadow-diff>=2.4,<3"` — pinned two majors behind the running
+  Shadow. New users got CI testing against v2.x while developing
+  locally against v3. The scaffold now substitutes the major from
+  `shadow.__version__` at write time, so the constraint always
+  tracks whichever Shadow generated the workflow.
+
+* **`@anthropic-ai/sdk` advisory GHSA-p7fg-763f-g4gf.** The TS
+  package's peerDependency `@anthropic-ai/sdk: ^0.90.0` pinned a
+  vulnerable range (insecure default file permissions in the local
+  filesystem memory tool). Bumped to `^0.92.0`; `npm audit
+  --omit=dev` now reports 0 vulnerabilities.
+
+### Build
+
+* `Cargo.lock` was stale at 3.0.1 while `Cargo.toml` was at 3.0.4;
+  `cargo metadata --locked` errored. Lockfile regenerated; reproducible
+  `--locked` builds restored.
+
 ## [3.0.4](https://github.com/manav8498/Shadow/compare/v3.0.3...v3.0.4) (2026-04-30)
 
 ### Fixed
