@@ -115,7 +115,7 @@ sign = ["sigstore>=3.0,<5"]
 # Bedrock, etc. can layer in `langchain-anthropic` / `langchain-aws`
 # alongside without conflicts — the adapter itself is provider-neutral.
 langgraph = [
-    "langchain-core>=0.3,<1",
+    "langchain-core>=0.3,<2",
     "langgraph>=1.0.2,<2",
     "langchain-openai>=0.3,<2",
 ]
