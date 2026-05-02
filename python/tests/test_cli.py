@@ -584,3 +584,34 @@ def test_demo_prints_plain_english_summary(tmp_path: Path, monkeypatch: Any) -> 
     result = runner.invoke(app, ["demo"])
     assert result.exit_code == 0, result.output
     assert "What this means" in result.output
+
+
+def test_init_github_action_pins_to_current_major(tmp_path: Path) -> None:
+    """Regression: previously the scaffolded workflow hard-coded
+    `pip install --upgrade "shadow-diff>=2.4,<3"` even though the
+    project shipped 3.x. New users running `shadow init
+    --github-action` got CI pinned to v2 and pulled an old major
+    that didn't match what they were testing against locally.
+
+    The fix derives the major from `shadow.__version__` at scaffold
+    time, so the constraint always tracks whichever Shadow is
+    generating the workflow."""
+    from shadow import __version__
+
+    result = runner.invoke(app, ["init", "--github-action", str(tmp_path)])
+    assert result.exit_code == 0, result.output
+
+    workflow = (tmp_path / ".github" / "workflows" / "shadow-diff.yml").read_text()
+
+    # The pin must reference the major the Shadow that wrote the
+    # workflow is at — not a hard-coded older major.
+    major = int(__version__.split(".", 1)[0])
+    expected = f'pip install --upgrade "shadow-diff>={major},<{major + 1}"'
+    assert expected in workflow, (
+        f"Workflow does not pin to current major {major}.x. "
+        f"Looking for: {expected}\nGot:\n{workflow}"
+    )
+
+    # And the placeholder substitution must not have leaked.
+    assert "{MAJOR}" not in workflow
+    assert "{NEXT_MAJOR}" not in workflow

@@ -81,7 +81,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install shadow-diff
-        run: pip install --upgrade "shadow-diff>=2.4,<3"
+        # Pinned to the same major as the Shadow that scaffolded this
+        # workflow. Re-run `shadow init --github-action --force` after
+        # upgrading past a major to refresh the constraint.
+        run: pip install --upgrade "shadow-diff>={MAJOR},<{NEXT_MAJOR}"
 
       - name: Compute diff
         run: |
@@ -147,7 +150,16 @@ def init(
             if workflow_path.exists():
                 err_console.print(f"[yellow]·[/] {workflow_path} already exists — not overwritten.")
             else:
-                workflow_path.write_text(GITHUB_ACTION_WORKFLOW)
+                # Substitute the pip-install version constraint to track
+                # whichever Shadow major is scaffolding the workflow.
+                # Using simple .replace() rather than .format() so the
+                # GitHub Actions ${{ ... }} syntax inside the template
+                # passes through untouched.
+                major = int(__version__.split(".", 1)[0])
+                content = GITHUB_ACTION_WORKFLOW.replace("{MAJOR}", str(major)).replace(
+                    "{NEXT_MAJOR}", str(major + 1)
+                )
+                workflow_path.write_text(content)
                 err_console.print(
                     f"[green]✓[/] wrote {workflow_path}\n"
                     "    edit BASELINE / CANDIDATE paths, commit, and every PR "

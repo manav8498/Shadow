@@ -88,3 +88,74 @@ def test_session_tool_call_records_link_to_response(tmp_path: Path) -> None:
         "tool_call",
         "tool_result",
     ]
+
+
+def test_two_tagless_sessions_get_distinct_trace_ids_in_diff_report(
+    tmp_path: Path,
+) -> None:
+    """Regression: before v3.0.5 the diff report's `baseline_trace_id` and
+    `candidate_trace_id` came from the first record's content hash,
+    which collides whenever two `Session()` calls produce byte-identical
+    metadata payloads. That was the case for any default-tagless run
+    pair — the metadata payload `{"sdk": {"name": "shadow", ...}}` is
+    deterministic.
+
+    The Python `Session` does mint a unique 128-bit hex `trace_id` per
+    instance and stamps it on every record's envelope `meta.trace_id`,
+    but envelope meta is intentionally not part of the content hash
+    (SPEC §6). The fix in `crates/shadow-core/src/diff/mod.rs` changed
+    the diff report to prefer envelope `meta.trace_id` over the first
+    record's content hash.
+
+    This test exercises the full Python path: two real Sessions with
+    no tags, write to disk, parse back, run `compute_diff_report`, and
+    assert the two reported trace ids differ.
+    """
+    baseline_path = tmp_path / "baseline.agentlog"
+    candidate_path = tmp_path / "candidate.agentlog"
+
+    with Session(output_path=baseline_path) as s:
+        s.record_chat(
+            request={"model": "x", "messages": [], "params": {}},
+            response={
+                "model": "x",
+                "content": [{"type": "text", "text": "hello"}],
+                "stop_reason": "end_turn",
+                "latency_ms": 100,
+                "usage": {"input_tokens": 5, "output_tokens": 1, "thinking_tokens": 0},
+            },
+        )
+    with Session(output_path=candidate_path) as s:
+        s.record_chat(
+            request={"model": "x", "messages": [], "params": {}},
+            response={
+                "model": "x",
+                "content": [{"type": "text", "text": "hello"}],  # same response
+                "stop_reason": "end_turn",
+                "latency_ms": 200,  # different latency to make the diff non-trivial
+                "usage": {"input_tokens": 5, "output_tokens": 1, "thinking_tokens": 0},
+            },
+        )
+
+    baseline_records = _core.parse_agentlog(baseline_path.read_bytes())
+    candidate_records = _core.parse_agentlog(candidate_path.read_bytes())
+
+    # Sanity: the metadata payloads are byte-identical (no tags
+    # distinguish them), so first-record content ids would collide if
+    # the diff fell back to that path.
+    assert baseline_records[0]["id"] == candidate_records[0]["id"]
+    # But the envelopes carry distinct meta.trace_id values that the
+    # Session minted.
+    assert baseline_records[0]["meta"]["trace_id"] != candidate_records[0]["meta"]["trace_id"]
+
+    report = _core.compute_diff_report(baseline_records, candidate_records, None, 42)
+
+    assert report["baseline_trace_id"] != report["candidate_trace_id"], (
+        "Two Sessions without tags produced colliding trace_ids — "
+        f"baseline={report['baseline_trace_id']}, "
+        f"candidate={report['candidate_trace_id']}"
+    )
+    # Each reported trace_id should match the envelope trace_id of the
+    # corresponding metadata record, not the content hash.
+    assert report["baseline_trace_id"] == baseline_records[0]["meta"]["trace_id"]
+    assert report["candidate_trace_id"] == candidate_records[0]["meta"]["trace_id"]
