@@ -4,6 +4,64 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.0.6](https://github.com/manav8498/Shadow/compare/v3.0.5...v3.0.6) (2026-05-02)
+
+External customer audit found six security-strict-deployment items.
+This release closes the cargo-audit advisories and refreshes the
+optional / dev Python dependency ranges; no functional changes.
+
+### Security
+
+* **pyo3 0.22.6 → 0.24.2** — closes RUSTSEC-2025-0020
+  (`PyString::from_object` use-after-free). Shadow's own code didn't
+  call the affected API but the dependency still made `cargo audit`
+  fail. Source migration was minor: `PyList::empty_bound` /
+  `PyBytes::new_bound` / `PyList::new_bound` were renamed to
+  `empty` / `new` and `PyList::new` is now fallible (allocation can
+  in principle fail). One call site needed an explicit error path.
+* **tokio 1.41.1 → 1.52.1** — closes RUSTSEC-2025-0023 (broadcast
+  channel unsoundness warning). Shadow doesn't use `tokio::sync::
+  broadcast` but the dependency was flagged anyway; the bump keeps
+  scanners quiet.
+* **`@anthropic-ai/sdk`** — already at `^0.92.0` from v3.0.5; flagged
+  here for completeness.
+* **Optional / dev Python dep ranges refreshed.** The customer audit
+  saw vulnerable versions resolve in fresh installs of some optional
+  extras and the dev environment because the lower bounds were too
+  loose:
+    - `sigstore>=3.0,<4` → `sigstore>=3.0,<5` (allows the patched
+      4.x line)
+    - `Pillow>=10,<12` → `Pillow>=10,<13` (allows 12.x with the
+      patched chain)
+    - `langchain-openai>=0.2,<2` → `langchain-openai>=0.3,<2`
+      (lifts the lower bound past the vulnerable 0.2.x line)
+    - `langgraph>=1,<2` → `langgraph>=1.0.2,<2` (lifts past the
+      flagged 1.0.0 / 1.0.1 line)
+    - dev: `pytest==8.3.4` → `pytest==8.4.2` (closes the pytest-
+      8.3.x advisories; stays on 8.x to avoid plugin-compat
+      breakage; 9.x bump can land in a separate dev refresh)
+
+### Build
+
+* `statrs 0.17.1 → 0.18.0` (lockfile alignment, no API changes
+  affecting Shadow).
+* `cargo audit` now reports clean except for one expected warning:
+  `paste 1.0.15` is unmaintained, transitive through
+  `statrs → nalgebra → simba`. The warning is well-known and
+  upstream; we can't drop the path without losing Hotelling T²
+  multivariate support.
+
+### Note
+
+The v3.0.5 CHANGELOG claimed the literal `sha256:aeaa25c8...` hash
+the customer reproduced is in the regression test. That overstated
+what the test actually does: the test reproduces the *collision
+condition* (two byte-identical metadata payloads producing the same
+content id, with envelope `meta.trace_id` distinguishing them) and
+asserts the report uses the envelope value. It does not hard-code
+the specific aeaa25c8 hash — that hash depends on environment and
+isn't deterministic across runs. Correcting the record here.
+
 ## [3.0.5](https://github.com/manav8498/Shadow/compare/v3.0.4...v3.0.5) (2026-05-02)
 
 External customer audit reported four production issues. All four

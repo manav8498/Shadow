@@ -41,7 +41,7 @@ fn parse_agentlog<'py>(
     let bytes = data.as_bytes();
     let records =
         parser::parse_all(Cursor::new(bytes)).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let out = PyList::empty_bound(py);
+    let out = PyList::empty(py);
     for r in records {
         let v = serde_json::to_value(&r).map_err(|e| PyValueError::new_err(e.to_string()))?;
         let obj = pythonize(py, &v).map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -66,7 +66,7 @@ fn write_agentlog<'py>(
     }
     let mut buf = Vec::new();
     writer::write_all(&mut buf, &parsed).map_err(|e| PyIOError::new_err(e.to_string()))?;
-    Ok(PyBytes::new_bound(py, &buf))
+    Ok(PyBytes::new(py, &buf))
 }
 
 /// Canonical-JSON byte sequence for a payload (SPEC §5).
@@ -78,7 +78,7 @@ fn canonical_bytes<'py>(
     let v: serde_json::Value =
         depythonize(payload).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let bytes = crate::agentlog::canonical::to_bytes(&v);
-    Ok(PyBytes::new_bound(py, &bytes))
+    Ok(PyBytes::new(py, &bytes))
 }
 
 /// Content id for a payload dict (SPEC §6).
@@ -177,7 +177,14 @@ fn compute_semantic_axis_with_embedder<'py>(
         move |texts: &[&str]| -> Vec<Vec<f32>> {
             Python::with_gil(|py| {
                 let owned: Vec<String> = texts.iter().map(|s| (*s).to_string()).collect();
-                let py_list = PyList::new_bound(py, &owned);
+                // PyList::new became fallible in pyo3 0.24 (allocation can fail
+                // in principle; in practice this only fires on a Python that's
+                // actively OOMing). Treat allocation failure the same way as
+                // an embedder exception: return an empty vector and let the
+                // caller skip the semantic axis for this batch.
+                let Ok(py_list) = PyList::new(py, &owned) else {
+                    return Vec::new();
+                };
                 let result = embedder_obj.call1(py, (py_list,));
                 let any = match result {
                     Ok(v) => v,
