@@ -145,9 +145,9 @@ all = [
 ]
 
 dev = [
-    "hypothesis==6.122.1",
-    "mypy==1.14.0",
-    "ruff==0.8.4",
+    "hypothesis==6.152.4",
+    "mypy==1.20.2",
+    "ruff==0.15.12",
     # pytest 8.3.4 has known advisories; bump to the latest 8.x patch.
     # Stay on 8.x rather than jumping to 9.x to avoid plugin breakage in
     # this release; 9.x bump can land in a separate dev-environment
