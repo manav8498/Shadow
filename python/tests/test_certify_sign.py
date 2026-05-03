@@ -130,13 +130,37 @@ class _FakeContext:
 def test_sign_certificate_writes_bundle_at_sidecar_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fake_ctx = _FakeContext()
+    # sigstore 4.x removed SigningContext.{production,staging} in
+    # favour of ClientTrustConfig.{production,staging} feeding into
+    # SigningContext.from_trust_config(...). ClientTrustConfig is
+    # importable on both majors, so we detect the 4.x API by the
+    # presence of from_trust_config — same guard the production
+    # code uses. Patch whichever path the installed sigstore
+    # exposes; keeps this test green on both majors of the [sign]
+    # extra range (>=3.0,<5).
+    from sigstore.sign import SigningContext as _SigningContext
+
     import shadow.certify_sign as cs
 
-    monkeypatch.setattr(
-        "sigstore.sign.SigningContext.production",
-        lambda: fake_ctx,
-    )
+    fake_ctx = _FakeContext()
+    if hasattr(_SigningContext, "from_trust_config"):  # 4.x
+        monkeypatch.setattr(
+            "sigstore.sign.SigningContext.from_trust_config",
+            classmethod(lambda cls, _trust_config: fake_ctx),
+        )
+        monkeypatch.setattr(
+            "sigstore.sign.ClientTrustConfig.production",
+            classmethod(lambda cls, offline=False: object()),
+        )
+        monkeypatch.setattr(
+            "sigstore.sign.ClientTrustConfig.staging",
+            classmethod(lambda cls, offline=False: object()),
+        )
+    else:  # 3.x
+        monkeypatch.setattr(
+            "sigstore.sign.SigningContext.production",
+            lambda: fake_ctx,
+        )
     monkeypatch.setattr(
         "sigstore.oidc.IdentityToken",
         lambda _token: object(),
