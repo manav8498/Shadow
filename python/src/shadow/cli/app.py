@@ -3407,6 +3407,127 @@ def version() -> None:
     console.print(f"shadow {__version__} (spec {_core.SPEC_VERSION})")
 
 
+# ---------------------------------------------------------------------------
+# diagnose-pr: Causal Regression Forensics for AI Agents
+#
+# The headline command for the strategic pivot landed in
+# docs/superpowers/specs/2026-05-03-causal-regression-forensics-design.md.
+# v0.1 skeleton ships in Week 1 (this PR). 9-axis affected-trace
+# classification arrives in Week 2; causal attribution + dominant-cause
+# in Week 3.
+# ---------------------------------------------------------------------------
+
+
+@app.command("diagnose-pr", rich_help_panel="Common")
+def diagnose_pr_cmd(
+    traces: list[Path] = typer.Option(  # noqa: B008
+        ...,
+        "--traces",
+        help="Production-like .agentlog files (or directories) to diagnose against.",
+    ),
+    baseline_config: Path = typer.Option(  # noqa: B008
+        ...,
+        "--baseline-config",
+        help="Baseline agent config YAML (same schema as `shadow replay`).",
+    ),
+    candidate_config: Path = typer.Option(  # noqa: B008
+        ...,
+        "--candidate-config",
+        help="Candidate agent config YAML.",
+    ),
+    out: Path = typer.Option(  # noqa: B008
+        ...,
+        "--out",
+        help="Path to write the JSON report (diagnose-pr/v0.1 schema).",
+    ),
+    pr_comment: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--pr-comment",
+        help="Path to write the markdown PR comment (omit to skip).",
+    ),
+    changed_files: list[str] | None = typer.Option(  # noqa: B008
+        None,
+        "--changed-files",
+        help=(
+            "Files changed in the PR (e.g. from `git diff --name-only`); used to "
+            "attach human-readable filenames to prompt deltas."
+        ),
+    ),
+    max_traces: int = typer.Option(
+        200,
+        "--max-traces",
+        help="Cap on traces fed to the per-trace loop. Mining selects representatives above this.",
+    ),
+    fail_on: str = typer.Option(
+        "none",
+        "--fail-on",
+        help="Exit non-zero on this verdict floor: none|probe|hold|stop.",
+    ),
+) -> None:
+    """Diagnose a candidate config against production-like traces.
+
+    Composes existing Shadow internals (parser, mining, the 9-axis
+    differ, policy checker, causal attribution) into one PR-time
+    command surface. Produces a JSON report and a markdown PR
+    comment.
+
+    v0.1 skeleton — affected-trace classification and causal
+    attribution arrive in Weeks 2-3; this command currently runs
+    delta extraction + report assembly + render.
+    """
+    from shadow.diagnose_pr.deltas import extract_deltas
+    from shadow.diagnose_pr.loaders import load_config, load_traces
+    from shadow.diagnose_pr.render import render_pr_comment
+    from shadow.diagnose_pr.report import build_report, to_json
+
+    try:
+        baseline = load_config(baseline_config)
+        candidate = load_config(candidate_config)
+        loaded = load_traces(list(traces))
+    except Exception as exc:
+        _fail(exc)
+        return
+
+    deltas = extract_deltas(baseline, candidate, changed_files=changed_files)
+
+    # v0.1 skeleton — Week 2 will replace this with the real
+    # 9-axis classification.
+    affected: set[str] = set()
+
+    if max_traces > 0 and len(loaded) > max_traces:
+        # Use the existing mining surface to pick representative cases
+        # when the corpus is large. Mining already exists in
+        # shadow.mine.mine; we wrap it here so the command stays
+        # composable.
+        from shadow.mine import mine as _mine
+
+        records_only = [t.records for t in loaded]
+        sampled = _mine(records_only, max_cases=max_traces, per_cluster=1)
+        sampled_ids = {case.request_record.get("id", "") for case in sampled.cases}
+        loaded = [t for t in loaded if t.records[0].get("id", "") in sampled_ids] or loaded
+
+    report = build_report(traces=loaded, deltas=deltas, affected_trace_ids=affected)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(to_json(report) + "\n", encoding="utf-8")
+
+    if pr_comment is not None:
+        pr_comment.parent.mkdir(parents=True, exist_ok=True)
+        pr_comment.write_text(render_pr_comment(report), encoding="utf-8")
+
+    typer.echo(
+        f"Shadow verdict: {report.verdict.upper()} — "
+        f"{report.affected_traces}/{report.total_traces} affected"
+    )
+
+    floor_map = {"none": -1, "probe": 1, "hold": 2, "stop": 3}
+    rank = {"ship": 0, "probe": 1, "hold": 2, "stop": 3}
+    verdict_rank = rank.get(report.verdict, 0)
+    floor = floor_map.get(fail_on, -1)
+    if floor >= 0 and verdict_rank >= floor:
+        raise typer.Exit(code=1)
+
+
 # ---- helpers ---------------------------------------------------------------
 
 
