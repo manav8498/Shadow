@@ -92,7 +92,7 @@ def _pick_worst_rule(violations: list[Any]) -> str | None:
     for v in violations[1:]:
         if _SEVERITY_ORDER.get(v.severity, 0) > _SEVERITY_ORDER.get(best.severity, 0):
             best = v
-    return best.rule_id
+    return str(best.rule_id)
 
 
 __all__ = ["PolicyResult", "evaluate_policy"]
