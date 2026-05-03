@@ -28,9 +28,9 @@ def _canonical_bytes(value: Any) -> bytes:
     _canonical_config_hash`; we share a hash space so future tooling
     can correlate.
     """
-    return json.dumps(
-        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+        "utf-8"
+    )
 
 
 def _hash(value: Any) -> str:
@@ -88,7 +88,7 @@ def _is_prompt_path(path: str) -> bool:
 def _format_display(path: str, old: Any, new: Any) -> str:
     if isinstance(old, str) and isinstance(new, str) and len(old) <= 40 and len(new) <= 40:
         return f"{path}: {old!r} → {new!r}"
-    if isinstance(old, (int, float, bool)) and isinstance(new, (int, float, bool)):
+    if isinstance(old, int | float | bool) and isinstance(new, int | float | bool):
         return f"{path}: {old} → {new}"
     return f"{path} (changed)"
 

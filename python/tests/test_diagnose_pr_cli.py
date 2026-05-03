@@ -51,11 +51,16 @@ def test_diagnose_pr_writes_json_and_markdown(tmp_path: Path) -> None:
         app,
         [
             "diagnose-pr",
-            "--traces", str(traces),
-            "--baseline-config", str(base_cfg),
-            "--candidate-config", str(cand_cfg),
-            "--out", str(out_json),
-            "--pr-comment", str(out_md),
+            "--traces",
+            str(traces),
+            "--baseline-config",
+            str(base_cfg),
+            "--candidate-config",
+            str(cand_cfg),
+            "--out",
+            str(out_json),
+            "--pr-comment",
+            str(out_md),
         ],
     )
     if result.exit_code != 0:
@@ -79,11 +84,16 @@ def test_diagnose_pr_skeleton_skips_fail_on_when_ship(tmp_path: Path) -> None:
         app,
         [
             "diagnose-pr",
-            "--traces", str(traces),
-            "--baseline-config", str(base_cfg),
-            "--candidate-config", str(cand_cfg),
-            "--out", str(out_json),
-            "--fail-on", "probe",
+            "--traces",
+            str(traces),
+            "--baseline-config",
+            str(base_cfg),
+            "--candidate-config",
+            str(cand_cfg),
+            "--out",
+            str(out_json),
+            "--fail-on",
+            "probe",
         ],
     )
     parsed = json.loads(out_json.read_text())
@@ -101,10 +111,14 @@ def test_diagnose_pr_missing_config_exits_nonzero(tmp_path: Path) -> None:
         app,
         [
             "diagnose-pr",
-            "--traces", str(traces),
-            "--baseline-config", str(tmp_path / "nope.yaml"),
-            "--candidate-config", str(tmp_path / "also_nope.yaml"),
-            "--out", str(out_json),
+            "--traces",
+            str(traces),
+            "--baseline-config",
+            str(tmp_path / "nope.yaml"),
+            "--candidate-config",
+            str(tmp_path / "also_nope.yaml"),
+            "--out",
+            str(out_json),
         ],
     )
     assert result.exit_code != 0

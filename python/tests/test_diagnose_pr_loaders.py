@@ -86,7 +86,11 @@ def test_load_traces_from_directory_globs_agentlog_files(tmp_path: Path) -> None
     for name in ("a.agentlog", "b.agentlog"):
         with Session(output_path=tmp_path / name, tags={}) as s:
             s.record_chat(
-                request={"model": "x", "messages": [{"role": "user", "content": "h"}], "params": {}},
+                request={
+                    "model": "x",
+                    "messages": [{"role": "user", "content": "h"}],
+                    "params": {},
+                },
                 response={
                     "model": "x",
                     "content": [{"type": "text", "text": "h"}],
