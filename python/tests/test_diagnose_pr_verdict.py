@@ -8,9 +8,7 @@ from shadow.diagnose_pr.risk import classify_verdict, is_dangerous_violation
 
 def test_zero_affected_is_ship() -> None:
     assert (
-        classify_verdict(
-            affected=0, total=10, has_dangerous_violation=False, has_severe_axis=False
-        )
+        classify_verdict(affected=0, total=10, has_dangerous_violation=False, has_severe_axis=False)
         == "ship"
     )
 
@@ -21,36 +19,28 @@ def test_zero_affected_with_dangerous_violation_still_stop() -> None:
     affected. This catches the case where the violation is in the
     candidate but the differ found no other axes moving."""
     assert (
-        classify_verdict(
-            affected=0, total=10, has_dangerous_violation=True, has_severe_axis=False
-        )
+        classify_verdict(affected=0, total=10, has_dangerous_violation=True, has_severe_axis=False)
         == "stop"
     )
 
 
 def test_affected_traces_with_severe_axis_is_stop() -> None:
     assert (
-        classify_verdict(
-            affected=5, total=10, has_dangerous_violation=False, has_severe_axis=True
-        )
+        classify_verdict(affected=5, total=10, has_dangerous_violation=False, has_severe_axis=True)
         == "stop"
     )
 
 
 def test_affected_traces_no_severe_no_dangerous_is_hold() -> None:
     assert (
-        classify_verdict(
-            affected=5, total=10, has_dangerous_violation=False, has_severe_axis=False
-        )
+        classify_verdict(affected=5, total=10, has_dangerous_violation=False, has_severe_axis=False)
         == "hold"
     )
 
 
 def test_dangerous_violation_short_circuits_to_stop() -> None:
     assert (
-        classify_verdict(
-            affected=5, total=10, has_dangerous_violation=True, has_severe_axis=False
-        )
+        classify_verdict(affected=5, total=10, has_dangerous_violation=True, has_severe_axis=False)
         == "stop"
     )
 
