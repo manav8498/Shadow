@@ -3498,13 +3498,22 @@ def diagnose_pr_cmd(
         # Use the existing mining surface to pick representative cases
         # when the corpus is large. Mining already exists in
         # shadow.mine.mine; we wrap it here so the command stays
-        # composable.
+        # composable. `MinedCase.baseline_source` carries the source
+        # trace id (matching `LoadedTrace.trace_id`); do NOT use
+        # `request_record.id` — that's a chat-record id, a different
+        # content address.
         from shadow.mine import mine as _mine
 
         records_only = [t.records for t in loaded]
         sampled = _mine(records_only, max_cases=max_traces, per_cluster=1)
-        sampled_ids = {case.request_record.get("id", "") for case in sampled.cases}
-        loaded = [t for t in loaded if t.records[0].get("id", "") in sampled_ids] or loaded
+        sampled_trace_ids = {case.baseline_source for case in sampled.cases}
+        loaded = [t for t in loaded if t.trace_id in sampled_trace_ids]
+        if not loaded:
+            # Defensive: if mining returned nothing usable (e.g. all
+            # cases had empty baseline_source), fail loud rather than
+            # silently re-run on the full corpus.
+            _fail(Exception("mining produced no usable cases — corpus may be malformed"))
+            return
 
     report = build_report(traces=loaded, deltas=deltas, affected_trace_ids=affected)
 
@@ -3521,9 +3530,12 @@ def diagnose_pr_cmd(
     )
 
     floor_map = {"none": -1, "probe": 1, "hold": 2, "stop": 3}
+    if fail_on not in floor_map:
+        _fail(Exception(f"--fail-on must be one of {sorted(floor_map)}, got {fail_on!r}"))
+        return
     rank = {"ship": 0, "probe": 1, "hold": 2, "stop": 3}
     verdict_rank = rank.get(report.verdict, 0)
-    floor = floor_map.get(fail_on, -1)
+    floor = floor_map[fail_on]
     if floor >= 0 and verdict_rank >= floor:
         raise typer.Exit(code=1)
 
