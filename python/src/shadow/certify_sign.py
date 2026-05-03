@@ -109,7 +109,24 @@ def sign_certificate(
     from sigstore.sign import SigningContext
 
     payload = canonical_body_bytes(cert)
-    ctx = SigningContext.staging() if staging else SigningContext.production()
+    # sigstore 4.0 removed the SigningContext.{production,staging}
+    # convenience class methods in favour of going through a
+    # ClientTrustConfig (which gained .production / .staging factories
+    # in 4.x). Detect the 4.x API by the presence of
+    # SigningContext.from_trust_config — ClientTrustConfig itself is
+    # importable on both majors but only the 4.x version has the
+    # factory methods we need. Fall back to the legacy path for
+    # sigstore 3.x. The [sign] extra ranges over both majors via
+    # `sigstore>=3.0,<5`.
+    if hasattr(SigningContext, "from_trust_config"):
+        from sigstore.sign import ClientTrustConfig  # 4.x
+
+        trust_config = ClientTrustConfig.staging() if staging else ClientTrustConfig.production()
+        ctx = SigningContext.from_trust_config(trust_config)
+    else:
+        # sigstore 3.x: old-style class methods on SigningContext
+        # are the only path.
+        ctx = SigningContext.staging() if staging else SigningContext.production()  # type: ignore[attr-defined]
     if identity_token is not None:
         token = IdentityToken(identity_token)
     else:
@@ -144,6 +161,12 @@ def verify_signature(
     of the identity-bound flow.
     """
     _require_sigstore()
+    # sigstore 4.x raises a typed `InvalidBundle` (subclass of
+    # `sigstore.errors.Error`) on corrupt bundle JSON, where 3.x raised
+    # plain `ValueError`. Catching the umbrella `Error` keeps both
+    # majors working without coupling this code to a specific class
+    # path that may move again.
+    from sigstore.errors import Error as SigstoreError
     from sigstore.models import Bundle
     from sigstore.verify import Verifier
     from sigstore.verify.policy import Identity
@@ -152,7 +175,7 @@ def verify_signature(
         return False, f"signature bundle not found: {bundle_path}"
     try:
         bundle = Bundle.from_json(bundle_path.read_text())
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, SigstoreError) as exc:
         return False, f"could not parse sigstore bundle: {exc}"
 
     verifier = Verifier.staging() if staging else Verifier.production()

@@ -4,6 +4,55 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.0.7](https://github.com/manav8498/Shadow/compare/v3.0.6...v3.0.7) (2026-05-03)
+
+External customer retest of v3.0.6 surfaced three follow-up items.
+This release fixes them; no functional changes outside the affected
+extras.
+
+### Fixed
+
+* **`shadow-diff[sign]` works against sigstore 4.x.** `SigningContext.
+  production()` and `SigningContext.staging()` were removed in sigstore
+  4.0 in favour of going through `ClientTrustConfig` and
+  `SigningContext.from_trust_config(...)`. Shadow's signing code still
+  called the removed factories, so a fresh install of the `sign` extra
+  picked up sigstore `4.2.0` and broke at runtime. `shadow.certify_sign`
+  now detects the 4.x API at runtime via
+  `hasattr(SigningContext, "from_trust_config")` and routes through
+  `ClientTrustConfig.{production,staging}()` on 4.x while keeping the
+  3.x path. The corrupt-bundle parse path also now catches
+  `sigstore.errors.Error` (4.x raises a typed `InvalidBundle` here
+  where 3.x raised plain `ValueError`). The `[sign]` extra continues
+  to range over both majors via `sigstore>=3.0,<5`; tests verified
+  green on both `3.6.7` and `4.2.0`.
+* **`shadow-diff[langgraph]` resolves cleanly again.** The previous
+  upper bound `langchain-core>=0.3,<1` excluded the 1.x line that
+  `langgraph 1.x` and `langchain-openai 1.x` already require, so a
+  fresh `pip install shadow-diff[langgraph]` failed dependency
+  resolution. Lifted to `langchain-core>=0.3,<3` to track 1.x and an
+  eventual 2.x without thrashing. Resolution now succeeds with
+  `langchain-core 1.3.x`, `langgraph 1.1.x`, `langchain-openai 1.2.x`.
+
+### Security
+
+* **dev: `pytest==8.4.2` → `pytest==9.0.3`** — closes
+  CVE-2025-71176 (the only fixed line is 9.0.3+). The plugin chain
+  bumped alongside it: `pytest-asyncio==0.25.0 → 1.3.0` and
+  `pytest-cov==6.0.0 → 7.1.0` so the dev environment stays internally
+  consistent (both newer plugins advertise `pytest<10`). Suite ran
+  green: 1701 passed, 14 expected network/live skips.
+
+### Note
+
+These three items are dependency-edge issues — Shadow's core code,
+default install path, and CLI surface are unchanged from v3.0.6. The
+fix is scoped to `python/src/shadow/certify_sign.py` (sigstore version
+detection), `python/tests/test_certify_sign.py` (mirrored test patch),
+and `python/pyproject.toml` (dev + langgraph-extra dependency ranges).
+
+---
+
 ## [3.0.6](https://github.com/manav8498/Shadow/compare/v3.0.5...v3.0.6) (2026-05-02)
 
 External customer audit found six security-strict-deployment items.
