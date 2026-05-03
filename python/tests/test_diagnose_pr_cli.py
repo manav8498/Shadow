@@ -226,3 +226,41 @@ def test_diagnose_pr_invalid_fail_on_value_is_rejected(tmp_path: Path) -> None:
     # CliRunner merges stderr into stdout by default; if --fail-on
     # validation actually fired, the message will be in stdout.
     assert "fail-on" in result.stdout.lower() or result.exit_code == 1
+
+
+def test_diagnose_pr_candidate_traces_with_no_filename_overlap_fails_loud(
+    tmp_path: Path,
+) -> None:
+    """Regression: when --candidate-traces has zero filename overlap
+    with --traces, every pair silently became 'no candidate, mark
+    unaffected' and the verdict was SHIP — same class of silent
+    failure as the mining-fallback bug. Now fails loud with exit 1."""
+    runner = CliRunner()
+    base_cfg, cand_cfg, traces = _quickstart_files(tmp_path)
+    mismatch = tmp_path / "mismatch_candidate"
+    mismatch.mkdir()
+    # Copy a fixture into the candidate dir under a name that doesn't
+    # exist in `traces` — guaranteed to produce zero overlap.
+    fixtures_dir = traces  # already has baseline.agentlog + candidate.agentlog
+    src = fixtures_dir / "baseline.agentlog"
+    (mismatch / "totally_different_name.agentlog").write_bytes(src.read_bytes())
+
+    out_json = tmp_path / "report.json"
+    result = runner.invoke(
+        app,
+        [
+            "diagnose-pr",
+            "--traces",
+            str(traces),
+            "--candidate-traces",
+            str(mismatch),
+            "--baseline-config",
+            str(base_cfg),
+            "--candidate-config",
+            str(cand_cfg),
+            "--out",
+            str(out_json),
+        ],
+    )
+    assert result.exit_code != 0
+    assert "filename" in result.stdout.lower()

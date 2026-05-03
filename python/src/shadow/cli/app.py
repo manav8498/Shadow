@@ -3536,6 +3536,20 @@ def diagnose_pr_cmd(
     cand_by_name: dict[str, list[dict[str, Any]]] = {}
     if cand_loaded is not None:
         cand_by_name = {t.path.name: t.records for t in cand_loaded}
+        # Fail loud if the user explicitly opted into pairing but
+        # zero baseline filenames match candidate filenames. The
+        # alternative (silent SHIP because no pair was diffable) is
+        # the same class of silent-failure bug as the mining filter
+        # fallback we already fixed.
+        baseline_names = {t.path.name for t in loaded}
+        if not (baseline_names & cand_by_name.keys()):
+            _fail(
+                Exception(
+                    "no baseline trace filename matches any candidate trace filename — "
+                    "pair by exact filename (e.g. baseline/x.agentlog <-> candidate/x.agentlog)"
+                )
+            )
+            return
 
     diagnoses: list[TraceDiagnosis] = []
     has_severe_axis = False
