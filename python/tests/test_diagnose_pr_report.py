@@ -48,13 +48,13 @@ def test_traces_with_zero_affected_is_still_ship() -> None:
     assert r.blast_radius == 0.0
 
 
-def test_skeleton_marks_affected_traces_as_probe() -> None:
-    """In the Week-1 skeleton, affected traces with no causal CI
-    yield `probe` (uncertain). Week 3 promotes to `hold` once the
-    causal CI excludes zero."""
+def test_affected_traces_with_no_severe_or_dangerous_is_hold() -> None:
+    """Week 2: classify_verdict returns `hold` when affected > 0
+    and no severe axis / no dangerous violation. Week 3 will
+    distinguish `probe` from `hold` by causal CI excluding zero."""
     traces = [_t(1), _t(2), _t(3)]
     r = build_report(traces=traces, deltas=[], affected_trace_ids={traces[0].trace_id})
-    assert r.verdict == "probe"
+    assert r.verdict == "hold"
     assert r.affected_traces == 1
     assert r.blast_radius > 0
 

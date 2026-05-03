@@ -1,17 +1,16 @@
 """DiagnosePrReport assembly + JSON serialisation.
 
-`build_report` is the v0.1 skeleton: it consumes loader output
-(traces) plus a delta list and an "affected" trace-id set, and
-produces a DiagnosePrReport. The verdict logic here is intentionally
-trivial:
+Week 1 skeleton: trivial ship-or-probe verdict from a flat
+`affected_trace_ids` set.
 
-  * 0 affected            -> ship
-  * any affected, no CI   -> probe   (Week 3 will promote to hold
-                                      once causal CI excludes zero)
+Week 2 (this version): real verdict from
+`shadow.diagnose_pr.risk.classify_verdict`, taking a list of
+`TraceDiagnosis` directly so the per-trace state (worst_axis,
+first_divergence, policy_violations) flows through to the JSON.
 
-Real verdict logic — `hold` from CI excluding zero, `stop` from
-dangerous-tool policy violations — arrives in Week 2 (`risk.py`)
-without changing the v0.1 schema.
+The Week 1 entry point — `build_report(... affected_trace_ids=)` —
+is preserved so existing callers (and tests) keep working. The new
+Week 2 entry point is `build_report(... diagnoses=)`.
 """
 
 from __future__ import annotations
@@ -26,8 +25,8 @@ from shadow.diagnose_pr.models import (
     ConfigDelta,
     DiagnosePrReport,
     TraceDiagnosis,
-    Verdict,
 )
+from shadow.diagnose_pr.risk import classify_verdict
 
 _LOW_POWER_THRESHOLD = 30
 
@@ -36,35 +35,58 @@ def build_report(
     *,
     traces: list[LoadedTrace],
     deltas: list[ConfigDelta],
-    affected_trace_ids: set[str],
+    diagnoses: list[TraceDiagnosis] | None = None,
+    affected_trace_ids: set[str] | None = None,
     new_policy_violations: int = 0,
     worst_policy_rule: str | None = None,
+    has_dangerous_violation: bool = False,
+    has_severe_axis: bool = False,
 ) -> DiagnosePrReport:
-    """Assemble a DiagnosePrReport from skeleton inputs.
+    """Assemble a DiagnosePrReport.
 
-    `deltas` is currently used for record-keeping (top_causes is
-    empty until Week 3). Keeping the parameter in the signature
-    means the CLI can wire it up now and Week 3 only changes the
-    body of this function.
+    Two call modes:
+
+      * Week 2 path: pass `diagnoses=[TraceDiagnosis, ...]` already
+        carrying per-trace `affected`, `worst_axis`, etc. The
+        verdict is computed from those + the policy/axis flags.
+
+      * Week 1 path: pass `affected_trace_ids={...}`. We build
+        skeleton TraceDiagnosis entries (no per-trace detail) so
+        the JSON shape is uniform.
+
+    Exactly one of `diagnoses` / `affected_trace_ids` must be
+    supplied; passing both raises a ValueError.
     """
-    del deltas  # v0.1 skeleton: not yet ranked into top_causes
+    del deltas  # v0.1: not yet ranked into top_causes (Week 3)
+
+    if diagnoses is not None and affected_trace_ids is not None:
+        raise ValueError("pass exactly one of `diagnoses` or `affected_trace_ids`")
+
+    if diagnoses is None:
+        ids = affected_trace_ids or set()
+        diagnoses = [
+            TraceDiagnosis(
+                trace_id=t.trace_id,
+                affected=t.trace_id in ids,
+                risk=0.0,
+                worst_axis=None,
+                first_divergence=None,
+                policy_violations=[],
+            )
+            for t in traces
+        ]
 
     total = len(traces)
-    affected = len(affected_trace_ids)
+    affected_trace_set = {d.trace_id for d in diagnoses if d.affected}
+    affected = len(affected_trace_set)
     blast_radius = (affected / total) if total > 0 else 0.0
-    verdict: Verdict = "ship" if affected == 0 else "probe"
 
-    diagnoses = [
-        TraceDiagnosis(
-            trace_id=t.trace_id,
-            affected=t.trace_id in affected_trace_ids,
-            risk=0.0,
-            worst_axis=None,
-            first_divergence=None,
-            policy_violations=[],
-        )
-        for t in traces
-    ]
+    verdict = classify_verdict(
+        affected=affected,
+        total=total,
+        has_dangerous_violation=has_dangerous_violation,
+        has_severe_axis=has_severe_axis,
+    )
 
     flags: list[str] = []
     if 0 < total < _LOW_POWER_THRESHOLD:
@@ -79,7 +101,7 @@ def build_report(
         dominant_cause=None,  # Week 3
         top_causes=[],  # Week 3
         trace_diagnoses=diagnoses,
-        affected_trace_ids=sorted(affected_trace_ids),
+        affected_trace_ids=sorted(affected_trace_set),
         new_policy_violations=new_policy_violations,
         worst_policy_rule=worst_policy_rule,
         suggested_fix=None,  # Week 3
@@ -100,8 +122,8 @@ def report_from_traces_and_deltas(
     *,
     affected: Iterable[str] = (),
 ) -> DiagnosePrReport:
-    """Convenience wrapper used by the CLI command. Accepts an
-    iterable of trace ids for the affected set."""
+    """Convenience wrapper used by the Week 1 skeleton CLI. Accepts
+    an iterable of trace ids for the affected set."""
     return build_report(
         traces=traces,
         deltas=deltas,
