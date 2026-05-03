@@ -3423,7 +3423,15 @@ def diagnose_pr_cmd(
     traces: list[Path] = typer.Option(  # noqa: B008
         ...,
         "--traces",
-        help="Production-like .agentlog files (or directories) to diagnose against.",
+        help="Baseline production-like .agentlog files (or directories).",
+    ),
+    candidate_traces: list[Path] | None = typer.Option(  # noqa: B008
+        None,
+        "--candidate-traces",
+        help=(
+            "Candidate-side .agentlog files paired by filename to baseline. "
+            "Omit to skip per-trace diff (Week 1 skeleton path)."
+        ),
     ),
     baseline_config: Path = typer.Option(  # noqa: B008
         ...,
@@ -3434,6 +3442,11 @@ def diagnose_pr_cmd(
         ...,
         "--candidate-config",
         help="Candidate agent config YAML.",
+    ),
+    policy: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--policy",
+        help="Optional behavior-policy YAML (shadow.hierarchical schema).",
     ),
     out: Path = typer.Option(  # noqa: B008
         ...,
@@ -3471,28 +3484,32 @@ def diagnose_pr_cmd(
     command surface. Produces a JSON report and a markdown PR
     comment.
 
-    v0.1 skeleton — affected-trace classification and causal
-    attribution arrive in Weeks 2-3; this command currently runs
-    delta extraction + report assembly + render.
+    Week 2: real 9-axis affected-trace classification + policy
+    overlay + ship/probe/hold/stop verdict. When --candidate-traces
+    is omitted, this still works — but per-trace diff is skipped
+    and the verdict is `ship` regardless. Week 3 will fill in the
+    replay-driven candidate generation when --candidate-traces is
+    not provided.
     """
     from shadow.diagnose_pr.deltas import extract_deltas
+    from shadow.diagnose_pr.diffing import diff_pair, is_affected, worst_axis_for
     from shadow.diagnose_pr.loaders import load_config, load_traces
+    from shadow.diagnose_pr.models import TraceDiagnosis
+    from shadow.diagnose_pr.policy import evaluate_policy
     from shadow.diagnose_pr.render import render_pr_comment
     from shadow.diagnose_pr.report import build_report, to_json
+    from shadow.diagnose_pr.risk import is_dangerous_violation
 
     try:
         baseline = load_config(baseline_config)
         candidate = load_config(candidate_config)
         loaded = load_traces(list(traces))
+        cand_loaded = load_traces(list(candidate_traces)) if candidate_traces is not None else None
     except Exception as exc:
         _fail(exc)
         return
 
     deltas = extract_deltas(baseline, candidate, changed_files=changed_files)
-
-    # v0.1 skeleton — Week 2 will replace this with the real
-    # 9-axis classification.
-    affected: set[str] = set()
 
     if max_traces > 0 and len(loaded) > max_traces:
         # Use the existing mining surface to pick representative cases
@@ -3515,7 +3532,89 @@ def diagnose_pr_cmd(
             _fail(Exception("mining produced no usable cases — corpus may be malformed"))
             return
 
-    report = build_report(traces=loaded, deltas=deltas, affected_trace_ids=affected)
+    # Pair candidate traces by filename when both sides supplied.
+    cand_by_name: dict[str, list[dict[str, Any]]] = {}
+    if cand_loaded is not None:
+        cand_by_name = {t.path.name: t.records for t in cand_loaded}
+
+    diagnoses: list[TraceDiagnosis] = []
+    has_severe_axis = False
+    has_dangerous_violation = False
+    total_new_violations = 0
+    worst_rule_id: str | None = None
+    worst_rule_severity_rank = -1
+    severity_order = {"info": 0, "warning": 1, "error": 2, "critical": 3}
+
+    try:
+        for t in loaded:
+            cand_records = cand_by_name.get(t.path.name)
+            if cand_records is None:
+                # Week 3 will replay candidate config to fill this in.
+                diagnoses.append(
+                    TraceDiagnosis(
+                        trace_id=t.trace_id,
+                        affected=False,
+                        risk=0.0,
+                        worst_axis=None,
+                        first_divergence=None,
+                        policy_violations=[],
+                    )
+                )
+                continue
+
+            diff_report = diff_pair(t.records, cand_records)
+            affected = is_affected(diff_report)
+            worst_axis = worst_axis_for(diff_report)
+            first_div = diff_report.get("first_divergence")
+            # Severe axis = any 9-axis row at severity 'severe'.
+            for row in diff_report.get("rows") or []:
+                if row.get("severity") == "severe":
+                    has_severe_axis = True
+                    break
+
+            policy_result = evaluate_policy(policy, t.records, cand_records)
+            total_new_violations += policy_result.new_violations
+            if policy_result.worst_rule is not None:
+                # Track the highest-severity rule across all pairs;
+                # ties resolved by first-seen.
+                pol_severity = max(
+                    (
+                        severity_order.get(v.get("severity", ""), 0)
+                        for v in policy_result.regressions
+                    ),
+                    default=-1,
+                )
+                if pol_severity > worst_rule_severity_rank:
+                    worst_rule_severity_rank = pol_severity
+                    worst_rule_id = policy_result.worst_rule
+            for reg in policy_result.regressions:
+                if is_dangerous_violation(reg):
+                    has_dangerous_violation = True
+                    break
+
+            diagnoses.append(
+                TraceDiagnosis(
+                    trace_id=t.trace_id,
+                    affected=affected,
+                    risk=0.0,  # Week 3 fills in real risk score
+                    worst_axis=worst_axis,
+                    first_divergence=first_div,
+                    policy_violations=policy_result.regressions,
+                )
+            )
+    except Exception as exc:
+        _fail(exc)
+        return
+
+    report = build_report(
+        traces=loaded,
+        deltas=deltas,
+        diagnoses=diagnoses,
+        new_policy_violations=total_new_violations,
+        worst_policy_rule=worst_rule_id,
+        has_dangerous_violation=has_dangerous_violation,
+        has_severe_axis=has_severe_axis,
+    )
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(to_json(report) + "\n", encoding="utf-8")

@@ -47,9 +47,7 @@ def is_affected(report: dict[str, Any]) -> bool:
         if row.get("severity") in _AFFECTED_SEVERITIES:
             return True
     fd = report.get("first_divergence")
-    if fd and isinstance(fd, dict):
-        return True
-    return False
+    return bool(fd and isinstance(fd, dict))
 
 
 def worst_axis_for(report: dict[str, Any]) -> str | None:
