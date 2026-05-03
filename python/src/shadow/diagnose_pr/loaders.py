@@ -56,9 +56,7 @@ def load_config(path: Path) -> dict[str, Any]:
     if data is None:
         return {}
     if not isinstance(data, dict):
-        raise ShadowConfigError(
-            f"{path}: top-level must be a mapping, got {type(data).__name__}"
-        )
+        raise ShadowConfigError(f"{path}: top-level must be a mapping, got {type(data).__name__}")
     return data
 
 
