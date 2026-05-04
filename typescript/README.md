@@ -43,6 +43,30 @@ await client.chat.completions.create({
 await session.exit();
 ```
 
+## Trace alignment primitives
+
+The `align` submodule ships pure-TypeScript implementations of
+`trajectoryDistance` (Levenshtein on tool sequences) and `toolArgDelta`
+(structural JSON diff) that produce byte-identical results to Python's
+`shadow.align` and Rust's `shadow-align` on the same inputs.
+
+```ts
+import { trajectoryDistance, toolArgDelta, isNativeAvailable } from 'shadow-diff';
+
+trajectoryDistance(['search', 'edit'], ['search']);   // 0.5
+toolArgDelta({ x: 1 }, { x: '1' });                   // [{ kind: 'type_changed', ... }]
+```
+
+### Optional native acceleration (napi-rs)
+
+For workloads with large traces, the same algorithms ship as a Rust
+addon (`@shadow-diff/align-napi`, built from `crates/shadow-align`).
+When the platform-specific `.node` file is present, `trajectoryDistance`
+and `toolArgDelta` transparently use it — same surface, same results,
+substantially faster on long sequences. `isNativeAvailable()` reports
+whether the addon was found. The pure-TS path is the silent fallback,
+so consumers don't need to handle the absence.
+
 ## Distributed tracing
 
 Multi-process agents can join a single logical trace via
