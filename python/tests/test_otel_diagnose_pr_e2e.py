@@ -52,7 +52,7 @@ def test_otel_roundtrip_preserves_per_pair_diff_outcome() -> None:
         assert native["first_divergence"]["primary_axis"] == rt["first_divergence"]["primary_axis"]
 
 
-def test_otel_imported_traces_have_unique_trace_ids() -> None:
+def test_otel_imported_traces_have_unique_trace_ids(tmp_path: Path) -> None:
     """Regression: pre-Phase-5, the OTel importer didn't write
     envelope meta.trace_id, so multiple OTel-imported traces with
     byte-identical metadata payloads collapsed to one trace_id (the
@@ -61,10 +61,8 @@ def test_otel_imported_traces_have_unique_trace_ids() -> None:
     from shadow.diagnose_pr.loaders import load_traces
 
     runner = CliRunner()
-    out = Path("/tmp/test_otel_unique")
-    out.mkdir(exist_ok=True)
-    side_dir = out / "baseline"
-    side_dir.mkdir(exist_ok=True)
+    side_dir = tmp_path / "baseline"
+    side_dir.mkdir()
     # Convert all 3 demo baseline traces to OTel JSON, then re-import.
     for f in (_DEMO / "baseline_traces").glob("*.agentlog"):
         records = _core.parse_agentlog(f.read_bytes())
