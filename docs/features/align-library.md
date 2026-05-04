@@ -111,16 +111,25 @@ keyed by slash-separated JSON-pointer paths. Pure Python.
   installed. The spec-literal top-level `shadow_align` package (no
   parent dependency) is deferred to v0.2.
 
-## Known limitations (v0.1)
+## Asymmetric corpora
 
-* `first_divergence` and `align_traces` return `None` / zero turns
-  when one side of the pair is empty (asymmetric pair count). The
-  underlying Rust differ surfaces no divergence in this case; v0.2
-  will add an explicit `structural_drift_full` divergence kind for
-  the empty-candidate case.
-* `trajectory_distance` is O(n²) DP Levenshtein. 1000-tool sequences
-  run in ~0.12 s; 2000-tool sequences in ~0.51 s. For very long
-  sequences (>5 K), use a streaming approximation upstream.
+When one side has chat pairs and the other is empty, `first_divergence`
+returns a `Divergence` with `kind="structural_drift_full"` and
+`primary_axis="trajectory"` — the underlying Rust differ surfaces
+no per-turn divergence in this case (its alignment loop never fires
+on a zero-length side), so the Python wrapper detects the asymmetry
+up front and stamps an explicit kind. `align_traces` still returns
+zero turns for the same case; the asymmetry is a structural-corpus
+fact, not a per-turn one.
+
+When both sides are empty, `first_divergence` returns `None` — there
+is nothing to diverge.
+
+## Performance
+
+`trajectory_distance` is O(n²) DP Levenshtein. 1000-tool sequences
+run in ~0.12 s; 2000-tool sequences in ~0.51 s. For very long
+sequences (>5 K), use a streaming approximation upstream.
 
 ## Stability
 

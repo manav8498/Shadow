@@ -14,12 +14,15 @@ requires the Rust extension to be installed. The spec-literal
 top-level `shadow_align` package (no parent dependency) is
 deferred to v0.2.
 
-Known limitations:
-  * `first_divergence` and `align_traces` return None / zero
-    turns when one side is empty (asymmetric pair count). The
-    underlying Rust differ surfaces no divergence in this case;
-    v0.2 will add an explicit "structural_drift_full" divergence
-    kind for the empty-candidate case.
+Asymmetric corpora:
+  * `first_divergence` returns a Divergence with
+    `kind="structural_drift_full"` when one side has chat pairs
+    and the other is empty. The underlying Rust differ's alignment
+    loop never fires on a zero-length side, so this wrapper
+    detects the asymmetry up front and stamps an explicit kind.
+  * `align_traces` still returns zero turns for the same case —
+    asymmetric pair counts are a structural fact, not a per-turn one.
+  * Both sides empty → `first_divergence` returns None.
 """
 
 from __future__ import annotations
@@ -117,8 +120,7 @@ def first_divergence(
     pairs, the underlying Rust differ surfaces no divergence (the
     pair-count is zero, so its alignment loop never fires). This
     function detects that asymmetry up front and returns a
-    `structural_drift_full` Divergence — closing the v0.1
-    documented limitation.
+    `structural_drift_full` Divergence with `confidence=1.0`.
     """
     _records_or_raise("baseline", baseline)
     _records_or_raise("candidate", candidate)

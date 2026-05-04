@@ -84,12 +84,28 @@ use `just lint` to get full strict mypy locally before pushing.
 ### shadow-diff core crate (Rust, source dir `crates/shadow-core/`)
 
 ```bash
-cargo test -p shadow-diff                 # unit tests
+cargo test --workspace                    # all crates, default features (CI runs this)
+cargo test -p shadow-diff                 # only the core crate
+cargo test -p shadow-align                # only the standalone align crate
 cargo test -p shadow-diff <filter>        # one module / test
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo fmt --all
 cargo llvm-cov --workspace                # coverage (gate: ≥85% line)
 ```
+
+**Do not run `cargo test --workspace --all-features`.** The `extension`
+feature on `shadow-diff` enables `pyo3/extension-module`, which tells
+PyO3 to omit libpython link directives — the Python interpreter
+provides those at import time. A normal `cargo test` binary then
+fails to link with `Undefined symbols: _Py*` (most visibly on macOS
+arm64). `--all-features` propagates `extension` to every test target.
+
+If you need to test feature-gated PyO3 code, use `cargo test
+--features python` (which keeps libpython linked normally) or build
+the Python extension via `cd python && ../.venv/bin/maturin develop
+--features extension --release` and exercise it from pytest.
+
+`clippy --all-features` is fine — clippy doesn't link.
 
 ### Python SDK / CLI / bisect
 
