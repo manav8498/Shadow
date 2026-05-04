@@ -122,7 +122,15 @@ def mine(
     all_pairs: list[tuple[dict[str, Any], dict[str, Any], str]] = []
 
     for trace in traces:
-        trace_id = trace[0]["id"] if trace and trace[0].get("kind") == "metadata" else ""
+        # Prefer the envelope-level `meta.trace_id` (a unique UUID
+        # per trace, added in v3.0.5 to fix the content-id collision
+        # issue when two traces have byte-identical metadata
+        # payloads). Fall back to the metadata record's content id
+        # for backward compat with traces written before that fix.
+        trace_id = ""
+        if trace and trace[0].get("kind") == "metadata":
+            envelope_meta = trace[0].get("meta") or {}
+            trace_id = str(envelope_meta.get("trace_id", "")) or str(trace[0].get("id", ""))
         pending_req: dict[str, Any] | None = None
         for rec in trace:
             kind = rec.get("kind")

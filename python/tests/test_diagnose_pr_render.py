@@ -120,3 +120,36 @@ def test_renderer_includes_hidden_marker_for_pr_comment_dedup() -> None:
     it can update the previous comment instead of stacking new ones."""
     md = render_pr_comment(_empty_report("ship"))
     assert "<!-- shadow-diagnose-pr -->" in md
+
+
+def test_synthetic_mock_flag_surfaces_disclosure_block() -> None:
+    """When --backend mock was used, the renderer must disclose
+    that cause magnitudes are synthetic, not grounded in real LLM
+    behavior. This prevents a casual reader from treating the mock
+    ATE / CI as evidence."""
+    r = DiagnosePrReport(
+        schema_version=SCHEMA_VERSION,
+        verdict="hold",
+        total_traces=3,
+        affected_traces=3,
+        blast_radius=1.0,
+        dominant_cause=CauseEstimate(
+            delta_id="prompt.system",
+            axis="trajectory",
+            ate=0.6,
+            ci_low=0.6,
+            ci_high=0.6,
+            e_value=6.7,
+            confidence=1.0,
+        ),
+        top_causes=[],
+        trace_diagnoses=[],
+        affected_trace_ids=[],
+        new_policy_violations=0,
+        worst_policy_rule=None,
+        suggested_fix=None,
+        flags=["low_power", "synthetic_mock"],
+    )
+    md = render_pr_comment(r)
+    assert "synthetic" in md.lower() or "mock backend" in md.lower()
+    assert "--backend live" in md

@@ -176,6 +176,73 @@ def run_diagnose_pr(opts: DiagnoseOptions) -> DiagnoseResult:
     )
 
 
+_PARALLEL_THRESHOLD = 16
+"""Below this many paired traces, the threadpool overhead isn't
+worth it — we run sequentially. Above it, fan out across cores."""
+
+
+def _diff_one_pair(
+    t: LoadedTrace,
+    cand_records: list[dict[str, Any]] | None,
+    policy: Path | None,
+) -> tuple[TraceDiagnosis, bool, bool, int, str | None, int]:
+    """Diff + policy check for one paired trace. Returns:
+        (diagnosis, has_severe_axis_locally, has_dangerous_locally,
+         new_violations, worst_rule_id_locally,
+         worst_rule_severity_rank_locally)
+    The aggregator merges these per-pair results."""
+    if cand_records is None:
+        return (
+            TraceDiagnosis(
+                trace_id=t.trace_id,
+                affected=False,
+                risk=0.0,
+                worst_axis=None,
+                first_divergence=None,
+                policy_violations=[],
+            ),
+            False, False, 0, None, -1,
+        )
+
+    diff_report = diff_pair(t.records, cand_records)
+    affected = is_affected(diff_report)
+    worst_axis = worst_axis_for(diff_report)
+    first_div = diff_report.get("first_divergence")
+    has_severe_local = any(
+        row.get("severity") == "severe" for row in (diff_report.get("rows") or [])
+    )
+
+    policy_result = evaluate_policy(policy, t.records, cand_records)
+    severity_order = {"info": 0, "warning": 1, "error": 2, "critical": 3}
+    pol_severity_rank = (
+        max(
+            (severity_order.get(v.get("severity", ""), 0) for v in policy_result.regressions),
+            default=-1,
+        )
+        if policy_result.worst_rule is not None
+        else -1
+    )
+    has_dangerous_local = any(
+        is_dangerous_violation(reg) for reg in policy_result.regressions
+    )
+
+    return (
+        TraceDiagnosis(
+            trace_id=t.trace_id,
+            affected=affected,
+            risk=0.0,
+            worst_axis=worst_axis,
+            first_divergence=first_div,
+            policy_violations=policy_result.regressions,
+        ),
+        has_severe_local,
+        has_dangerous_local,
+        policy_result.new_violations,
+        policy_result.worst_rule,
+        pol_severity_rank,
+    )
+
+
 def _per_trace_diff_and_policy(
     loaded: list[LoadedTrace],
     cand_by_name: dict[str, list[dict[str, Any]]],
@@ -184,67 +251,50 @@ def _per_trace_diff_and_policy(
     """Run the per-pair 9-axis diff + per-pair policy check across
     every paired trace. Returns the diagnoses list and four
     aggregate flags consumed by build_report + risk.classify_verdict.
+
+    Above `_PARALLEL_THRESHOLD` traces, runs the per-pair work in
+    a thread pool. Both `diff_pair` (Rust via PyO3) and
+    `evaluate_policy` release the GIL during their heavy work
+    (Rust differ does, regex-driven policy check spends most time
+    in C-extension regex), so threading gives a real speedup on
+    big corpora without process-level overhead.
     """
+    pairs: list[tuple[LoadedTrace, list[dict[str, Any]] | None]] = [
+        (t, cand_by_name.get(t.path.name)) for t in loaded
+    ]
+
+    if len(pairs) >= _PARALLEL_THRESHOLD:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def _worker(args: tuple[LoadedTrace, list[dict[str, Any]] | None]) -> tuple[
+            TraceDiagnosis, bool, bool, int, str | None, int
+        ]:
+            t, c = args
+            return _diff_one_pair(t, c, policy)
+
+        # Cap at 8 — diminishing returns beyond and most CI runners
+        # have 2–4 cores. The Rust differ is the bottleneck.
+        with ThreadPoolExecutor(max_workers=min(8, len(pairs))) as ex:
+            results = list(ex.map(_worker, pairs))
+    else:
+        results = [_diff_one_pair(t, c, policy) for t, c in pairs]
+
     diagnoses: list[TraceDiagnosis] = []
     has_severe_axis = False
     has_dangerous_violation = False
     total_new_violations = 0
     worst_rule_id: str | None = None
     worst_rule_severity_rank = -1
-    severity_order = {"info": 0, "warning": 1, "error": 2, "critical": 3}
 
-    for t in loaded:
-        cand_records = cand_by_name.get(t.path.name)
-        if cand_records is None:
-            diagnoses.append(
-                TraceDiagnosis(
-                    trace_id=t.trace_id,
-                    affected=False,
-                    risk=0.0,
-                    worst_axis=None,
-                    first_divergence=None,
-                    policy_violations=[],
-                )
-            )
-            continue
+    for diag, severe, dangerous, n_violations, rule_id, rule_rank in results:
+        diagnoses.append(diag)
+        has_severe_axis = has_severe_axis or severe
+        has_dangerous_violation = has_dangerous_violation or dangerous
+        total_new_violations += n_violations
+        if rule_id is not None and rule_rank > worst_rule_severity_rank:
+            worst_rule_severity_rank = rule_rank
+            worst_rule_id = rule_id
 
-        diff_report = diff_pair(t.records, cand_records)
-        affected = is_affected(diff_report)
-        worst_axis = worst_axis_for(diff_report)
-        first_div = diff_report.get("first_divergence")
-        for row in diff_report.get("rows") or []:
-            if row.get("severity") == "severe":
-                has_severe_axis = True
-                break
-
-        policy_result = evaluate_policy(policy, t.records, cand_records)
-        total_new_violations += policy_result.new_violations
-        if policy_result.worst_rule is not None:
-            pol_severity = max(
-                (
-                    severity_order.get(v.get("severity", ""), 0)
-                    for v in policy_result.regressions
-                ),
-                default=-1,
-            )
-            if pol_severity > worst_rule_severity_rank:
-                worst_rule_severity_rank = pol_severity
-                worst_rule_id = policy_result.worst_rule
-        for reg in policy_result.regressions:
-            if is_dangerous_violation(reg):
-                has_dangerous_violation = True
-                break
-
-        diagnoses.append(
-            TraceDiagnosis(
-                trace_id=t.trace_id,
-                affected=affected,
-                risk=0.0,
-                worst_axis=worst_axis,
-                first_divergence=first_div,
-                policy_violations=policy_result.regressions,
-            )
-        )
     return (
         diagnoses,
         has_severe_axis,

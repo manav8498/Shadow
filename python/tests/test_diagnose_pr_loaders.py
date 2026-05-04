@@ -75,7 +75,12 @@ def test_load_traces_from_file_returns_one_loaded_trace(tmp_path: Path) -> None:
     assert len(loaded) == 1
     t = loaded[0]
     assert t.path == p
-    assert isinstance(t.trace_id, str) and t.trace_id.startswith("sha256:")
+    # trace_id is the envelope `meta.trace_id` (a UUID hex) when
+    # present; falls back to the metadata record's content id
+    # ("sha256:...") for older traces written before v3.0.5.
+    assert isinstance(t.trace_id, str) and (
+        t.trace_id.startswith("sha256:") or len(t.trace_id) == 32
+    )
     assert len(t.records) >= 2  # metadata + at least one chat pair
 
 

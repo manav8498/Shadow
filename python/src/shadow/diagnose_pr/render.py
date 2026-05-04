@@ -83,6 +83,14 @@ def render_pr_comment(report: DiagnosePrReport) -> str:
         )
         out.append("")
 
+    if "synthetic_mock" in report.flags:
+        out.append(
+            "> :information_source: **Synthetic mock backend.** Cause magnitudes "
+            "below come from a deterministic per-delta heuristic (not real LLM "
+            "behavior). Re-run with `--backend live` for a grounded estimate."
+        )
+        out.append("")
+
     if report.verdict == "probe":
         out.append(
             "_Verdict is `probe` because affected traces exist but the causal effect "

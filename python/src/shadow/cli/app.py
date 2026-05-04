@@ -3568,56 +3568,43 @@ def diagnose_pr_cmd(
 
 @app.command("gate-pr", rich_help_panel="Common")
 def gate_pr_cmd(
-    ctx: typer.Context,
     traces: list[Path] = typer.Option(  # noqa: B008
-        ...,
-        "--traces",
-        help="Baseline production-like .agentlog files.",
+        ..., "--traces", help="Baseline production-like .agentlog files.",
     ),
     candidate_traces: list[Path] | None = typer.Option(  # noqa: B008
-        None,
-        "--candidate-traces",
-        help="Candidate .agentlog files paired by filename.",
+        None, "--candidate-traces", help="Candidate .agentlog files paired by filename.",
     ),
     baseline_config: Path = typer.Option(  # noqa: B008
-        ...,
-        "--baseline-config",
-        help="Baseline agent config YAML.",
+        ..., "--baseline-config", help="Baseline agent config YAML.",
     ),
     candidate_config: Path = typer.Option(  # noqa: B008
-        ...,
-        "--candidate-config",
-        help="Candidate agent config YAML.",
+        ..., "--candidate-config", help="Candidate agent config YAML.",
     ),
     policy: Path | None = typer.Option(  # noqa: B008
-        None,
-        "--policy",
-        help="Optional behavior-policy YAML.",
+        None, "--policy", help="Optional behavior-policy YAML.",
     ),
     pr_comment: Path | None = typer.Option(  # noqa: B008
-        None,
-        "--pr-comment",
-        help="Path to write the markdown PR comment (CI typically posts this).",
+        None, "--pr-comment", help="Path to write the markdown PR comment (CI typically posts this).",
     ),
     out: Path | None = typer.Option(  # noqa: B008
-        None,
-        "--out",
-        help="Optional path to write the JSON report (omit to skip).",
+        None, "--out", help="Optional path to write the JSON report (omit to write tempfile).",
+    ),
+    changed_files: list[str] | None = typer.Option(  # noqa: B008
+        None, "--changed-files", help="Files changed in the PR (used to attach filenames to deltas).",
     ),
     backend: str = typer.Option(
-        "recorded",
-        "--backend",
-        help="Cause attribution backend: recorded | mock | live.",
+        "recorded", "--backend", help="Cause attribution backend: recorded | mock | live.",
     ),
     n_bootstrap: int = typer.Option(
-        500,
-        "--n-bootstrap",
+        500, "--n-bootstrap",
         help="Bootstrap resample count for causal CI (used when --backend != recorded).",
     ),
     max_traces: int = typer.Option(
-        200,
-        "--max-traces",
-        help="Cap on traces (mining selects representatives above this).",
+        200, "--max-traces", help="Cap on traces (mining selects representatives above this).",
+    ),
+    max_cost: float | None = typer.Option(
+        None, "--max-cost",
+        help="Maximum total USD spend for --backend live runs.",
     ),
 ) -> None:
     """CI-friendly wrapper around `shadow diagnose-pr` with verdict-mapped exit codes:
@@ -3627,75 +3614,51 @@ def gate_pr_cmd(
       2 = stop    (critical violation; do not merge)
       3 = internal/tooling error  (treat as fail-closed in CI)
 
-    Same flags as diagnose-pr but optimised for one-line invocation
-    in a GitHub Actions step. Always writes the JSON report (to a
-    tempfile if --out omitted) and the PR comment markdown so a
-    follow-up step can post it.
+    Always writes the JSON report (to a tempfile if --out omitted)
+    and the PR comment markdown so a follow-up step can post it.
     """
     import tempfile
 
-    # Default --out to a tempfile so the gate's verdict-only output
-    # path is the simplest possible CI invocation.
+    from shadow.diagnose_pr.render import render_pr_comment
+    from shadow.diagnose_pr.report import to_json
+    from shadow.diagnose_pr.runner import DiagnoseOptions, run_diagnose_pr
+
     if out is None:
-        tmp = Path(tempfile.mkdtemp(prefix="shadow-gate-pr-")) / "report.json"
-        out = tmp
+        out = Path(tempfile.mkdtemp(prefix="shadow-gate-pr-")) / "report.json"
 
-    diagnose_args = [
-        "diagnose-pr",
-        "--baseline-config",
-        str(baseline_config),
-        "--candidate-config",
-        str(candidate_config),
-        "--out",
-        str(out),
-        "--backend",
-        backend,
-        "--n-bootstrap",
-        str(n_bootstrap),
-        "--max-traces",
-        str(max_traces),
-        "--fail-on",
-        "none",  # we set the exit code below from the verdict directly
-    ]
-    for t in traces:
-        diagnose_args.extend(["--traces", str(t)])
-    if candidate_traces:
-        for ct in candidate_traces:
-            diagnose_args.extend(["--candidate-traces", str(ct)])
-    if policy is not None:
-        diagnose_args.extend(["--policy", str(policy)])
+    try:
+        result = run_diagnose_pr(
+            DiagnoseOptions(
+                traces=list(traces),
+                candidate_traces=list(candidate_traces) if candidate_traces else None,
+                baseline_config=baseline_config,
+                candidate_config=candidate_config,
+                policy=policy,
+                changed_files=list(changed_files) if changed_files else None,
+                max_traces=max_traces,
+                backend=backend,
+                n_bootstrap=n_bootstrap,
+                max_cost_usd=max_cost,
+            )
+        )
+    except Exception as exc:
+        # gate-pr never propagates a tooling error to the CI as a clean failure;
+        # exit 3 means "investigate" not "merge held".
+        err_console.print(f"[bold red]gate-pr error[/]: {exc}")
+        raise typer.Exit(code=3) from exc
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(to_json(result.report) + "\n", encoding="utf-8")
     if pr_comment is not None:
-        diagnose_args.extend(["--pr-comment", str(pr_comment)])
+        pr_comment.parent.mkdir(parents=True, exist_ok=True)
+        pr_comment.write_text(render_pr_comment(result.report), encoding="utf-8")
 
-    # Re-invoke diagnose-pr internally. Catch any exit so we can
-    # convert it to the gate-pr exit code map (3 = internal error).
-    try:
-        with ctx:  # keep typer's exit-code propagation
-            try:
-                app(diagnose_args, standalone_mode=False)
-            except typer.Exit as e:
-                # diagnose-pr raised a typed exit; we're going to set
-                # our own exit code from the verdict, so swallow.
-                if e.exit_code != 0 and e.exit_code != 1:
-                    raise typer.Exit(code=3) from e
-    except SystemExit as exc:
-        # click sometimes raises SystemExit even with standalone_mode=False
-        if exc.code not in (0, 1, None):
-            raise typer.Exit(code=3) from exc
-    except typer.Exit:
-        raise
-    except Exception as exc:
-        raise typer.Exit(code=3) from exc
-
-    # Map verdict -> exit code.
-    try:
-        report = json.loads(out.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise typer.Exit(code=3) from exc
-
-    verdict = report.get("verdict", "ship")
+    verdict = result.report.verdict
     code = {"ship": 0, "probe": 1, "hold": 1, "stop": 2}.get(verdict, 3)
-    typer.echo(f"Shadow gate-pr: {verdict.upper()} (exit {code})")
+    msg = f"Shadow gate-pr: {verdict.upper()} (exit {code})"
+    if result.cost_usd is not None:
+        msg += f" — live cost: ${result.cost_usd:.4f}"
+    typer.echo(msg)
     if code != 0:
         raise typer.Exit(code=code)
 
