@@ -3827,6 +3827,92 @@ def diagnose_pr_cmd(
         raise typer.Exit(code=1)
 
 
+@app.command("verify-fix", rich_help_panel="Common")
+def verify_fix_cmd(
+    report: Path = typer.Option(  # noqa: B008
+        ...,
+        "--report",
+        help="Path to the diagnose-pr report.json from the previous run.",
+    ),
+    baseline_traces: list[Path] = typer.Option(  # noqa: B008
+        ...,
+        "--traces",
+        help="Original baseline .agentlog files (or directories) — same as `shadow diagnose-pr --traces`.",
+    ),
+    fixed_traces: list[Path] = typer.Option(  # noqa: B008
+        ...,
+        "--fixed-traces",
+        help="Candidate-with-patch .agentlog files; paired by filename to baseline.",
+    ),
+    policy: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--policy",
+        help="Optional behavior-policy YAML overlay (same schema as diagnose-pr).",
+    ),
+    out: Path = typer.Option(  # noqa: B008
+        ...,
+        "--out",
+        help="Path to write the verify-fix JSON report.",
+    ),
+    affected_threshold: float = typer.Option(
+        0.90,
+        "--affected-threshold",
+        help="Minimum fraction of affected traces that must be reversed (default 0.90).",
+    ),
+    safe_ceiling: float = typer.Option(
+        0.02,
+        "--safe-ceiling",
+        help="Maximum fraction of previously-safe traces that may regress (default 0.02).",
+    ),
+) -> None:
+    """Verify that a fix reverses the regression named by an
+    earlier `shadow diagnose-pr` run, without introducing new ones.
+
+    Reads the diagnose report's `affected_trace_ids`, re-diffs only
+    those traces against the candidate-with-patch, and reports the
+    pass/fail with explicit fail-reasons. Exit code 1 on fail, 0 on
+    pass.
+    """
+    from dataclasses import asdict
+
+    from shadow.diagnose_pr.loaders import load_traces
+    from shadow.diagnose_pr.verify_fix import verify_fix as _verify_fix
+
+    try:
+        diagnose = json.loads(report.read_text(encoding="utf-8"))
+        base = load_traces(list(baseline_traces))
+        fixed = load_traces(list(fixed_traces))
+    except Exception as exc:
+        _fail(exc)
+        return
+
+    try:
+        result = _verify_fix(
+            diagnose_report=diagnose,
+            baseline_traces=base,
+            fixed_traces=fixed,
+            policy_path=policy,
+            affected_reversed_threshold=affected_threshold,
+            safe_regression_ceiling=safe_ceiling,
+        )
+    except Exception as exc:
+        _fail(exc)
+        return
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(asdict(result), sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+    if result.passed:
+        typer.echo(
+            f"Shadow verify-fix: PASS — "
+            f"{result.affected_reversed}/{result.affected_total} affected reversed, "
+            f"{result.safe_regressed}/{result.safe_total} safe regressed"
+        )
+    else:
+        typer.echo(f"Shadow verify-fix: FAIL — {'; '.join(result.fail_reasons)}")
+        raise typer.Exit(code=1)
+
+
 # ---- helpers ---------------------------------------------------------------
 
 
