@@ -11,7 +11,6 @@ on the Python-side wiring decisions.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -124,89 +123,99 @@ def test_record_does_not_inject_node_options_for_python_command(tmp_path: Path) 
     assert "shadow-diff/auto" not in result.stderr
 
 
-def test_record_injects_node_options_for_node_command(tmp_path: Path) -> None:
-    """`shadow record -- node -e '...'` must inject
-    `--import shadow-diff/auto` into NODE_OPTIONS so the Node
-    runtime activates the TS SDK's auto entrypoint."""
+def _invoke_record_with_mocked_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+    out: Path,
+    *extra_args: str,
+    extra_env: dict[str, str] | None = None,
+    wrapped_cmd: tuple[str, ...] = ("node", "user-agent.js"),
+) -> dict[str, str]:
+    """Run `shadow record` in-process via CliRunner with `subprocess.run`
+    mocked. Returns the env dict the wrapped command would have seen.
+
+    No real subprocess spawn — works identically on Linux, macOS, and
+    Windows. The mock returns a CompletedProcess with returncode 0 so
+    `record()`'s `typer.Exit(code=result.returncode)` propagates as
+    exit_code 0 in the runner.
+    """
+    from typer.testing import CliRunner
+
+    from shadow.cli import app as _app_module
+
+    captured: dict[str, dict[str, str]] = {}
+
+    def _fake_run(cmd, env, check):  # type: ignore[no-untyped-def]
+        captured["env"] = dict(env)
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(_app_module.subprocess, "run", _fake_run)
+    if extra_env:
+        for k, v in extra_env.items():
+            monkeypatch.setenv(k, v)
+
+    runner = CliRunner()
+    args = ["record", "-o", str(out), *extra_args, "--", *wrapped_cmd]
+    result = runner.invoke(_app_module.app, args)
+    assert result.exit_code == 0, f"record exited {result.exit_code}; output:\n{result.output}"
+    return captured["env"]
+
+
+def test_record_injects_node_options_for_node_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`shadow record -- node ...` must inject `--import shadow-diff/auto`
+    into NODE_OPTIONS so the Node runtime activates the TS SDK's auto
+    entrypoint. End-to-end Node behaviour lives in
+    `typescript/test/auto.test.ts`; this test pins the Python-side
+    env-wiring decision."""
     out = tmp_path / "trace.agentlog"
-    # We use a fake `node` shim that just echoes its NODE_OPTIONS env
-    # var. This avoids requiring real Node + a published shadow-diff
-    # npm install in the test sandbox — we're only verifying that the
-    # Python CLI sets the env correctly. End-to-end Node behaviour is
-    # covered in typescript/test/auto.test.ts.
-    fake_node = tmp_path / "node"
-    fake_node.write_text('#!/usr/bin/env bash\necho "NODEOPTS=${NODE_OPTIONS:-<unset>}"\nexit 0\n')
-    fake_node.chmod(0o755)
-    env = dict(os.environ)
-    env["PATH"] = f"{tmp_path}{os.pathsep}{env.get('PATH', '')}"
-    result = subprocess.run(
-        [sys.executable, "-m", "shadow.cli.app", "record", "-o", str(out), "--", "node"],
-        capture_output=True,
-        text=True,
-        cwd=tmp_path,
-        env=env,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    assert (
-        "--import shadow-diff/auto" in result.stdout
-    ), f"expected NODE_OPTIONS injection in stdout, got:\n{result.stdout}"
+    env = _invoke_record_with_mocked_subprocess(monkeypatch, out)
+    assert "--import shadow-diff/auto" in env.get(
+        "NODE_OPTIONS", ""
+    ), f"expected NODE_OPTIONS injection, got: {env.get('NODE_OPTIONS')!r}"
+    assert env.get("SHADOW_SESSION_OUTPUT") == str(out.resolve())
 
 
-def test_record_no_auto_instrument_disables_node_options_injection(tmp_path: Path) -> None:
+def test_record_no_auto_instrument_disables_node_options_injection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """`--no-auto-instrument` must disable both the Python sitecustomize
     shim AND the Node NODE_OPTIONS injection. The flag is the escape
     hatch for users who already opened their own Session in-process."""
     out = tmp_path / "trace.agentlog"
-    fake_node = tmp_path / "node"
-    fake_node.write_text('#!/usr/bin/env bash\necho "NODEOPTS=${NODE_OPTIONS:-<unset>}"\nexit 0\n')
-    fake_node.chmod(0o755)
-    env = dict(os.environ)
-    env["PATH"] = f"{tmp_path}{os.pathsep}{env.get('PATH', '')}"
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "shadow.cli.app",
-            "record",
-            "-o",
-            str(out),
-            "--no-auto-instrument",
-            "--",
-            "node",
-        ],
-        capture_output=True,
-        text=True,
-        cwd=tmp_path,
-        env=env,
-        check=False,
+    env = _invoke_record_with_mocked_subprocess(monkeypatch, out, "--no-auto-instrument")
+    assert "shadow-diff/auto" not in env.get("NODE_OPTIONS", ""), (
+        f"expected NO injection under --no-auto-instrument, " f"got: {env.get('NODE_OPTIONS')!r}"
     )
-    assert result.returncode == 0, result.stderr
-    assert (
-        "shadow-diff/auto" not in result.stdout
-    ), f"expected NO injection under --no-auto-instrument, got:\n{result.stdout}"
 
 
-def test_record_preserves_existing_node_options_when_injecting(tmp_path: Path) -> None:
+def test_record_preserves_existing_node_options_when_injecting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """If the user already has NODE_OPTIONS set (e.g. for memory
     limits), the Shadow injection must prepend, not clobber."""
     out = tmp_path / "trace.agentlog"
-    fake_node = tmp_path / "node"
-    fake_node.write_text('#!/usr/bin/env bash\necho "NODEOPTS=${NODE_OPTIONS:-<unset>}"\nexit 0\n')
-    fake_node.chmod(0o755)
-    env = dict(os.environ)
-    env["PATH"] = f"{tmp_path}{os.pathsep}{env.get('PATH', '')}"
-    env["NODE_OPTIONS"] = "--max-old-space-size=4096"
-    result = subprocess.run(
-        [sys.executable, "-m", "shadow.cli.app", "record", "-o", str(out), "--", "node"],
-        capture_output=True,
-        text=True,
-        cwd=tmp_path,
-        env=env,
-        check=False,
+    env = _invoke_record_with_mocked_subprocess(
+        monkeypatch,
+        out,
+        extra_env={"NODE_OPTIONS": "--max-old-space-size=4096"},
     )
-    assert result.returncode == 0, result.stderr
-    assert "--import shadow-diff/auto" in result.stdout
+    seen = env.get("NODE_OPTIONS", "")
+    assert "--import shadow-diff/auto" in seen, f"expected injection, got: {seen!r}"
     assert (
-        "--max-old-space-size=4096" in result.stdout
-    ), "user's existing NODE_OPTIONS must be preserved alongside Shadow's injection"
+        "--max-old-space-size=4096" in seen
+    ), f"existing NODE_OPTIONS must be preserved, got: {seen!r}"
+
+
+def test_record_does_not_inject_for_npm_when_argv_is_python(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sanity: when the wrapped command is plainly Python, the
+    classifier returns False and no NODE_OPTIONS injection happens."""
+    out = tmp_path / "trace.agentlog"
+    env = _invoke_record_with_mocked_subprocess(
+        monkeypatch, out, wrapped_cmd=("python", "agent.py")
+    )
+    assert "shadow-diff/auto" not in env.get(
+        "NODE_OPTIONS", ""
+    ), f"python wrapper got an unexpected injection: {env.get('NODE_OPTIONS')!r}"
