@@ -14,7 +14,9 @@
  * caller-side break, via the iterator's return path).
  */
 
+import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
 import type { Session } from './session.js';
 
@@ -24,7 +26,37 @@ export interface InstrumentorHandle {
   patches: Array<{ target: object; attr: string; original: AnyFn }>;
 }
 
-const nodeRequire = createRequire(import.meta.url);
+/**
+ * Resolve `openai` / `@anthropic-ai/sdk` from the USER APP's location,
+ * not shadow-diff's. When shadow-diff is installed via symlink (`npm
+ * link` or `npm install ../path/to/shadow-diff`), Node's default
+ * resolution walks up from the symlink TARGET — i.e. shadow-diff's
+ * own dev tree, which has its own peer copies of those SDKs in
+ * `node_modules/`. Patching THOSE copies has no effect on the user
+ * agent's actual SDK calls, and `shadow record` produces a metadata-
+ * only trace.
+ *
+ * Anchoring on `process.argv[1]` (the script Node was launched with —
+ * the user's entrypoint) makes both `require()` and `import()` look
+ * up modules from the user's project root regardless of how
+ * shadow-diff itself was installed. Falls back to `import.meta.url`
+ * when argv[1] is empty (REPL, `node -e`, etc.) so non-script callers
+ * still work.
+ */
+function _resolutionAnchor(): string {
+  const script = process.argv[1];
+  if (script) {
+    try {
+      return pathToFileURL(script).href;
+    } catch {
+      /* fall through to the module-anchored default */
+    }
+  }
+  return import.meta.url;
+}
+
+const _ANCHOR_URL = _resolutionAnchor();
+const nodeRequire = createRequire(_ANCHOR_URL);
 
 /**
  * Module-level guard against double-wrapping the same prototype.
@@ -117,20 +149,83 @@ async function tryPatchAnthropic(
 
 async function loadModuleBothWays(path: string): Promise<unknown[]> {
   const out: unknown[] = [];
+  // CJS path — `nodeRequire` is anchored to the user's script (see
+  // `_resolutionAnchor()`), so symlinked shadow-diff installs don't
+  // accidentally pick up shadow-diff's own dev dependency.
   try {
     out.push(nodeRequire(path));
   } catch {
     /* no CJS variant */
   }
+
+  // ESM path — TWO entries to cover both how user code might import:
+  //
+  //   1. User-anchored absolute file URL of the CJS-resolved path.
+  //      Some packages ship a single `.js` that Node treats as ESM
+  //      via `package.json "type": "module"`. This branch covers
+  //      those.
+  //   2. The same path with `.js` rewritten to `.mjs` (when that
+  //      file exists). Modern dual-package layouts (openai v6+,
+  //      anthropic-ai/sdk) use a wildcard `exports` map of
+  //      `"./resources/*": { "import": "./resources/*.mjs",
+  //      "require": "./resources/*.js" }`. `userRequire.resolve`
+  //      uses the `require` condition and returns `.js`; the
+  //      user's `import OpenAI from 'openai'` instead uses the
+  //      `import` condition and gets a DIFFERENT class object from
+  //      `.mjs`. Patching only the .js class leaves the user's
+  //      actual class unwrapped and `shadow record` produces a
+  //      metadata-only trace. Patching BOTH covers both code paths.
+  let resolvedAbs: string | null = null;
   try {
-    const esm = await import(/* @vite-ignore */ path);
-    // Module namespace objects are distinct from the CJS export; include both.
-    out.push(esm);
-    // `default` export is sometimes where the classes live under ESM.
-    const maybeDefault = (esm as { default?: unknown }).default;
-    if (maybeDefault && maybeDefault !== esm) out.push(maybeDefault);
+    resolvedAbs = nodeRequire.resolve(path);
   } catch {
-    /* no ESM variant */
+    /* exports field may not surface this subpath to CJS */
+  }
+
+  // Variant A: import the `userRequire.resolve()`-returned path.
+  if (resolvedAbs !== null) {
+    try {
+      const url = pathToFileURL(resolvedAbs).href;
+      const esm = await import(/* @vite-ignore */ url);
+      out.push(esm);
+      const maybeDefault = (esm as { default?: unknown }).default;
+      if (maybeDefault && maybeDefault !== esm) out.push(maybeDefault);
+    } catch {
+      /* not loadable as ESM */
+    }
+  }
+
+  // Variant B: try the .mjs sibling when the resolver returned .js.
+  if (resolvedAbs !== null && resolvedAbs.endsWith('.js')) {
+    const mjsPath = `${resolvedAbs.slice(0, -'.js'.length)}.mjs`;
+    if (existsSync(mjsPath)) {
+      try {
+        const url = pathToFileURL(mjsPath).href;
+        const esm = await import(/* @vite-ignore */ url);
+        out.push(esm);
+        const maybeDefault = (esm as { default?: unknown }).default;
+        if (maybeDefault && maybeDefault !== esm) out.push(maybeDefault);
+      } catch {
+        /* .mjs sibling exists but isn't a valid ESM module */
+      }
+    }
+  }
+
+  // Variant C (fallback): bare specifier, anchored to THIS module
+  // URL. Used only when CJS resolution failed entirely (ESM-only
+  // packages with no `require` condition). Under a symlinked
+  // install this can find shadow-diff's nested copy first; that's
+  // why it's last — Variants A and B already covered the user's
+  // copy via user-anchored resolve.
+  if (resolvedAbs === null) {
+    try {
+      const esm = await import(/* @vite-ignore */ path);
+      out.push(esm);
+      const maybeDefault = (esm as { default?: unknown }).default;
+      if (maybeDefault && maybeDefault !== esm) out.push(maybeDefault);
+    } catch {
+      /* no ESM variant either */
+    }
   }
   return out;
 }

@@ -94,34 +94,28 @@ npm run build                  # produces dist/
 **Testing the auto-instrumentation against a real Node agent:**
 
 The `shadow-diff/auto` entrypoint (loaded via `node --import shadow-diff/auto`)
-patches the user app's `openai` / `@anthropic-ai/sdk` packages. Module
-resolution in Node respects symlinks by default, so a *symlinked*
-local install of shadow-diff (`npm link` or `npm install ../shadow/typescript`)
-can resolve `import('openai')` from inside shadow-diff's own dev tree
-instead of the user app's `node_modules`. The result: shadow-diff
-patches its own dev copy of `openai`, the app's copy goes
-un-instrumented, and `shadow record` produces a metadata-only trace.
+patches the user app's `openai` / `@anthropic-ai/sdk` packages. The
+auto-instrument resolver anchors module lookups on the user's own
+script (`process.argv[1]`), not on shadow-diff's own location, so a
+symlinked local install (`npm link`, `npm install ../shadow/typescript`)
+records exactly the same way as a packaged tarball install — both
+patch the user's copy of openai/anthropic, not any nested copy in
+shadow-diff's dev tree.
 
-To validate the auto-record path against a real agent, **always test
-via `npm pack`** + tarball install:
+For convenience, packaged-install validation is still:
 
 ```bash
 cd typescript && npm pack            # produces shadow-diff-<v>.tgz
 cd /path/to/test-app
 npm install shadow-diff-<v>.tgz
-# Now `npm install openai` resolves to the test app's own copy and
-# `node --import shadow-diff/auto -- ./agent.js` patches THAT copy.
+node --import shadow-diff/auto ./agent.js
 ```
-
-Vitest tests under `typescript/test/` exercise the auto entrypoint
-correctly because vitest loads `shadow-diff` from the workspace root,
-not via a symlink — those tests are reliable. The symlink trap only
-bites the manual end-to-end check against an external repo.
 
 ### shadow-diff core crate (Rust, source dir `crates/shadow-core/`)
 
 ```bash
 cargo test --workspace                    # all crates, default features (CI runs this)
+cargo test --workspace --all-features     # also runs the PyO3-feature tests
 cargo test -p shadow-diff                 # only the core crate
 cargo test -p shadow-align                # only the standalone align crate
 cargo test -p shadow-diff <filter>        # one module / test
@@ -130,19 +124,22 @@ cargo fmt --all
 cargo llvm-cov --workspace                # coverage (gate: ≥85% line)
 ```
 
-**Do not run `cargo test --workspace --all-features`.** The `extension`
-feature on `shadow-diff` enables `pyo3/extension-module`, which tells
-PyO3 to omit libpython link directives — the Python interpreter
-provides those at import time. A normal `cargo test` binary then
-fails to link with `Undefined symbols: _Py*` (most visibly on macOS
-arm64). `--all-features` propagates `extension` to every test target.
+The `extension` feature on `shadow-diff` is just an alias for
+`python` — it enables PyO3-facing code and links libpython
+normally. The `pyo3/extension-module` flag (which tells PyO3 to
+omit the libpython link directives so the cdylib loads cleanly
+into a Python interpreter at wheel-load time) is set ONLY by
+maturin via `[tool.maturin] features = [...]` in
+`python/pyproject.toml`. That split is why `cargo test --workspace
+--all-features` works on every platform — the test binary doesn't
+need to be a Python extension; the wheel does.
 
-If you need to test feature-gated PyO3 code, use `cargo test
---features python` (which keeps libpython linked normally) or build
-the Python extension via `cd python && ../.venv/bin/maturin develop
---features extension --release` and exercise it from pytest.
+If you change the Rust side that PyO3 exposes, rebuild the
+Python extension:
 
-`clippy --all-features` is fine — clippy doesn't link.
+```bash
+cd python && ../.venv/bin/maturin develop --release
+```
 
 ### Python SDK / CLI / bisect
 
@@ -150,7 +147,7 @@ the Python extension via `cd python && ../.venv/bin/maturin develop
 .venv/bin/python -m mypy --strict python/src  # gate: zero errors
 
 # When you change the Rust side that PyO3 exposes, rebuild:
-cd python && ../.venv/bin/maturin develop --features extension --release
+cd python && ../.venv/bin/maturin develop --release
 ```
 
 ### Demo / examples
