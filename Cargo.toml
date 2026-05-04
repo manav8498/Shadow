@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["crates/shadow-core", "crates/shadow-align"]
+# typescript/native is the napi-rs binding, built on its own
+# (`npm run build:native`). Keeping it out of the workspace
+# avoids pulling napi-rs deps into normal cargo builds.
+exclude = ["typescript/native"]
 
 [workspace.package]
 version = "3.0.7"

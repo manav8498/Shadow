@@ -1,0 +1,25 @@
+{
+  "name": "@shadow-diff/align-native",
+  "version": "3.0.7",
+  "private": true,
+  "description": "Native binding (napi-rs) for shadow-align. Built per platform; the parent shadow-diff package conditionally loads it via tryLoadNative.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "binaryName": "shadow-align",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "x86_64-pc-windows-msvc"
+    ]
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.6.2"
+  }
+}
