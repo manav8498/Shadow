@@ -26,6 +26,29 @@ export interface InstrumentorHandle {
 
 const nodeRequire = createRequire(import.meta.url);
 
+/**
+ * Module-level guard against double-wrapping the same prototype.
+ *
+ * The handle-level `patches.some()` dedup only catches the case of one
+ * `autoInstrument()` call seeing the same proto twice. It does NOT
+ * protect against the more common pitfall: a caller that runs
+ * `Session.enter()` (which already calls `autoInstrument(this)` by
+ * default) and then runs `autoInstrument(session)` again. Each call
+ * builds a fresh handle, so the second call's `existingCreate` is
+ * the FIRST wrapper — the second `wrapped` then chains it as
+ * `original`, and every chat call records twice.
+ *
+ * Tracking wrapped functions globally fixes this regardless of how
+ * many handles or sessions exist. We mark a function as wrapped via
+ * a non-enumerable symbol property; WeakSet would also work but the
+ * symbol is observable in a debugger and makes the intent explicit.
+ */
+const _SHADOW_WRAPPED = Symbol.for('shadow-diff.wrapped');
+
+interface ShadowWrapped extends AnyFn {
+  [_SHADOW_WRAPPED]?: true;
+}
+
 export async function autoInstrument(session: Session): Promise<InstrumentorHandle> {
   const handle: InstrumentorHandle = { patches: [] };
   await tryPatchOpenAI(session, handle);
@@ -134,15 +157,24 @@ function patchCreate(
   translators: Translators,
 ): void {
   if (!proto) return;
-  const existingCreate = (proto as Record<string, unknown>).create;
+  const existingCreate = (proto as Record<string, unknown>).create as ShadowWrapped | undefined;
   if (typeof existingCreate !== 'function') return;
-  // Don't double-patch.
+  // Don't double-patch within this handle.
   if (handle.patches.some((p) => p.target === proto && p.attr === 'create')) return;
+  // Cross-handle / cross-call dedup: if `existingCreate` is itself a
+  // wrapper we installed earlier (perhaps via Session.enter()'s built-in
+  // autoInstrument), wrapping it again would chain wrappers and cause
+  // each chat call to record once per layer. Skip — the proto is
+  // already instrumented and recording.
+  if (existingCreate[_SHADOW_WRAPPED]) return;
 
   const original = existingCreate as AnyFn;
   handle.patches.push({ target: proto, attr: 'create', original });
 
-  const wrapped = async function (this: unknown, ...args: unknown[]): Promise<unknown> {
+  const wrapped: ShadowWrapped = async function (
+    this: unknown,
+    ...args: unknown[]
+  ): Promise<unknown> {
     const kwargs = (args[0] as Record<string, unknown> | undefined) ?? {};
     const start = Date.now();
     const result = await original.apply(this, args);
@@ -159,6 +191,15 @@ function patchCreate(
     }
     return result;
   };
+  // Tag the wrapper so future `patchCreate` calls — across other
+  // sessions, other handles, or after Session.exit() unwraps — can
+  // detect "already-wrapped" and skip.
+  Object.defineProperty(wrapped, _SHADOW_WRAPPED, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
 
   (proto as Record<string, unknown>).create = wrapped;
 }

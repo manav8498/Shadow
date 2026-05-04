@@ -40,7 +40,6 @@
  */
 
 import { Session, type SessionOptions } from './session.js';
-import { autoInstrument } from './instrumentation.js';
 
 let _bootstrapped = false;
 
@@ -75,6 +74,38 @@ function _warnNoCrash(message: string, error?: unknown): void {
   }
 }
 
+// Match-only-the-CLI-wrapper patterns. When `shadow record -- npm
+// start` runs, NODE_OPTIONS is inherited by BOTH the npm process and
+// the user-agent grandchild. If both processes ran the auto bootstrap
+// they'd both write to SHADOW_SESSION_OUTPUT and (because Session
+// uses writeFile, not appendFile) the last one to exit would
+// overwrite the other — most often producing a metadata-only trace
+// in the npm wrapper that obliterates the user's real records.
+//
+// Skip the bootstrap when we recognise we're running the package-
+// manager CLI itself, not the user's actual agent. The grandchild
+// (user agent) doesn't match these patterns, so it records normally.
+const _PACKAGE_MANAGER_CLI_PATTERNS = [
+  /[/\\](?:npm|npx)-cli\.(?:js|cjs|mjs)$/,
+  /[/\\]npm[/\\]bin[/\\](?:npm|npx)-cli\.(?:js|cjs|mjs)$/,
+  /[/\\](?:pnpm|pnpx)\.(?:cjs|js|mjs)$/,
+  /[/\\]pnpm[/\\]bin[/\\]pnpm\.(?:cjs|js|mjs)$/,
+  /[/\\]yarn(?:\.js)?$/,
+  /[/\\]yarn[/\\]bin[/\\]yarn\.js$/,
+];
+
+function _is_package_manager_wrapper(): boolean {
+  // process.argv[1] is the script Node was launched with — the npm
+  // CLI for a `node /path/to/npm-cli.js` invocation, or the user
+  // script for a `node user-agent.js` invocation.
+  const script = process.argv[1];
+  if (!script) return false;
+  for (const re of _PACKAGE_MANAGER_CLI_PATTERNS) {
+    if (re.test(script)) return true;
+  }
+  return false;
+}
+
 async function _start(): Promise<Session | null> {
   if (_bootstrapped) return null;
   _bootstrapped = true;
@@ -82,8 +113,20 @@ async function _start(): Promise<Session | null> {
   const output = process.env.SHADOW_SESSION_OUTPUT;
   if (!output) return null; // No-op — explicit env-var contract.
 
+  if (_is_package_manager_wrapper()) {
+    // We're running inside `npm` / `pnpm` / `yarn` itself, not the
+    // user's agent. Skip — the agent will load us in its own process.
+    return null;
+  }
+
   let session: Session;
   try {
+    // Session(opts).enter() already runs `autoInstrument(this)` when
+    // `opts.autoInstrument !== false` (the default). Calling
+    // `autoInstrument(session)` here in addition would patch the
+    // openai/anthropic prototypes a SECOND time — the second wrap
+    // saves the first wrapper as its `original` and we end up
+    // recording every chat call twice. Don't do that.
     const opts: SessionOptions = {
       outputPath: output,
       tags: _parseTagsEnv(process.env.SHADOW_SESSION_TAGS),
@@ -93,14 +136,6 @@ async function _start(): Promise<Session | null> {
   } catch (e) {
     _warnNoCrash('failed to enter Session', e);
     return null;
-  }
-
-  try {
-    await autoInstrument(session);
-  } catch (e) {
-    // If autoInstrument fails, we still keep the Session alive — the
-    // user's agent might write records explicitly via session.record_*.
-    _warnNoCrash('autoInstrument failed; explicit Session writes still work', e);
   }
 
   // Coordinate a single exit pass across the multiple shutdown paths

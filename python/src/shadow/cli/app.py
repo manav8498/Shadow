@@ -1664,6 +1664,18 @@ _NODE_RUNTIME_BINARIES = frozenset(
         "tsx",
         "ts-node",
         "ts-node.cmd",
+        # Package-manager CLIs spawn Node child processes that
+        # inherit NODE_OPTIONS — so injecting it on the parent
+        # propagates to whichever interpreter actually runs the
+        # user's agent. The TS auto entrypoint detects "I am the
+        # package-manager wrapper" via process.argv[1] and skips
+        # itself, so only the actual user-agent process records.
+        "npm",
+        "npm.cmd",
+        "pnpm",
+        "pnpm.cmd",
+        "yarn",
+        "yarn.cmd",
     }
 )
 
