@@ -4,6 +4,41 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [unreleased] — Causal Regression Forensics + OTel + Align (Py + TS + Rust)
+
+Phase 8: `shadow-align` standalone Rust crate. Closes the spec §6
+deliverable list — alignment primitives now ship in all three
+languages with byte-identical results on shared inputs.
+
+### Added
+
+* **`crates/shadow-align/`** — new workspace member, separate
+  publishable Rust crate with no dependency on `shadow-core`. Two
+  pure-Rust functions (`trajectory_distance`, `tool_arg_delta`)
+  + Rust-native types (`AlignedTurn`, `Alignment`, `Divergence`,
+  `ArgDelta`, `ArgDeltaKind`). The three Rust-backed functions
+  (`align_traces`, `first_divergence`, `top_k_divergences`) ship
+  as v0.1 stubs; v0.2 wires re-exports from `shadow-core`'s
+  internal alignment.
+* **Cross-language parity test** —
+  `crates/shadow-align/tests/cross_language_parity.rs` mirrors
+  the Python and TypeScript test suites. Same numbers across all
+  three ports; drift between any two is the bug.
+
+### Verified
+
+* shadow-align: 22 tests pass (15 unit + 7 parity), 1 doctest,
+  cargo fmt + clippy clean (with `unwrap_used`/`expect_used`/
+  `panic` denied — same lint posture as shadow-core).
+* shadow-core: 244 + 2 doctests still pass (workspace build OK).
+* Python: 1829 tests pass (unchanged from Phase 7).
+* TypeScript: 94 tests pass (unchanged from Phase 7).
+* The same `tool_arg_delta` `type_changed` parity bug that
+  surfaced in Phase 7's TS port is checked in Rust too — caught
+  by `tool_arg_delta_type_changed_matches_python`.
+
+---
+
 ## [unreleased] — Causal Regression Forensics + OTel + Align (Py + TS)
 
 Phase 7: TypeScript port of `shadow.align` + comparison docs.

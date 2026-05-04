@@ -128,11 +128,24 @@ This API is `v0.1`. The dataclass field names and function signatures
 are stable; future versions add fields without renaming or removing
 existing ones.
 
-## Future: standalone Rust crate + TypeScript port
+## Three-language ports
 
-The design spec §6 calls for `crates/shadow-align/` as a separate Rust
-crate plus a TypeScript port (`@shadow-diff/align`). Both are scoped for
-v0.2 once the Python API stabilises against external feedback.
+The same surface ships in three languages. Same algorithms, byte-identical
+results on shared inputs (verified by parity tests in each port).
+
+| Language | Package | `trajectory_distance` | `tool_arg_delta` | `align_traces` / `first_divergence` / `top_k_divergences` |
+|---|---|:---:|:---:|---|
+| Python | `shadow.align` (PyPI: `shadow-diff`) | ✓ pure Python | ✓ pure Python | ✓ via `shadow._core` |
+| TypeScript | `shadow-diff/align` (npm: `shadow-diff`) | ✓ pure TS | ✓ pure TS | v0.1 stubs (v0.2 napi-rs) |
+| Rust | `shadow-align` (crates.io) | ✓ pure Rust | ✓ pure Rust | v0.1 stubs (v0.2 re-export from shadow-core) |
+
+The cross-language parity tests are committed in:
+
+* `python/tests/test_align_library.py` (Python)
+* `typescript/test/align.test.ts` (TypeScript)
+* `crates/shadow-align/tests/cross_language_parity.rs` (Rust)
+
+If a number drifts between any two ports, fix it in all three.
 
 ## Standalone-tool example
 
