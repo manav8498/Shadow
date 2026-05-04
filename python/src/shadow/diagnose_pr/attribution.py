@@ -14,7 +14,7 @@ Two paths, one entry point per path:
     CauseEstimate. Includes bootstrap CI + E-value when those are
     requested.
 
-  * `pick_dominant(causes)` — rank top_causes by `|ATE| × confidence`
+  * `pick_dominant(causes)` — rank top_causes by `|ATE| * confidence`
     (a coarse v1 ranking; Week 4 may incorporate blast-radius). One
     cause wins or None when no causes exceed a noise floor.
 """
@@ -55,10 +55,12 @@ def simple_attribution(
         return []
     if len(deltas) == 1 and has_divergence:
         d = deltas[0]
+        # We don't know which axis without intervention; trajectory
+        # is the most useful default for the renderer.
         return [
             CauseEstimate(
                 delta_id=d.id,
-                axis="trajectory",  # we don't know which axis; trajectory is the most useful default
+                axis="trajectory",
                 ate=_SIMPLE_ATE_PLACEHOLDER,
                 ci_low=None,
                 ci_high=None,
@@ -119,9 +121,7 @@ def causal_from_replay(
             ci_high = result.ci_high.get(delta_id, {}).get(axis) if result.ci_high else None
             e_val = result.e_values.get(delta_id, {}).get(axis) if result.e_values else None
             ci_excludes_zero = (
-                ci_low is not None
-                and ci_high is not None
-                and (ci_low > 0.0 or ci_high < 0.0)
+                ci_low is not None and ci_high is not None and (ci_low > 0.0 or ci_high < 0.0)
             )
             out.append(
                 CauseEstimate(
@@ -138,7 +138,7 @@ def causal_from_replay(
 
 
 def pick_dominant(causes: list[CauseEstimate]) -> CauseEstimate | None:
-    """Pick the single cause with the largest |ATE| × confidence
+    """Pick the single cause with the largest |ATE| * confidence
     weight. Returns None for an empty list. Ties resolve to the
     first-seen cause (deterministic across runs)."""
     if not causes:
@@ -147,13 +147,32 @@ def pick_dominant(causes: list[CauseEstimate]) -> CauseEstimate | None:
 
 
 _FIX_HINTS: dict[str, str] = {
-    "prompt": "Review the prompt change at `{delta}` — restore the instruction or constraint it removed.",
-    "model": "Pin the model back: revert `{delta}` until the candidate model's behavior is verified.",
-    "temperature": "Revert `{delta}` to the baseline value, or rerun with the candidate value against more traces.",
-    "tool_schema": "Review the tool schema change at `{delta}` — confirm the candidate respects the same call protocol as baseline.",
-    "retriever": "Review the retriever change at `{delta}` — confirm document set + ranking match baseline.",
-    "policy": "Review the policy change at `{delta}` — restore the rule or update affected callers.",
-    "unknown": "Investigate the change at `{delta}` — kind is unrecognized, rerun with --changed-files for better attribution.",
+    "prompt": (
+        "Review the prompt change at `{delta}` — "
+        "restore the instruction or constraint it removed."
+    ),
+    "model": (
+        "Pin the model back: revert `{delta}` " "until the candidate model's behavior is verified."
+    ),
+    "temperature": (
+        "Revert `{delta}` to the baseline value, or rerun "
+        "with the candidate value against more traces."
+    ),
+    "tool_schema": (
+        "Review the tool schema change at `{delta}` — "
+        "confirm the candidate respects the same call protocol as baseline."
+    ),
+    "retriever": (
+        "Review the retriever change at `{delta}` — "
+        "confirm document set + ranking match baseline."
+    ),
+    "policy": (
+        "Review the policy change at `{delta}` — " "restore the rule or update affected callers."
+    ),
+    "unknown": (
+        "Investigate the change at `{delta}` — kind is unrecognized, "
+        "rerun with --changed-files for better attribution."
+    ),
 }
 
 
@@ -167,12 +186,28 @@ def suggested_fix_for(
     The hint is deliberately advisory — v1 cannot generate a real
     patch. The text picks a template by `DeltaKind`, names the
     delta, and suggests the recovery action.
+
+    Match by either `delta.id` OR `delta.path` — when
+    `--changed-files` overrides `id` to a filename (e.g.
+    `prompts/system.md`), the causal layer still references the
+    flattened config path (e.g. `prompt.system`), and we need to
+    resolve back to the same kind.
     """
     if dominant is None:
         return None
-    kind = next((d.kind for d in deltas if d.id == dominant.delta_id), "unknown")
+    kind = next(
+        (d.kind for d in deltas if d.id == dominant.delta_id or d.path == dominant.delta_id),
+        "unknown",
+    )
     template = _FIX_HINTS.get(kind, _FIX_HINTS["unknown"])
-    return template.format(delta=dominant.delta_id)
+    # Prefer the delta.id as the displayed name; if our flattened-
+    # path delta_id matches a delta with a filename id, use the
+    # filename id (it's friendlier in PR comments).
+    display_id = next(
+        (d.id for d in deltas if d.path == dominant.delta_id and d.id != dominant.delta_id),
+        dominant.delta_id,
+    )
+    return template.format(delta=display_id)
 
 
 __all__ = [

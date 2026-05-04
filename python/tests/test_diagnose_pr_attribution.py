@@ -14,7 +14,7 @@ Two attribution paths:
     output into the diagnose-pr CauseEstimate dataclass. Includes
     bootstrap CI + E-value when those are requested.
 
-  * pick_dominant(causes) — rank top_causes by |ATE| × confidence
+  * pick_dominant(causes) — rank top_causes by |ATE| * confidence
     multiplier; return None if no causes exceed the noise floor.
 """
 
@@ -91,12 +91,22 @@ def test_pick_dominant_returns_highest_ate_times_confidence() -> None:
     from shadow.diagnose_pr.models import CauseEstimate
 
     weak = CauseEstimate(
-        delta_id="weak", axis="verbosity", ate=0.1, ci_low=-0.1, ci_high=0.3,
-        e_value=1.1, confidence=0.5,
+        delta_id="weak",
+        axis="verbosity",
+        ate=0.1,
+        ci_low=-0.1,
+        ci_high=0.3,
+        e_value=1.1,
+        confidence=0.5,
     )
     strong = CauseEstimate(
-        delta_id="strong", axis="trajectory", ate=0.4, ci_low=0.3, ci_high=0.5,
-        e_value=2.5, confidence=1.0,
+        delta_id="strong",
+        axis="trajectory",
+        ate=0.4,
+        ci_low=0.3,
+        ci_high=0.5,
+        e_value=2.5,
+        confidence=1.0,
     )
     assert pick_dominant([weak, strong]) is strong
 

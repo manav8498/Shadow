@@ -3476,6 +3476,19 @@ def diagnose_pr_cmd(
         "--fail-on",
         help="Exit non-zero on this verdict floor: none|probe|hold|stop.",
     ),
+    backend: str = typer.Option(
+        "recorded",
+        "--backend",
+        help=(
+            "Cause attribution backend: recorded (no backend, simple attribution from observed "
+            "deltas) | mock (deterministic per-delta intervention for tests/demos)."
+        ),
+    ),
+    n_bootstrap: int = typer.Option(
+        500,
+        "--n-bootstrap",
+        help="Bootstrap resample count for causal CI. Used only when --backend != recorded.",
+    ),
 ) -> None:
     """Diagnose a candidate config against production-like traces.
 
@@ -3484,13 +3497,17 @@ def diagnose_pr_cmd(
     command surface. Produces a JSON report and a markdown PR
     comment.
 
-    Week 2: real 9-axis affected-trace classification + policy
-    overlay + ship/probe/hold/stop verdict. When --candidate-traces
-    is omitted, this still works — but per-trace diff is skipped
-    and the verdict is `ship` regardless. Week 3 will fill in the
-    replay-driven candidate generation when --candidate-traces is
-    not provided.
+    Week 3: causal cause attribution + bootstrap CI + E-value when
+    `--backend mock` is supplied. The default `--backend recorded`
+    runs simple attribution from observed deltas (no CI but still
+    a dominant cause when one delta exists).
     """
+    from shadow.diagnose_pr.attribution import (
+        causal_from_replay,
+        pick_dominant,
+        simple_attribution,
+        suggested_fix_for,
+    )
     from shadow.diagnose_pr.deltas import extract_deltas
     from shadow.diagnose_pr.diffing import diff_pair, is_affected, worst_axis_for
     from shadow.diagnose_pr.loaders import load_config, load_traces
@@ -3499,6 +3516,15 @@ def diagnose_pr_cmd(
     from shadow.diagnose_pr.render import render_pr_comment
     from shadow.diagnose_pr.report import build_report, to_json
     from shadow.diagnose_pr.risk import is_dangerous_violation
+
+    if backend not in {"recorded", "mock"}:
+        _fail(
+            Exception(
+                f"--backend must be one of {{recorded, mock}}, got {backend!r} "
+                "(live backend lands in Week 4)"
+            )
+        )
+        return
 
     try:
         baseline = load_config(baseline_config)
@@ -3620,6 +3646,79 @@ def diagnose_pr_cmd(
         _fail(exc)
         return
 
+    # Cause attribution.
+    has_divergence = any(d.affected for d in diagnoses)
+    if backend == "mock" and deltas:
+        # Build a deterministic per-delta replay function from the
+        # extracted deltas.
+        #
+        # `causal_attribution()` compares baseline vs candidate at
+        # top-level keys only. Our deltas use dotted paths (e.g.
+        # `prompt.system`), so we flatten both configs to that
+        # representation: `{"prompt.system": "...", "params.temperature":
+        # 0.7, ...}`. Then each delta key in the flattened space
+        # corresponds to one of our extracted deltas exactly.
+        delta_axis_map = {
+            "prompt": "trajectory",
+            "model": "verbosity",
+            "temperature": "verbosity",
+            "tool_schema": "trajectory",
+            "retriever": "semantic",
+            "policy": "safety",
+            "unknown": "semantic",
+        }
+        kind_by_path = {d.path: d.kind for d in deltas}
+
+        def _flatten(d: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+            out: dict[str, Any] = {}
+            for k, v in d.items():
+                key = f"{prefix}.{k}" if prefix else k
+                if isinstance(v, dict):
+                    out.update(_flatten(v, key))
+                else:
+                    out[key] = v
+            return out
+
+        flat_baseline = _flatten(baseline)
+        flat_candidate = _flatten(candidate)
+
+        def _mock_replay(config: dict[str, Any]) -> dict[str, float]:
+            div = {
+                "semantic": 0.0,
+                "trajectory": 0.0,
+                "safety": 0.0,
+                "verbosity": 0.0,
+                "latency": 0.0,
+            }
+            # For each path that differs between baseline and candidate,
+            # add a unit signal on its mapped axis when the config has
+            # the CANDIDATE value at that path.
+            for path, cand_val in flat_candidate.items():
+                if flat_baseline.get(path) == cand_val:
+                    continue  # not a delta
+                if config.get(path) == cand_val:
+                    kind = kind_by_path.get(path, "unknown")
+                    ax = delta_axis_map.get(kind, "semantic")
+                    div[ax] += 0.5
+            return div
+
+        try:
+            top_causes = causal_from_replay(
+                baseline_config=flat_baseline,
+                candidate_config=flat_candidate,
+                replay_fn=_mock_replay,
+                n_bootstrap=n_bootstrap,
+                sensitivity=True,
+            )
+        except Exception as exc:
+            _fail(exc)
+            return
+    else:
+        top_causes = simple_attribution(deltas=deltas, has_divergence=has_divergence)
+
+    dominant = pick_dominant(top_causes)
+    suggested_fix = suggested_fix_for(dominant, deltas=deltas)
+
     report = build_report(
         traces=loaded,
         deltas=deltas,
@@ -3628,6 +3727,9 @@ def diagnose_pr_cmd(
         worst_policy_rule=worst_rule_id,
         has_dangerous_violation=has_dangerous_violation,
         has_severe_axis=has_severe_axis,
+        top_causes=top_causes,
+        dominant_cause=dominant,
+        suggested_fix=suggested_fix,
     )
 
     out.parent.mkdir(parents=True, exist_ok=True)
