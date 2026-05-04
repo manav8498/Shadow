@@ -162,7 +162,9 @@ def test_verify_fix_cli_round_trips_diagnose_report(tmp_path: Path) -> None:
     a real affected_trace_ids list, then run verify-fix CLI and
     assert the report.json shape + exit code."""
     import json
+
     from typer.testing import CliRunner
+
     from shadow.cli.app import app
 
     base_dir = tmp_path / "baseline"
@@ -184,10 +186,14 @@ def test_verify_fix_cli_round_trips_diagnose_report(tmp_path: Path) -> None:
         app,
         [
             "verify-fix",
-            "--report", str(diagnose_path),
-            "--traces", str(base_dir),
-            "--fixed-traces", str(fix_dir),
-            "--out", str(out_json),
+            "--report",
+            str(diagnose_path),
+            "--traces",
+            str(base_dir),
+            "--fixed-traces",
+            str(fix_dir),
+            "--out",
+            str(out_json),
         ],
     )
     assert result.exit_code == 0, result.stdout

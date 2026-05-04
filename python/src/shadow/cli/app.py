@@ -3518,11 +3518,7 @@ def diagnose_pr_cmd(
     from shadow.diagnose_pr.risk import is_dangerous_violation
 
     if backend not in {"recorded", "mock", "live"}:
-        _fail(
-            Exception(
-                f"--backend must be one of {{recorded, mock, live}}, got {backend!r}"
-            )
-        )
+        _fail(Exception(f"--backend must be one of {{recorded, mock, live}}, got {backend!r}"))
         return
 
     try:
@@ -3831,40 +3827,54 @@ def diagnose_pr_cmd(
 def gate_pr_cmd(
     ctx: typer.Context,
     traces: list[Path] = typer.Option(  # noqa: B008
-        ..., "--traces",
+        ...,
+        "--traces",
         help="Baseline production-like .agentlog files.",
     ),
     candidate_traces: list[Path] | None = typer.Option(  # noqa: B008
-        None, "--candidate-traces",
+        None,
+        "--candidate-traces",
         help="Candidate .agentlog files paired by filename.",
     ),
     baseline_config: Path = typer.Option(  # noqa: B008
-        ..., "--baseline-config", help="Baseline agent config YAML.",
+        ...,
+        "--baseline-config",
+        help="Baseline agent config YAML.",
     ),
     candidate_config: Path = typer.Option(  # noqa: B008
-        ..., "--candidate-config", help="Candidate agent config YAML.",
+        ...,
+        "--candidate-config",
+        help="Candidate agent config YAML.",
     ),
     policy: Path | None = typer.Option(  # noqa: B008
-        None, "--policy", help="Optional behavior-policy YAML.",
+        None,
+        "--policy",
+        help="Optional behavior-policy YAML.",
     ),
     pr_comment: Path | None = typer.Option(  # noqa: B008
-        None, "--pr-comment",
+        None,
+        "--pr-comment",
         help="Path to write the markdown PR comment (CI typically posts this).",
     ),
     out: Path | None = typer.Option(  # noqa: B008
-        None, "--out",
+        None,
+        "--out",
         help="Optional path to write the JSON report (omit to skip).",
     ),
     backend: str = typer.Option(
-        "recorded", "--backend",
+        "recorded",
+        "--backend",
         help="Cause attribution backend: recorded | mock | live.",
     ),
     n_bootstrap: int = typer.Option(
-        500, "--n-bootstrap",
+        500,
+        "--n-bootstrap",
         help="Bootstrap resample count for causal CI (used when --backend != recorded).",
     ),
     max_traces: int = typer.Option(
-        200, "--max-traces", help="Cap on traces (mining selects representatives above this).",
+        200,
+        "--max-traces",
+        help="Cap on traces (mining selects representatives above this).",
     ),
 ) -> None:
     """CI-friendly wrapper around `shadow diagnose-pr` with verdict-mapped exit codes:
@@ -3889,13 +3899,20 @@ def gate_pr_cmd(
 
     diagnose_args = [
         "diagnose-pr",
-        "--baseline-config", str(baseline_config),
-        "--candidate-config", str(candidate_config),
-        "--out", str(out),
-        "--backend", backend,
-        "--n-bootstrap", str(n_bootstrap),
-        "--max-traces", str(max_traces),
-        "--fail-on", "none",  # we set the exit code below from the verdict directly
+        "--baseline-config",
+        str(baseline_config),
+        "--candidate-config",
+        str(candidate_config),
+        "--out",
+        str(out),
+        "--backend",
+        backend,
+        "--n-bootstrap",
+        str(n_bootstrap),
+        "--max-traces",
+        str(max_traces),
+        "--fail-on",
+        "none",  # we set the exit code below from the verdict directly
     ]
     for t in traces:
         diagnose_args.extend(["--traces", str(t)])
@@ -3917,21 +3934,21 @@ def gate_pr_cmd(
                 # diagnose-pr raised a typed exit; we're going to set
                 # our own exit code from the verdict, so swallow.
                 if e.exit_code != 0 and e.exit_code != 1:
-                    raise typer.Exit(code=3)
+                    raise typer.Exit(code=3) from e
     except SystemExit as exc:
         # click sometimes raises SystemExit even with standalone_mode=False
         if exc.code not in (0, 1, None):
             raise typer.Exit(code=3) from exc
     except typer.Exit:
         raise
-    except Exception:
-        raise typer.Exit(code=3)
+    except Exception as exc:
+        raise typer.Exit(code=3) from exc
 
     # Map verdict -> exit code.
     try:
         report = json.loads(out.read_text(encoding="utf-8"))
-    except Exception:
-        raise typer.Exit(code=3)
+    except Exception as exc:
+        raise typer.Exit(code=3) from exc
 
     verdict = report.get("verdict", "ship")
     code = {"ship": 0, "probe": 1, "hold": 1, "stop": 2}.get(verdict, 3)
@@ -3950,7 +3967,10 @@ def verify_fix_cmd(
     baseline_traces: list[Path] = typer.Option(  # noqa: B008
         ...,
         "--traces",
-        help="Original baseline .agentlog files (or directories) — same as `shadow diagnose-pr --traces`.",
+        help=(
+            "Original baseline .agentlog files (or directories) — "
+            "same as `shadow diagnose-pr --traces`."
+        ),
     ),
     fixed_traces: list[Path] = typer.Option(  # noqa: B008
         ...,

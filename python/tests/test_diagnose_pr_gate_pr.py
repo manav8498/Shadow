@@ -55,7 +55,9 @@ def _stage_configs(tmp_path: Path) -> tuple[Path, Path, Path]:
     base = tmp_path / "baseline.yaml"
     cand = tmp_path / "candidate.yaml"
     pol = tmp_path / "policy.yaml"
-    base.write_text("model: x\nparams: {temperature: 0.0}\nprompt:\n  system: 'Always confirm refunds.'\n")
+    base.write_text(
+        "model: x\nparams: {temperature: 0.0}\nprompt:\n  system: 'Always confirm refunds.'\n"
+    )
     cand.write_text("model: x\nparams: {temperature: 0.0}\nprompt:\n  system: 'Process refunds.'\n")
     pol.write_text(
         "apiVersion: shadow.dev/v1alpha1\n"
@@ -86,12 +88,18 @@ def test_gate_pr_stop_verdict_returns_exit_2(tmp_path: Path) -> None:
         app,
         [
             "gate-pr",
-            "--traces", str(base_dir),
-            "--candidate-traces", str(cand_dir),
-            "--baseline-config", str(base_cfg),
-            "--candidate-config", str(cand_cfg),
-            "--policy", str(pol),
-            "--out", str(out_json),
+            "--traces",
+            str(base_dir),
+            "--candidate-traces",
+            str(cand_dir),
+            "--baseline-config",
+            str(base_cfg),
+            "--candidate-config",
+            str(cand_cfg),
+            "--policy",
+            str(pol),
+            "--out",
+            str(out_json),
         ],
     )
     assert result.exit_code == 2, result.stdout
@@ -111,10 +119,14 @@ def test_gate_pr_ship_verdict_returns_exit_0(tmp_path: Path) -> None:
         app,
         [
             "gate-pr",
-            "--traces", str(base_dir),
-            "--baseline-config", str(base_cfg),
-            "--candidate-config", str(cand_cfg),
-            "--out", str(out_json),
+            "--traces",
+            str(base_dir),
+            "--baseline-config",
+            str(base_cfg),
+            "--candidate-config",
+            str(cand_cfg),
+            "--out",
+            str(out_json),
         ],
     )
     assert result.exit_code == 0, result.stdout
