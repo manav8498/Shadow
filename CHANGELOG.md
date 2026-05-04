@@ -10,6 +10,28 @@ End of the strategic-pivot 8-phase roadmap. Phases 1–8 are landed
 + stress-tested + cross-language paired. Final v0.2 wrap-up adds
 the remaining deferred items.
 
+### Added (post-roadmap closures)
+
+* **napi-rs native binding for `shadow-align`** — new
+  `typescript/native/` workspace (excluded from the main Rust
+  workspace) wraps the pure-Rust `shadow-align` crate as a Node
+  addon. The TS package's `trajectoryDistance` and `toolArgDelta`
+  transparently use it when the `.node` file is built; pure-TS
+  remains the silent fallback. `isNativeAvailable()` exposes the
+  load state. ESM-safe via `createRequire(import.meta.url)`.
+* **Per-trace live replay parallelism** — `diagnose_pr/live.py`
+  replays per-trace candidates through a `ThreadPoolExecutor`
+  (Python releases the GIL on httpx I/O). `SHADOW_LIVE_MAX_WORKERS`
+  env knob (default 4). `CostTracker` made thread-safe with a Lock
+  around mutation; cost-cap check happens inside the critical
+  section. ~2.7× speedup measured on a 3-trace stub.
+* **`shadow dashboard --report report.json`** — new CLI command +
+  `shadow.diagnose_pr.dashboard` module. Renders a diagnose-pr
+  report as a browsable HTML page (verdict, top causes, per-trace
+  diagnoses), with `/`, `/report.json`, `/healthz` routes. All
+  user-controlled fields HTML-escaped. Lazy fastapi/uvicorn import;
+  requires the `[serve]` extra. `--open` launches the browser.
+
 ### Added (final v0.2 wrap-up)
 
 * **`structural_drift_full` divergence kind** in `shadow.align.
