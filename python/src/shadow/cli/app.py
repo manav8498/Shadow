@@ -3489,6 +3489,14 @@ def diagnose_pr_cmd(
         "--n-bootstrap",
         help="Bootstrap resample count for causal CI. Used only when --backend != recorded.",
     ),
+    max_cost: float | None = typer.Option(
+        None,
+        "--max-cost",
+        help=(
+            "Maximum total USD spend allowed during --backend live runs. "
+            "Aborts before exceeding the cap; ignored for recorded/mock backends."
+        ),
+    ),
 ) -> None:
     """Diagnose a candidate config against production-like traces.
 
@@ -3497,326 +3505,61 @@ def diagnose_pr_cmd(
     command surface. Produces a JSON report and a markdown PR
     comment.
 
-    Week 3: causal cause attribution + bootstrap CI + E-value when
-    `--backend mock` is supplied. The default `--backend recorded`
-    runs simple attribution from observed deltas (no CI but still
-    a dominant cause when one delta exists).
+    Backends:
+      recorded (default): simple attribution from observed deltas
+                          (no CI; one-delta runs still get conf=1.0).
+      mock              : deterministic per-delta intervention for
+                          tests / demos; emits real bootstrap CIs
+                          but synthetic ATE magnitudes (the PR
+                          comment surfaces a 'synthetic' disclosure).
+      live              : real OpenAI replay per baseline trace;
+                          divergence is the corpus mean. --max-cost
+                          USD caps total spend.
     """
-    from shadow.diagnose_pr.attribution import (
-        causal_from_replay,
-        pick_dominant,
-        simple_attribution,
-        suggested_fix_for,
-    )
-    from shadow.diagnose_pr.deltas import extract_deltas
-    from shadow.diagnose_pr.diffing import diff_pair, is_affected, worst_axis_for
-    from shadow.diagnose_pr.loaders import load_config, load_traces
-    from shadow.diagnose_pr.models import TraceDiagnosis
-    from shadow.diagnose_pr.policy import evaluate_policy
     from shadow.diagnose_pr.render import render_pr_comment
-    from shadow.diagnose_pr.report import build_report, to_json
-    from shadow.diagnose_pr.risk import is_dangerous_violation
+    from shadow.diagnose_pr.report import to_json
+    from shadow.diagnose_pr.runner import DiagnoseOptions, run_diagnose_pr
 
-    if backend not in {"recorded", "mock", "live"}:
-        _fail(Exception(f"--backend must be one of {{recorded, mock, live}}, got {backend!r}"))
+    if fail_on not in {"none", "probe", "hold", "stop"}:
+        _fail(Exception(f"--fail-on must be one of [none, probe, hold, stop], got {fail_on!r}"))
         return
 
     try:
-        baseline = load_config(baseline_config)
-        candidate = load_config(candidate_config)
-        loaded = load_traces(list(traces))
-        cand_loaded = load_traces(list(candidate_traces)) if candidate_traces is not None else None
+        result = run_diagnose_pr(
+            DiagnoseOptions(
+                traces=list(traces),
+                candidate_traces=list(candidate_traces) if candidate_traces else None,
+                baseline_config=baseline_config,
+                candidate_config=candidate_config,
+                policy=policy,
+                changed_files=list(changed_files) if changed_files else None,
+                max_traces=max_traces,
+                backend=backend,
+                n_bootstrap=n_bootstrap,
+                max_cost_usd=max_cost,
+            )
+        )
     except Exception as exc:
         _fail(exc)
         return
 
-    deltas = extract_deltas(baseline, candidate, changed_files=changed_files)
-
-    if max_traces > 0 and len(loaded) > max_traces:
-        # Use the existing mining surface to pick representative cases
-        # when the corpus is large. Mining already exists in
-        # shadow.mine.mine; we wrap it here so the command stays
-        # composable. `MinedCase.baseline_source` carries the source
-        # trace id (matching `LoadedTrace.trace_id`); do NOT use
-        # `request_record.id` — that's a chat-record id, a different
-        # content address.
-        from shadow.mine import mine as _mine
-
-        records_only = [t.records for t in loaded]
-        sampled = _mine(records_only, max_cases=max_traces, per_cluster=1)
-        sampled_trace_ids = {case.baseline_source for case in sampled.cases}
-        loaded = [t for t in loaded if t.trace_id in sampled_trace_ids]
-        if not loaded:
-            # Defensive: if mining returned nothing usable (e.g. all
-            # cases had empty baseline_source), fail loud rather than
-            # silently re-run on the full corpus.
-            _fail(Exception("mining produced no usable cases — corpus may be malformed"))
-            return
-
-    # Pair candidate traces by filename when both sides supplied.
-    cand_by_name: dict[str, list[dict[str, Any]]] = {}
-    if cand_loaded is not None:
-        cand_by_name = {t.path.name: t.records for t in cand_loaded}
-        # Fail loud if the user explicitly opted into pairing but
-        # zero baseline filenames match candidate filenames. The
-        # alternative (silent SHIP because no pair was diffable) is
-        # the same class of silent-failure bug as the mining filter
-        # fallback we already fixed.
-        baseline_names = {t.path.name for t in loaded}
-        if not (baseline_names & cand_by_name.keys()):
-            _fail(
-                Exception(
-                    "no baseline trace filename matches any candidate trace filename — "
-                    "pair by exact filename (e.g. baseline/x.agentlog <-> candidate/x.agentlog)"
-                )
-            )
-            return
-
-    diagnoses: list[TraceDiagnosis] = []
-    has_severe_axis = False
-    has_dangerous_violation = False
-    total_new_violations = 0
-    worst_rule_id: str | None = None
-    worst_rule_severity_rank = -1
-    severity_order = {"info": 0, "warning": 1, "error": 2, "critical": 3}
-
-    try:
-        for t in loaded:
-            cand_records = cand_by_name.get(t.path.name)
-            if cand_records is None:
-                # Week 3 will replay candidate config to fill this in.
-                diagnoses.append(
-                    TraceDiagnosis(
-                        trace_id=t.trace_id,
-                        affected=False,
-                        risk=0.0,
-                        worst_axis=None,
-                        first_divergence=None,
-                        policy_violations=[],
-                    )
-                )
-                continue
-
-            diff_report = diff_pair(t.records, cand_records)
-            affected = is_affected(diff_report)
-            worst_axis = worst_axis_for(diff_report)
-            first_div = diff_report.get("first_divergence")
-            # Severe axis = any 9-axis row at severity 'severe'.
-            for row in diff_report.get("rows") or []:
-                if row.get("severity") == "severe":
-                    has_severe_axis = True
-                    break
-
-            policy_result = evaluate_policy(policy, t.records, cand_records)
-            total_new_violations += policy_result.new_violations
-            if policy_result.worst_rule is not None:
-                # Track the highest-severity rule across all pairs;
-                # ties resolved by first-seen.
-                pol_severity = max(
-                    (
-                        severity_order.get(v.get("severity", ""), 0)
-                        for v in policy_result.regressions
-                    ),
-                    default=-1,
-                )
-                if pol_severity > worst_rule_severity_rank:
-                    worst_rule_severity_rank = pol_severity
-                    worst_rule_id = policy_result.worst_rule
-            for reg in policy_result.regressions:
-                if is_dangerous_violation(reg):
-                    has_dangerous_violation = True
-                    break
-
-            diagnoses.append(
-                TraceDiagnosis(
-                    trace_id=t.trace_id,
-                    affected=affected,
-                    risk=0.0,  # Week 3 fills in real risk score
-                    worst_axis=worst_axis,
-                    first_divergence=first_div,
-                    policy_violations=policy_result.regressions,
-                )
-            )
-    except Exception as exc:
-        _fail(exc)
-        return
-
-    # Cause attribution.
-    has_divergence = any(d.affected for d in diagnoses)
-    if backend == "mock" and deltas:
-        # Build a deterministic per-delta replay function from the
-        # extracted deltas.
-        #
-        # `causal_attribution()` compares baseline vs candidate at
-        # top-level keys only. Our deltas use dotted paths (e.g.
-        # `prompt.system`), so we flatten both configs to that
-        # representation: `{"prompt.system": "...", "params.temperature":
-        # 0.7, ...}`. Then each delta key in the flattened space
-        # corresponds to one of our extracted deltas exactly.
-        # Mock signal magnitudes per DeltaKind. Differentiated so
-        # multi-delta scenarios produce a clear dominant cause
-        # rather than tying at a uniform 0.5. These are NOT grounded
-        # in real-world impact data — they're just for the mock
-        # backend's demo / testing purpose. Real causal attribution
-        # comes from --backend live (Week 4).
-        delta_signal_map = {
-            "prompt": ("trajectory", 0.6),
-            "policy": ("safety", 0.7),
-            "tool_schema": ("trajectory", 0.5),
-            "retriever": ("semantic", 0.5),
-            "model": ("verbosity", 0.4),
-            "temperature": ("verbosity", 0.3),
-            "unknown": ("semantic", 0.2),
-        }
-        kind_by_path = {d.path: d.kind for d in deltas}
-
-        def _flatten(d: dict[str, Any], prefix: str = "") -> dict[str, Any]:
-            out: dict[str, Any] = {}
-            for k, v in d.items():
-                key = f"{prefix}.{k}" if prefix else k
-                if isinstance(v, dict):
-                    out.update(_flatten(v, key))
-                else:
-                    out[key] = v
-            return out
-
-        flat_baseline = _flatten(baseline)
-        flat_candidate = _flatten(candidate)
-
-        def _mock_replay(config: dict[str, Any]) -> dict[str, float]:
-            div = {
-                "semantic": 0.0,
-                "trajectory": 0.0,
-                "safety": 0.0,
-                "verbosity": 0.0,
-                "latency": 0.0,
-            }
-            # For each path that differs between baseline and candidate,
-            # add a unit signal on its mapped axis when the config has
-            # the CANDIDATE value at that path.
-            for path, cand_val in flat_candidate.items():
-                if flat_baseline.get(path) == cand_val:
-                    continue  # not a delta
-                if config.get(path) == cand_val:
-                    kind = kind_by_path.get(path, "unknown")
-                    ax, magnitude = delta_signal_map.get(kind, delta_signal_map["unknown"])
-                    div[ax] += magnitude
-            return div
-
-        try:
-            top_causes = causal_from_replay(
-                baseline_config=flat_baseline,
-                candidate_config=flat_candidate,
-                replay_fn=_mock_replay,
-                n_bootstrap=n_bootstrap,
-                sensitivity=True,
-            )
-        except Exception as exc:
-            _fail(exc)
-            return
-    elif backend == "live" and deltas:
-        # Live backend: route through OpenAI via the existing
-        # OpenAIReplayer. Anchor on the first baseline trace's user
-        # prompt + response text — production users with multiple
-        # traces should run this command per-trace and aggregate
-        # externally for now (a per-trace live-replay aggregation
-        # surface lands in a follow-up).
-        from shadow.diagnose_pr.live import build_live_replay_fn
-
-        if not loaded:
-            _fail(Exception("--backend live requires at least one baseline trace"))
-            return
-
-        anchor = loaded[0]
-        first_user = ""
-        first_resp_text = ""
-        for rec in anchor.records:
-            if rec.get("kind") == "chat_request":
-                msgs = rec.get("payload", {}).get("messages") or []
-                for m in msgs:
-                    if m.get("role") == "user":
-                        first_user = str(m.get("content", ""))
-                        break
-                if first_user:
-                    break
-        for rec in anchor.records:
-            if rec.get("kind") == "chat_response":
-                content = rec.get("payload", {}).get("content") or []
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        first_resp_text = str(block.get("text", ""))
-                        break
-                if first_resp_text:
-                    break
-        if not first_user:
-            _fail(Exception("--backend live: anchor trace has no user message"))
-            return
-
-        # Flatten configs (same shape as the mock backend).
-        def _flatten_live(d: dict[str, Any], prefix: str = "") -> dict[str, Any]:
-            out: dict[str, Any] = {}
-            for k, v in d.items():
-                key = f"{prefix}.{k}" if prefix else k
-                if isinstance(v, dict):
-                    out.update(_flatten_live(v, key))
-                else:
-                    out[key] = v
-            return out
-
-        flat_baseline = _flatten_live(baseline)
-        flat_candidate = _flatten_live(candidate)
-
-        try:
-            live_fn = build_live_replay_fn(
-                baseline_user_prompt=first_user,
-                baseline_response_text=first_resp_text,
-            )
-            top_causes = causal_from_replay(
-                baseline_config=flat_baseline,
-                candidate_config=flat_candidate,
-                replay_fn=live_fn,
-                n_bootstrap=n_bootstrap,
-                sensitivity=True,
-            )
-        except Exception as exc:
-            _fail(exc)
-            return
-    else:
-        top_causes = simple_attribution(deltas=deltas, has_divergence=has_divergence)
-
-    dominant = pick_dominant(top_causes)
-    suggested_fix = suggested_fix_for(dominant, deltas=deltas)
-
-    report = build_report(
-        traces=loaded,
-        deltas=deltas,
-        diagnoses=diagnoses,
-        new_policy_violations=total_new_violations,
-        worst_policy_rule=worst_rule_id,
-        has_dangerous_violation=has_dangerous_violation,
-        has_severe_axis=has_severe_axis,
-        top_causes=top_causes,
-        dominant_cause=dominant,
-        suggested_fix=suggested_fix,
-    )
-
+    report = result.report
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(to_json(report) + "\n", encoding="utf-8")
-
     if pr_comment is not None:
         pr_comment.parent.mkdir(parents=True, exist_ok=True)
         pr_comment.write_text(render_pr_comment(report), encoding="utf-8")
 
-    typer.echo(
-        f"Shadow verdict: {report.verdict.upper()} — "
+    summary = (
+        f"Shadow verdict: {report.verdict.upper()} - "
         f"{report.affected_traces}/{report.total_traces} affected"
     )
+    if result.cost_usd is not None:
+        summary += f" (live cost: ${result.cost_usd:.4f}, {len(result.cost_breakdown)} API calls)"
+    typer.echo(summary)
 
-    floor_map = {"none": -1, "probe": 1, "hold": 2, "stop": 3}
-    if fail_on not in floor_map:
-        _fail(Exception(f"--fail-on must be one of {sorted(floor_map)}, got {fail_on!r}"))
-        return
     rank = {"ship": 0, "probe": 1, "hold": 2, "stop": 3}
+    floor_map = {"none": -1, "probe": 1, "hold": 2, "stop": 3}
     verdict_rank = rank.get(report.verdict, 0)
     floor = floor_map[fail_on]
     if floor >= 0 and verdict_rank >= floor:

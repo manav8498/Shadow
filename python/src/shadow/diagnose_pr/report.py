@@ -45,6 +45,7 @@ def build_report(
     top_causes: list[CauseEstimate] | None = None,
     dominant_cause: CauseEstimate | None = None,
     suggested_fix: str | None = None,
+    extra_flags: list[str] | None = None,
 ) -> DiagnosePrReport:
     """Assemble a DiagnosePrReport.
 
@@ -100,6 +101,12 @@ def build_report(
     flags: list[str] = []
     if 0 < total < _LOW_POWER_THRESHOLD:
         flags.append("low_power")
+    if extra_flags:
+        # De-dupe while preserving order; extra flags come after
+        # the structural ones so the renderer can rank them.
+        for f in extra_flags:
+            if f not in flags:
+                flags.append(f)
 
     return DiagnosePrReport(
         schema_version=SCHEMA_VERSION,
