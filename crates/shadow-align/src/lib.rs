@@ -580,6 +580,10 @@ pub fn top_k_divergences(baseline: &[Value], candidate: &[Value], k: usize) -> V
 
 #[cfg(test)]
 mod tests {
+    // Tests are allowed to .expect() / .unwrap() / panic! — the
+    // crate-level `lints.clippy` block bans them in production code
+    // but pattern-matching every Option in tests obscures intent.
+    #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
     use super::*;
     use serde_json::json;
 

@@ -6,6 +6,12 @@
 //! inputs. If any number drifts here, fix it in all three ports
 //! — drift between languages is the bug.
 
+// Integration tests live in their own crate, so the package-level
+// `lints.clippy` block in Cargo.toml applies here too. Tests are
+// allowed to .expect() / .unwrap() / panic!; pattern-matching every
+// Option in test code obscures intent.
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+
 use serde_json::{json, Value};
 use shadow_align::{
     align_traces, first_divergence, tool_arg_delta, top_k_divergences, trajectory_distance,
