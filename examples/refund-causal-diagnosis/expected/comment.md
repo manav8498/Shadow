@@ -8,6 +8,8 @@ This PR changes agent behavior on **3** / **3** production-like traces.
 
 > :warning: **Low statistical power** — fewer than 30 traces in the sample. Treat the verdict as advisory; widen `--max-traces` for more confidence.
 
+> :information_source: **Synthetic mock backend.** Cause magnitudes below come from a deterministic per-delta heuristic (not real LLM behavior). Re-run with `--backend live` for a grounded estimate.
+
 ### Dominant cause
 
 `prompt.system` appears to be the main cause.

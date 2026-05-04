@@ -1,0 +1,177 @@
+name: 'Shadow diagnose-pr'
+description: >
+  Run `shadow diagnose-pr` against a PR and post the verdict + dominant
+  cause + suggested fix as a GitHub PR comment. Uses verdict-mapped
+  exit codes via `shadow gate-pr`: 0 ship, 1 hold/probe, 2 stop,
+  3 internal error. The companion `shadow-action` posts a generic
+  9-axis diff; this action posts the causal-PR-diagnosis flow.
+
+inputs:
+  baseline-traces:
+    description: 'Path to the directory of baseline .agentlog files.'
+    required: true
+  candidate-traces:
+    description: 'Path to the directory of candidate-side .agentlog files (paired by filename).'
+    required: false
+    default: ''
+  baseline-config:
+    description: 'Path to baseline agent config YAML.'
+    required: true
+  candidate-config:
+    description: 'Path to candidate agent config YAML.'
+    required: true
+  policy:
+    description: 'Optional path to a behavior-policy YAML.'
+    required: false
+    default: ''
+  changed-files:
+    description: 'Newline-separated list of changed files (typically `git diff --name-only main...HEAD`).'
+    required: false
+    default: ''
+  backend:
+    description: 'Cause-attribution backend: recorded | mock | live.'
+    required: false
+    default: 'recorded'
+  n-bootstrap:
+    description: 'Bootstrap resample count for causal CI.'
+    required: false
+    default: '500'
+  max-traces:
+    description: 'Cap on traces fed to per-trace loop (mining samples representatives above this).'
+    required: false
+    default: '200'
+  max-cost:
+    description: 'Maximum total USD spend for --backend live runs (no cap by default).'
+    required: false
+    default: ''
+  fail-on-hold:
+    description: 'If "true" (default), fail the action with exit 1 when verdict is hold/probe. Set "false" to post the comment without failing.'
+    required: false
+    default: 'true'
+  python-version:
+    description: 'Python version to install.'
+    required: false
+    default: '3.11'
+  shadow-version:
+    description: 'shadow-diff version to install (empty = latest from PyPI).'
+    required: false
+    default: ''
+  github-token:
+    description: 'Token used to post the PR comment.'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  verdict:
+    description: 'The verdict the runner produced (ship / probe / hold / stop).'
+    value: ${{ steps.run.outputs.verdict }}
+  affected:
+    description: 'Number of affected traces.'
+    value: ${{ steps.run.outputs.affected }}
+  total:
+    description: 'Total trace count after mining.'
+    value: ${{ steps.run.outputs.total }}
+  cost-usd:
+    description: 'Total USD spend (live backend only, else 0).'
+    value: ${{ steps.run.outputs.cost_usd }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install shadow-diff
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.shadow-version }}" ]; then
+          pip install "shadow-diff==${{ inputs.shadow-version }}"
+        else
+          pip install shadow-diff
+        fi
+
+    - name: Run shadow diagnose-pr
+      id: run
+      shell: bash
+      env:
+        # Live backend reads OPENAI_API_KEY from env; expose only when
+        # the caller has explicitly set it as an action secret.
+        OPENAI_API_KEY: ${{ env.OPENAI_API_KEY }}
+      run: |
+        set -euo pipefail
+        OUT=".shadow/diagnose-pr"
+        mkdir -p "$OUT"
+
+        ARGS=(
+          --traces "${{ inputs.baseline-traces }}"
+          --baseline-config "${{ inputs.baseline-config }}"
+          --candidate-config "${{ inputs.candidate-config }}"
+          --out "$OUT/report.json"
+          --pr-comment "$OUT/comment.md"
+          --backend "${{ inputs.backend }}"
+          --n-bootstrap "${{ inputs.n-bootstrap }}"
+          --max-traces "${{ inputs.max-traces }}"
+        )
+        if [ -n "${{ inputs.candidate-traces }}" ]; then
+          ARGS+=( --candidate-traces "${{ inputs.candidate-traces }}" )
+        fi
+        if [ -n "${{ inputs.policy }}" ]; then
+          ARGS+=( --policy "${{ inputs.policy }}" )
+        fi
+        if [ -n "${{ inputs.max-cost }}" ]; then
+          ARGS+=( --max-cost "${{ inputs.max-cost }}" )
+        fi
+        if [ -n "${{ inputs.changed-files }}" ]; then
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            ARGS+=( --changed-files "$f" )
+          done <<< "${{ inputs.changed-files }}"
+        fi
+
+        # Don't fail-on yet; we'll exit-code map after extracting outputs.
+        set +e
+        shadow diagnose-pr "${ARGS[@]}"
+        rc=$?
+        set -e
+
+        VERDICT=$(python -c "import json; print(json.load(open('$OUT/report.json'))['verdict'])")
+        AFFECTED=$(python -c "import json; print(json.load(open('$OUT/report.json'))['affected_traces'])")
+        TOTAL=$(python -c "import json; print(json.load(open('$OUT/report.json'))['total_traces'])")
+        echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
+        echo "affected=$AFFECTED" >> "$GITHUB_OUTPUT"
+        echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+        echo "cost_usd=0" >> "$GITHUB_OUTPUT"
+        echo "comment_path=$OUT/comment.md" >> "$GITHUB_OUTPUT"
+
+        if [ $rc -ne 0 ]; then
+          echo "::warning::shadow diagnose-pr exited $rc; see $OUT/report.json"
+        fi
+
+    - name: Post PR comment
+      if: github.event.pull_request != null
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        # Reuse the existing dedup-by-marker comment.py from
+        # shadow-action — it expects the marker without angle
+        # brackets, then wraps as <!-- marker -->. Our renderer
+        # already emits that exact form so the post path is happy.
+        python "${{ github.action_path }}/../shadow-action/comment.py" \
+          --repo "${{ github.repository }}" \
+          --pr "${{ github.event.pull_request.number }}" \
+          --body-file "${{ steps.run.outputs.comment_path }}" \
+          --marker 'shadow-diagnose-pr'
+
+    - name: Map verdict to exit code
+      shell: bash
+      run: |
+        VERDICT="${{ steps.run.outputs.verdict }}"
+        case "$VERDICT" in
+          ship)            exit 0 ;;
+          probe|hold)      [ "${{ inputs.fail-on-hold }}" = "true" ] && exit 1 || exit 0 ;;
+          stop)            exit 2 ;;
+          *)               echo "::error::unrecognised verdict $VERDICT"; exit 3 ;;
+        esac

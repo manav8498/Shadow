@@ -17,7 +17,6 @@ the assembled `DiagnosePrReport` plus optional rendered markdown.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -103,9 +102,7 @@ def run_diagnose_pr(opts: DiagnoseOptions) -> DiagnoseResult:
     candidate = load_config(opts.candidate_config)
     loaded = load_traces(list(opts.traces))
     cand_loaded = (
-        load_traces(list(opts.candidate_traces))
-        if opts.candidate_traces is not None
-        else None
+        load_traces(list(opts.candidate_traces)) if opts.candidate_traces is not None else None
     )
 
     deltas = extract_deltas(baseline, candidate, changed_files=opts.changed_files)
@@ -118,9 +115,7 @@ def run_diagnose_pr(opts: DiagnoseOptions) -> DiagnoseResult:
         sampled_trace_ids = {case.baseline_source for case in sampled.cases}
         loaded = [t for t in loaded if t.trace_id in sampled_trace_ids]
         if not loaded:
-            raise RuntimeError(
-                "mining produced no usable cases — corpus may be malformed"
-            )
+            raise RuntimeError("mining produced no usable cases — corpus may be malformed")
 
     cand_by_name: dict[str, list[dict[str, Any]]] = {}
     if cand_loaded is not None:
@@ -201,7 +196,11 @@ def _diff_one_pair(
                 first_divergence=None,
                 policy_violations=[],
             ),
-            False, False, 0, None, -1,
+            False,
+            False,
+            0,
+            None,
+            -1,
         )
 
     diff_report = diff_pair(t.records, cand_records)
@@ -222,9 +221,7 @@ def _diff_one_pair(
         if policy_result.worst_rule is not None
         else -1
     )
-    has_dangerous_local = any(
-        is_dangerous_violation(reg) for reg in policy_result.regressions
-    )
+    has_dangerous_local = any(is_dangerous_violation(reg) for reg in policy_result.regressions)
 
     return (
         TraceDiagnosis(
@@ -266,14 +263,14 @@ def _per_trace_diff_and_policy(
     if len(pairs) >= _PARALLEL_THRESHOLD:
         from concurrent.futures import ThreadPoolExecutor
 
-        def _worker(args: tuple[LoadedTrace, list[dict[str, Any]] | None]) -> tuple[
-            TraceDiagnosis, bool, bool, int, str | None, int
-        ]:
+        def _worker(
+            args: tuple[LoadedTrace, list[dict[str, Any]] | None],
+        ) -> tuple[TraceDiagnosis, bool, bool, int, str | None, int]:
             t, c = args
             return _diff_one_pair(t, c, policy)
 
         # Cap at 8 — diminishing returns beyond and most CI runners
-        # have 2–4 cores. The Rust differ is the bottleneck.
+        # have 2-4 cores. The Rust differ is the bottleneck.
         with ThreadPoolExecutor(max_workers=min(8, len(pairs))) as ex:
             results = list(ex.map(_worker, pairs))
     else:

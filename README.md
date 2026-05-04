@@ -13,9 +13,28 @@
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
 
-**Behavior contracts for AI agents.**
+**Find the exact change that broke your AI agent.**
 
-Tested at PR-time. Enforced at runtime. Same YAML.
+`shadow diagnose-pr` answers, in one PR comment:
+
+1. Did agent behavior change?
+2. How many real or production-like traces are affected?
+3. **Which exact candidate change caused the regression?**
+4. With what confidence (bootstrap CI + E-value)?
+5. What fix should `verify-fix` confirm before merge?
+
+```bash
+shadow diagnose-pr \
+  --traces           prod-traces/ \
+  --candidate-traces candidate-traces/ \
+  --baseline-config  baseline.yaml \
+  --candidate-config candidate.yaml \
+  --policy           shadow-policy.yaml \
+  --pr-comment       comment.md
+```
+
+→ See [`docs/features/causal-pr-diagnosis.md`](docs/features/causal-pr-diagnosis.md) for the full flow, or
+[`examples/refund-causal-diagnosis/`](examples/refund-causal-diagnosis/) for a one-line runnable demo.
 
 <p align="center">
   <img src=".github/assets/demo.gif" alt="Shadow workflow loop demo" width="900" />

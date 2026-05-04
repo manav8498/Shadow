@@ -68,9 +68,7 @@ class CostTracker:
         new total would exceed `max_usd`. Always appends to
         `breakdown` for transparency in the report."""
         in_rate, out_rate = _PRICING_USD_PER_MTOK.get(model, _PRICING_FALLBACK)
-        cost = (input_tokens / 1_000_000.0) * in_rate + (
-            output_tokens / 1_000_000.0
-        ) * out_rate
+        cost = (input_tokens / 1_000_000.0) * in_rate + (output_tokens / 1_000_000.0) * out_rate
         self.calls += 1
         self.total_usd += cost
         self.breakdown.append(
@@ -124,18 +122,19 @@ def build_live_replay_fn(
     )
 
     def _replay(flat_config: dict[str, Any]) -> dict[str, float]:
-        translated = {
-            "system_prompt": str(flat_config.get("prompt.system", "")),
+        system_prompt = str(flat_config.get("prompt.system", ""))
+        model = str(flat_config.get("model", _DEFAULT_MODEL))
+        translated: dict[str, Any] = {
+            "system_prompt": system_prompt,
             "user_prompt": baseline_user_prompt,
-            "model": str(flat_config.get("model", _DEFAULT_MODEL)),
+            "model": model,
             "temperature": float(flat_config.get("params.temperature", 0.0)),
         }
         result = replayer(translated)
         if cost_tracker is not None and not getattr(result, "cached", False):
             cost_tracker.record(
-                model=translated["model"],
-                input_tokens=len(translated["system_prompt"]) // 4
-                + len(translated["user_prompt"]) // 4,
+                model=model,
+                input_tokens=(len(system_prompt) + len(baseline_user_prompt)) // 4,
                 output_tokens=getattr(result, "output_tokens", 100) or 100,
             )
         div = result.divergence
@@ -203,7 +202,7 @@ def build_live_replay_fn_per_corpus(
     # One replayer per trace — each anchored to its own (user_prompt,
     # response_text) pair. We share `cost` so the cap applies to the
     # whole corpus's spend.
-    per_trace = []
+    per_trace: list[dict[str, Any]] = []
     for t in baseline_traces:
         user, resp = _extract_anchor(t.records)
         if not user:
@@ -244,17 +243,19 @@ def build_live_replay_fn_per_corpus(
         temperature = float(flat_config.get("params.temperature", 0.0))
         system_prompt = str(flat_config.get("prompt.system", ""))
         for entry in per_trace:
+            user_prompt = str(entry["user_prompt"])
+            replayer_obj = entry["replayer"]
             translated = {
                 "system_prompt": system_prompt,
-                "user_prompt": entry["user_prompt"],
+                "user_prompt": user_prompt,
                 "model": model,
                 "temperature": temperature,
             }
-            result = entry["replayer"](translated)
+            result = replayer_obj(translated)
             if not getattr(result, "cached", False):
                 cost.record(
                     model=model,
-                    input_tokens=(len(system_prompt) + len(entry["user_prompt"])) // 4,
+                    input_tokens=(len(system_prompt) + len(user_prompt)) // 4,
                     output_tokens=getattr(result, "output_tokens", 100) or 100,
                 )
             for ax, val in result.divergence.items():
