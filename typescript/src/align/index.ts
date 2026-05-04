@@ -190,56 +190,234 @@ function preciseType(v: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// alignTraces / firstDivergence / topKDivergences — Rust-backed.
+// alignTraces / firstDivergence / topKDivergences — pure TS.
 //
-// v0.1 stubs. The actual Rust 9-axis differ that does the
-// alignment lives in the Python wheel (`shadow._core`); a
-// future v0.2 of this package adds a napi-rs binding so JS
-// callers can invoke it without spawning Python.
+// Records-array shape matches the `.agentlog` envelope: each item
+// is `{ kind, payload, ... }`. This pure-TS implementation walks
+// chat_request/chat_response pairs and detects divergences via the
+// existing trajectoryDistance + toolArgDelta primitives. It is NOT
+// byte-identical to Shadow's Rust 9-axis differ (which factors
+// embedding similarity, latency CDFs, etc.) — but for the wedge
+// use cases (regression detection, tool-trajectory drift,
+// argument shape changes) the TS implementation produces useful
+// results without requiring Python or native bindings.
+//
+// For Rust-grade results, use `shadow.align` (Python) or the
+// future v0.3 napi-rs binding.
 // ---------------------------------------------------------------------------
 
-/**
- * v0.1 stub. Returns an Alignment whose only signal is the
- * baseline trace's pair count; throws when the rich pairing
- * is needed. Use the Python package for full alignment until
- * the v0.2 napi-rs binding lands.
- */
-export function alignTraces(_baseline: unknown[], _candidate: unknown[]): Alignment {
-  throw new Error(
-    'alignTraces requires the Rust 9-axis differ. v0.1 of @shadow-diff/align ' +
-      'ships pure-TS trajectoryDistance + toolArgDelta only. For full alignment, ' +
-      'use the Python package: `pip install shadow-diff`. Native TS binding is ' +
-      'tracked for v0.2.',
-  );
+interface ChatPair {
+  request: Record<string, unknown>;
+  response: Record<string, unknown>;
+  index: number; // index in the alignment (0-based)
+}
+
+function extractChatPairs(records: readonly Record<string, unknown>[]): ChatPair[] {
+  const pairs: ChatPair[] = [];
+  let pendingReq: Record<string, unknown> | null = null;
+  for (const rec of records) {
+    const kind = rec.kind;
+    if (kind === 'chat_request') {
+      pendingReq = rec;
+    } else if (kind === 'chat_response' && pendingReq != null) {
+      pairs.push({ request: pendingReq, response: rec, index: pairs.length });
+      pendingReq = null;
+    }
+  }
+  return pairs;
+}
+
+function toolNamesFromContent(content: unknown): string[] {
+  if (!Array.isArray(content)) return [];
+  return content
+    .filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null)
+    .filter((b) => b.type === 'tool_use')
+    .map((b) => String(b.name ?? ''));
+}
+
+function textFromContent(content: unknown): string {
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null)
+    .filter((b) => b.type === 'text')
+    .map((b) => String(b.text ?? ''))
+    .join('\n');
+}
+
+function payloadOf(rec: Record<string, unknown>): Record<string, unknown> {
+  const p = rec.payload;
+  return typeof p === 'object' && p !== null ? (p as Record<string, unknown>) : {};
 }
 
 /**
- * v0.1 stub — see `alignTraces` for migration path.
+ * Pair every baseline chat turn to its best-match candidate turn.
+ * v0.1: index-based pairing (turn N to turn N) — the fast path
+ * Shadow's Rust differ uses for most real-world traces. Future
+ * versions add Needleman-Wunsch with insert/delete gap costs.
+ */
+export function alignTraces(
+  baseline: readonly Record<string, unknown>[],
+  candidate: readonly Record<string, unknown>[],
+): Alignment {
+  const basePairs = extractChatPairs(baseline);
+  const candPairs = extractChatPairs(candidate);
+  const turns: AlignedTurn[] = [];
+  let total = 0;
+  const minLen = Math.min(basePairs.length, candPairs.length);
+  for (let i = 0; i < minLen; i++) {
+    const cost = pairCost(basePairs[i], candPairs[i]);
+    turns.push({ baselineIndex: i, candidateIndex: i, cost });
+    total += cost;
+  }
+  // Insertions / deletions count as cost 1.0 each (asymmetric pair
+  // counts).
+  for (let i = minLen; i < basePairs.length; i++) {
+    turns.push({ baselineIndex: i, candidateIndex: null, cost: 1.0 });
+    total += 1.0;
+  }
+  for (let i = minLen; i < candPairs.length; i++) {
+    turns.push({ baselineIndex: null, candidateIndex: i, cost: 1.0 });
+    total += 1.0;
+  }
+  return { turns, totalCost: total };
+}
+
+function pairCost(b: ChatPair, c: ChatPair): number {
+  // Cost = max(toolNameDrift, textDrift). Bounded [0, 1].
+  const bTools = toolNamesFromContent(payloadOf(b.response).content);
+  const cTools = toolNamesFromContent(payloadOf(c.response).content);
+  const toolCost = trajectoryDistance(bTools, cTools);
+  const bText = textFromContent(payloadOf(b.response).content);
+  const cText = textFromContent(payloadOf(c.response).content);
+  const textCost = bText === cText ? 0.0 : bText.length === 0 || cText.length === 0 ? 1.0 : 0.5;
+  return Math.max(toolCost, textCost);
+}
+
+/**
+ * Find the FIRST point at which the two traces meaningfully
+ * differ in alignment order, or `null` when they agree end-to-end.
+ *
+ * v0.1: walks chat-pairs in alignment order; emits a divergence
+ * on the first non-zero pair cost or on asymmetric pair counts
+ * (`structural_drift_full`).
  */
 export function firstDivergence(
-  _baseline: unknown[],
-  _candidate: unknown[],
+  baseline: readonly Record<string, unknown>[],
+  candidate: readonly Record<string, unknown>[],
 ): Divergence | null {
-  throw new Error(
-    'firstDivergence requires the Rust 9-axis differ. v0.1 of @shadow-diff/align ' +
-      'ships pure-TS trajectoryDistance + toolArgDelta only. For full alignment, ' +
-      'use the Python package: `pip install shadow-diff`. Native TS binding is ' +
-      'tracked for v0.2.',
-  );
+  const basePairs = extractChatPairs(baseline);
+  const candPairs = extractChatPairs(candidate);
+  if (basePairs.length === 0 && candPairs.length === 0) return null;
+  if (basePairs.length === 0 || candPairs.length === 0) {
+    return {
+      baselineTurn: 0,
+      candidateTurn: 0,
+      kind: 'structural_drift_full',
+      primaryAxis: 'trajectory',
+      explanation: `asymmetric corpus: baseline has ${basePairs.length} chat pair(s), candidate has ${candPairs.length}`,
+      confidence: 1.0,
+    };
+  }
+  const minLen = Math.min(basePairs.length, candPairs.length);
+  for (let i = 0; i < minLen; i++) {
+    const bTools = toolNamesFromContent(payloadOf(basePairs[i].response).content);
+    const cTools = toolNamesFromContent(payloadOf(candPairs[i].response).content);
+    const toolDist = trajectoryDistance(bTools, cTools);
+    if (toolDist > 0) {
+      return {
+        baselineTurn: i,
+        candidateTurn: i,
+        kind: 'structural_drift',
+        primaryAxis: 'trajectory',
+        explanation: `tool sequence diverged at turn ${i} (drift=${toolDist.toFixed(2)})`,
+        confidence: Math.min(1.0, toolDist),
+      };
+    }
+    const bText = textFromContent(payloadOf(basePairs[i].response).content);
+    const cText = textFromContent(payloadOf(candPairs[i].response).content);
+    if (bText !== cText) {
+      return {
+        baselineTurn: i,
+        candidateTurn: i,
+        kind: 'decision_drift',
+        primaryAxis: 'semantic',
+        explanation: `response text diverged at turn ${i}`,
+        confidence: 0.7,
+      };
+    }
+  }
+  if (basePairs.length !== candPairs.length) {
+    return {
+      baselineTurn: minLen,
+      candidateTurn: minLen,
+      kind: 'structural_drift',
+      primaryAxis: 'trajectory',
+      explanation: `pair-count drift: baseline=${basePairs.length}, candidate=${candPairs.length}`,
+      confidence: 1.0,
+    };
+  }
+  return null;
 }
 
 /**
- * v0.1 stub — see `alignTraces` for migration path.
+ * Top-K ranked divergences. v0.1 walks all turns and emits one
+ * Divergence per non-zero per-pair cost; sorts by cost descending.
  */
 export function topKDivergences(
-  _baseline: unknown[],
-  _candidate: unknown[],
-  _k: number = 5,
+  baseline: readonly Record<string, unknown>[],
+  candidate: readonly Record<string, unknown>[],
+  k: number = 5,
 ): Divergence[] {
-  throw new Error(
-    'topKDivergences requires the Rust 9-axis differ. v0.1 of @shadow-diff/align ' +
-      'ships pure-TS trajectoryDistance + toolArgDelta only. For full alignment, ' +
-      'use the Python package: `pip install shadow-diff`. Native TS binding is ' +
-      'tracked for v0.2.',
-  );
+  if (k < 1) {
+    throw new Error(`k must be >= 1, got ${k}`);
+  }
+  const basePairs = extractChatPairs(baseline);
+  const candPairs = extractChatPairs(candidate);
+  const out: Divergence[] = [];
+  if (basePairs.length === 0 && candPairs.length === 0) return out;
+  if (basePairs.length === 0 || candPairs.length === 0) {
+    return [
+      {
+        baselineTurn: 0,
+        candidateTurn: 0,
+        kind: 'structural_drift_full',
+        primaryAxis: 'trajectory',
+        explanation: `asymmetric corpus: baseline=${basePairs.length} candidate=${candPairs.length}`,
+        confidence: 1.0,
+      },
+    ].slice(0, k);
+  }
+  const minLen = Math.min(basePairs.length, candPairs.length);
+  for (let i = 0; i < minLen; i++) {
+    const bResp = payloadOf(basePairs[i].response);
+    const cResp = payloadOf(candPairs[i].response);
+    const bTools = toolNamesFromContent(bResp.content);
+    const cTools = toolNamesFromContent(cResp.content);
+    const toolDist = trajectoryDistance(bTools, cTools);
+    if (toolDist > 0) {
+      out.push({
+        baselineTurn: i,
+        candidateTurn: i,
+        kind: 'structural_drift',
+        primaryAxis: 'trajectory',
+        explanation: `tool sequence diverged at turn ${i} (drift=${toolDist.toFixed(2)})`,
+        confidence: Math.min(1.0, toolDist),
+      });
+      continue;
+    }
+    const bText = textFromContent(bResp.content);
+    const cText = textFromContent(cResp.content);
+    if (bText !== cText) {
+      out.push({
+        baselineTurn: i,
+        candidateTurn: i,
+        kind: 'decision_drift',
+        primaryAxis: 'semantic',
+        explanation: `response text diverged at turn ${i}`,
+        confidence: 0.7,
+      });
+    }
+  }
+  out.sort((a, b) => b.confidence - a.confidence);
+  return out.slice(0, k);
 }
