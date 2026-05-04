@@ -3827,6 +3827,119 @@ def diagnose_pr_cmd(
         raise typer.Exit(code=1)
 
 
+@app.command("gate-pr", rich_help_panel="Common")
+def gate_pr_cmd(
+    ctx: typer.Context,
+    traces: list[Path] = typer.Option(  # noqa: B008
+        ..., "--traces",
+        help="Baseline production-like .agentlog files.",
+    ),
+    candidate_traces: list[Path] | None = typer.Option(  # noqa: B008
+        None, "--candidate-traces",
+        help="Candidate .agentlog files paired by filename.",
+    ),
+    baseline_config: Path = typer.Option(  # noqa: B008
+        ..., "--baseline-config", help="Baseline agent config YAML.",
+    ),
+    candidate_config: Path = typer.Option(  # noqa: B008
+        ..., "--candidate-config", help="Candidate agent config YAML.",
+    ),
+    policy: Path | None = typer.Option(  # noqa: B008
+        None, "--policy", help="Optional behavior-policy YAML.",
+    ),
+    pr_comment: Path | None = typer.Option(  # noqa: B008
+        None, "--pr-comment",
+        help="Path to write the markdown PR comment (CI typically posts this).",
+    ),
+    out: Path | None = typer.Option(  # noqa: B008
+        None, "--out",
+        help="Optional path to write the JSON report (omit to skip).",
+    ),
+    backend: str = typer.Option(
+        "recorded", "--backend",
+        help="Cause attribution backend: recorded | mock | live.",
+    ),
+    n_bootstrap: int = typer.Option(
+        500, "--n-bootstrap",
+        help="Bootstrap resample count for causal CI (used when --backend != recorded).",
+    ),
+    max_traces: int = typer.Option(
+        200, "--max-traces", help="Cap on traces (mining selects representatives above this).",
+    ),
+) -> None:
+    """CI-friendly wrapper around `shadow diagnose-pr` with verdict-mapped exit codes:
+
+      0 = ship    (no behavior regression)
+      1 = probe / hold  (regression detected; merge held)
+      2 = stop    (critical violation; do not merge)
+      3 = internal/tooling error  (treat as fail-closed in CI)
+
+    Same flags as diagnose-pr but optimised for one-line invocation
+    in a GitHub Actions step. Always writes the JSON report (to a
+    tempfile if --out omitted) and the PR comment markdown so a
+    follow-up step can post it.
+    """
+    import tempfile
+
+    # Default --out to a tempfile so the gate's verdict-only output
+    # path is the simplest possible CI invocation.
+    if out is None:
+        tmp = Path(tempfile.mkdtemp(prefix="shadow-gate-pr-")) / "report.json"
+        out = tmp
+
+    diagnose_args = [
+        "diagnose-pr",
+        "--baseline-config", str(baseline_config),
+        "--candidate-config", str(candidate_config),
+        "--out", str(out),
+        "--backend", backend,
+        "--n-bootstrap", str(n_bootstrap),
+        "--max-traces", str(max_traces),
+        "--fail-on", "none",  # we set the exit code below from the verdict directly
+    ]
+    for t in traces:
+        diagnose_args.extend(["--traces", str(t)])
+    if candidate_traces:
+        for ct in candidate_traces:
+            diagnose_args.extend(["--candidate-traces", str(ct)])
+    if policy is not None:
+        diagnose_args.extend(["--policy", str(policy)])
+    if pr_comment is not None:
+        diagnose_args.extend(["--pr-comment", str(pr_comment)])
+
+    # Re-invoke diagnose-pr internally. Catch any exit so we can
+    # convert it to the gate-pr exit code map (3 = internal error).
+    try:
+        with ctx:  # keep typer's exit-code propagation
+            try:
+                app(diagnose_args, standalone_mode=False)
+            except typer.Exit as e:
+                # diagnose-pr raised a typed exit; we're going to set
+                # our own exit code from the verdict, so swallow.
+                if e.exit_code != 0 and e.exit_code != 1:
+                    raise typer.Exit(code=3)
+    except SystemExit as exc:
+        # click sometimes raises SystemExit even with standalone_mode=False
+        if exc.code not in (0, 1, None):
+            raise typer.Exit(code=3) from exc
+    except typer.Exit:
+        raise
+    except Exception:
+        raise typer.Exit(code=3)
+
+    # Map verdict -> exit code.
+    try:
+        report = json.loads(out.read_text(encoding="utf-8"))
+    except Exception:
+        raise typer.Exit(code=3)
+
+    verdict = report.get("verdict", "ship")
+    code = {"ship": 0, "probe": 1, "hold": 1, "stop": 2}.get(verdict, 3)
+    typer.echo(f"Shadow gate-pr: {verdict.upper()} (exit {code})")
+    if code != 0:
+        raise typer.Exit(code=code)
+
+
 @app.command("verify-fix", rich_help_panel="Common")
 def verify_fix_cmd(
     report: Path = typer.Option(  # noqa: B008
