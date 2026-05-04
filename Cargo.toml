@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/shadow-core"]
+members = ["crates/shadow-core", "crates/shadow-align"]
 
 [workspace.package]
 version = "3.0.7"
