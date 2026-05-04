@@ -3723,7 +3723,7 @@ def dashboard_cmd(
         _fail(
             Exception(
                 "shadow dashboard requires fastapi + uvicorn. "
-                "Install: pip install 'shadow-diff[dashboard]' "
+                "Install: pip install 'shadow-diff[serve]' "
                 f"({exc})"
             )
         )

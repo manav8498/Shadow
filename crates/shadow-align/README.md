@@ -44,6 +44,11 @@ Same algorithms, byte-identical results on shared inputs to
 [`shadow.align`](https://pypi.org/project/shadow-diff/) (Python) and
 `@shadow-diff/align` (TypeScript, in the `shadow-diff` npm package).
 
+The `shadow-diff` npm package can also load this crate directly via a
+napi-rs binding (built from `typescript/native/`), so TS workloads on
+long traces get native-speed `trajectory_distance` and `tool_arg_delta`
+without leaving the JS runtime.
+
 ## License
 
 Apache-2.0.
