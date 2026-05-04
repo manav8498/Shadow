@@ -106,12 +106,8 @@ def verify_fix(
             pol = evaluate_policy(policy_path, base.records, fixed.records)
             total_new_violations += pol.new_violations
 
-    reversed_rate = (
-        (affected_reversed / affected_total) if affected_total > 0 else 1.0
-    )
-    safe_regression_rate = (
-        (safe_regressed / safe_total) if safe_total > 0 else 0.0
-    )
+    reversed_rate = (affected_reversed / affected_total) if affected_total > 0 else 1.0
+    safe_regression_rate = (safe_regressed / safe_total) if safe_total > 0 else 0.0
 
     fail_reasons: list[str] = []
     if affected_total > 0 and reversed_rate < affected_reversed_threshold:

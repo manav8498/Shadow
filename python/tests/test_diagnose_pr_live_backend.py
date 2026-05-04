@@ -36,7 +36,7 @@ def test_build_live_replay_fn_translates_flat_keys_to_openai_shape() -> None:
             captured.append(dict(config))
 
             class _R:
-                divergence = {
+                divergence: dict[str, float] = {  # noqa: RUF012  # test stub
                     "semantic": 0.1,
                     "trajectory": 0.0,
                     "safety": 0.0,
@@ -89,7 +89,7 @@ def test_build_live_replay_fn_uses_default_model_when_missing() -> None:
             captured.append(dict(config))
 
             class _R:
-                divergence = {
+                divergence: dict[str, float] = {  # noqa: RUF012  # test stub
                     "semantic": 0.0,
                     "trajectory": 0.0,
                     "safety": 0.0,
@@ -115,9 +115,11 @@ def test_build_live_replay_fn_raises_when_api_key_missing() -> None:
     from shadow.diagnose_pr.live import build_live_replay_fn
 
     # Real factory will refuse without the key.
-    with patch.dict(os.environ, {}, clear=True):
-        with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
-            build_live_replay_fn(
-                baseline_user_prompt="x",
-                baseline_response_text="y",
-            )
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        pytest.raises(RuntimeError, match="OPENAI_API_KEY"),
+    ):
+        build_live_replay_fn(
+            baseline_user_prompt="x",
+            baseline_response_text="y",
+        )
