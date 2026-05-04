@@ -190,3 +190,89 @@ def test_causal_from_replay_ci_excludes_zero_for_real_delta() -> None:
     assert cause.ci_low is not None and cause.ci_high is not None
     # CI is well-bracketed around the strong effect
     assert cause.ci_low > 0.0
+
+
+def test_pick_dominant_returns_none_on_ties() -> None:
+    """Honest behavior: when multiple causes have the same score,
+    we have no evidence to crown one. Returning None is correct;
+    rendering 'appears to be the main cause' on a tied set would
+    be misleading. This prevents simple_attribution's all-tied-at-
+    0.5 multi-delta case from telling the user to fix delta X when
+    it could equally be Y or Z."""
+    from shadow.diagnose_pr.attribution import pick_dominant
+    from shadow.diagnose_pr.models import CauseEstimate
+
+    same_score = [
+        CauseEstimate(
+            delta_id="a",
+            axis="trajectory",
+            ate=0.01,
+            ci_low=None,
+            ci_high=None,
+            e_value=None,
+            confidence=0.5,
+        ),
+        CauseEstimate(
+            delta_id="b",
+            axis="trajectory",
+            ate=0.01,
+            ci_low=None,
+            ci_high=None,
+            e_value=None,
+            confidence=0.5,
+        ),
+    ]
+    assert pick_dominant(same_score) is None
+
+
+def test_pick_dominant_single_cause_always_crowned() -> None:
+    """Edge: 1-element list always crowns (no ties possible)."""
+    from shadow.diagnose_pr.attribution import pick_dominant
+    from shadow.diagnose_pr.models import CauseEstimate
+
+    only = CauseEstimate(
+        delta_id="x",
+        axis="trajectory",
+        ate=0.01,
+        ci_low=None,
+        ci_high=None,
+        e_value=None,
+        confidence=1.0,
+    )
+    assert pick_dominant([only]) is only
+
+
+def test_causal_from_replay_output_is_deterministic_across_runs() -> None:
+    """Regression: causal_attribution uses sets internally, so its
+    dict iteration order can vary across runs even with a fixed RNG
+    seed. We pin (delta_id, axis) ordering on the way out so PR-side
+    diffs of report.json are byte-stable."""
+    from shadow.diagnose_pr.attribution import causal_from_replay
+
+    baseline = {"a": "off", "b": "low", "c": 1}
+    candidate = {"a": "on", "b": "high", "c": 2}
+
+    def replay(config: dict[str, Any]) -> dict[str, float]:
+        return {
+            "semantic": 0.0,
+            "trajectory": 0.5 if config.get("a") == "on" else 0.0,
+            "safety": 0.3 if config.get("b") == "high" else 0.0,
+            "verbosity": 0.2 if config.get("c") == 2 else 0.0,
+            "latency": 0.0,
+        }
+
+    runs = [
+        causal_from_replay(
+            baseline_config=baseline,
+            candidate_config=candidate,
+            replay_fn=replay,
+            n_bootstrap=100,
+            sensitivity=False,
+            seed=42,
+        )
+        for _ in range(3)
+    ]
+    keys = [tuple((c.delta_id, c.axis) for c in run) for run in runs]
+    assert (
+        keys[0] == keys[1] == keys[2]
+    ), f"top_causes order not deterministic across runs: {keys[0]} vs {keys[1]}"

@@ -134,16 +134,38 @@ def causal_from_replay(
                     confidence=1.0 if ci_excludes_zero else 0.5,
                 )
             )
+    # Sort deterministically. Underlying causal_attribution uses sets
+    # internally, so dict iteration order can vary across runs even
+    # with a fixed RNG seed. We pin (delta_id, axis) order so the
+    # report.json is byte-identical across reruns of identical input.
+    out.sort(key=lambda c: (c.delta_id, c.axis))
     return out
 
 
 def pick_dominant(causes: list[CauseEstimate]) -> CauseEstimate | None:
     """Pick the single cause with the largest |ATE| * confidence
-    weight. Returns None for an empty list. Ties resolve to the
-    first-seen cause (deterministic across runs)."""
+    weight, but only when it is *strictly* higher-scoring than every
+    other cause.
+
+    Returns None when:
+      * the list is empty;
+      * the top cause is tied with another cause on score (we have
+        multiple plausible explanations, no evidence to crown one).
+
+    The strict-greater rule is what prevents simple_attribution's
+    multi-delta tied-at-0.5 case from misleadingly displaying
+    "appears to be the main cause" in the PR comment when in fact
+    the signal is "any one of these N deltas could be the cause."
+    """
     if not causes:
         return None
-    return max(causes, key=lambda c: abs(c.ate) * c.confidence)
+    scored = [(abs(c.ate) * c.confidence, c) for c in causes]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    if len(scored) == 1:
+        return scored[0][1]
+    if scored[0][0] > scored[1][0]:
+        return scored[0][1]
+    return None  # tied at the top — no evidence to crown one
 
 
 _FIX_HINTS: dict[str, str] = {

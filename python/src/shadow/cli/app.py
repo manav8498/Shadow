@@ -3658,14 +3658,20 @@ def diagnose_pr_cmd(
         # representation: `{"prompt.system": "...", "params.temperature":
         # 0.7, ...}`. Then each delta key in the flattened space
         # corresponds to one of our extracted deltas exactly.
-        delta_axis_map = {
-            "prompt": "trajectory",
-            "model": "verbosity",
-            "temperature": "verbosity",
-            "tool_schema": "trajectory",
-            "retriever": "semantic",
-            "policy": "safety",
-            "unknown": "semantic",
+        # Mock signal magnitudes per DeltaKind. Differentiated so
+        # multi-delta scenarios produce a clear dominant cause
+        # rather than tying at a uniform 0.5. These are NOT grounded
+        # in real-world impact data — they're just for the mock
+        # backend's demo / testing purpose. Real causal attribution
+        # comes from --backend live (Week 4).
+        delta_signal_map = {
+            "prompt": ("trajectory", 0.6),
+            "policy": ("safety", 0.7),
+            "tool_schema": ("trajectory", 0.5),
+            "retriever": ("semantic", 0.5),
+            "model": ("verbosity", 0.4),
+            "temperature": ("verbosity", 0.3),
+            "unknown": ("semantic", 0.2),
         }
         kind_by_path = {d.path: d.kind for d in deltas}
 
@@ -3698,8 +3704,8 @@ def diagnose_pr_cmd(
                     continue  # not a delta
                 if config.get(path) == cand_val:
                     kind = kind_by_path.get(path, "unknown")
-                    ax = delta_axis_map.get(kind, "semantic")
-                    div[ax] += 0.5
+                    ax, magnitude = delta_signal_map.get(kind, delta_signal_map["unknown"])
+                    div[ax] += magnitude
             return div
 
         try:
