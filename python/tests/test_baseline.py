@@ -157,10 +157,18 @@ def test_verify_baseline_pinned_passes_on_match(tmp_path: Path) -> None:
 
 
 def _run_in(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    # Force UTF-8 decoding so Rich's status markers (✓ ✗) survive on
+    # Windows runners whose default codepage is cp1252.
+    import os as _os
+
+    env = dict(_os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
     return subprocess.run(
         [sys.executable, "-m", "shadow.cli.app", *args],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
         cwd=cwd,
         check=False,
     )

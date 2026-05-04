@@ -138,14 +138,28 @@ def _run_inspect(*args: str) -> subprocess.CompletedProcess[str]:
     # Force a wide terminal so rich doesn't word-wrap the column
     # headers across lines (which makes substring assertions
     # fragile across CI runners with different default widths).
+    #
+    # Force UTF-8 decoding on the pipe — Rich emits box-drawing
+    # characters (┃ ┏ ━) that don't survive cp1252 / mbcs decoding
+    # on Windows runners, which silently turns `result.stdout`
+    # into None and breaks every substring assertion below.
+    # `errors="replace"` substitutes `?` for any un-decodable byte
+    # so we never get a None pipe on platforms with non-UTF-8
+    # default codepages.
     import os as _os
 
     env = dict(_os.environ)
     env["COLUMNS"] = "200"
+    # PYTHONIOENCODING: force the child python to write UTF-8 to the
+    # captured pipes. Without it, the child still respects the system
+    # codepage on Windows and Rich's UnicodeEncodeError dance can
+    # corrupt the output stream before subprocess sees it.
+    env["PYTHONIOENCODING"] = "utf-8"
     return subprocess.run(
         [sys.executable, "-m", "shadow.cli.app", "inspect", *args],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         env=env,
         check=False,
     )
