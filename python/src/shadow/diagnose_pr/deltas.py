@@ -18,6 +18,7 @@ import hashlib
 import json
 from typing import Any
 
+from shadow.diagnose_pr.git_blame import PromptHunk
 from shadow.diagnose_pr.models import ConfigDelta, DeltaKind
 
 
@@ -98,6 +99,7 @@ def extract_deltas(
     candidate: dict[str, Any],
     *,
     changed_files: list[str] | None = None,
+    prompt_blame: dict[str, PromptHunk] | None = None,
 ) -> list[ConfigDelta]:
     """Extract atomic config deltas from a baseline/candidate pair.
 
@@ -106,6 +108,12 @@ def extract_deltas(
     detected and a file in `changed_files` matches a prompt path, we
     attach that filename to the delta `id` so the PR comment can
     cite "prompts/system.md" rather than just "prompt.system".
+
+    `prompt_blame` is a per-file `PromptHunk` mapping from
+    `git_blame.blame_prompt_files()`. When the prompt file matched
+    here has a hunk, the resulting `ConfigDelta` carries
+    `file_path` / `line_no` / `removed_text` / `added_text` and
+    its `id` becomes `path/to/prompt.md:LINE` for the PR comment.
     """
     leaves: list[tuple[str, Any, Any]] = []
     _walk_diff(baseline, candidate, "", leaves)
@@ -133,8 +141,25 @@ def extract_deltas(
     )
     for path, (old, new) in sorted(grouped.items()):
         kind = _kind_for_path(path)
+        # Default blame fields — populated only for prompt deltas
+        # when --baseline-ref + git let us run a hunk-level diff.
+        file_path: str | None = None
+        line_no: int | None = None
+        removed_text: str | None = None
+        added_text: str | None = None
         if kind == "prompt" and prompt_file is not None:
-            delta_id = prompt_file
+            hunk = (prompt_blame or {}).get(prompt_file)
+            if hunk is not None:
+                file_path = hunk.file_path
+                line_no = hunk.line_no
+                removed_text = hunk.removed_text
+                added_text = hunk.added_text
+                # Promote `path/to/file.md:LINE` to the delta id so
+                # the renderer's "Dominant cause: <id>" line is
+                # immediately useful in the PR comment.
+                delta_id = f"{prompt_file}:{line_no}"
+            else:
+                delta_id = prompt_file
         elif kind == "model":
             delta_id = f"model:{old}->{new}"
         elif kind == "temperature":
@@ -149,6 +174,10 @@ def extract_deltas(
                 old_hash=_hash(old) if old is not None else None,
                 new_hash=_hash(new) if new is not None else None,
                 display=_format_display(path, old, new),
+                file_path=file_path,
+                line_no=line_no,
+                removed_text=removed_text,
+                added_text=added_text,
             )
         )
     return out

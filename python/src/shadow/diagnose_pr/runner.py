@@ -52,6 +52,12 @@ class DiagnoseOptions:
     n_bootstrap: int = 500
     pricing: dict[str, tuple[float, float]] | None = None
     max_cost_usd: float | None = None  # live-backend safety cap (Gap 7)
+    # Optional baseline ref (e.g. `origin/main` or a PR base SHA) used
+    # to hunk-blame prompt files via `git diff <ref>...HEAD`. When set
+    # along with --changed-files, prompt deltas carry file:line +
+    # removed/added text in the report and PR comment.
+    baseline_ref: str | None = None
+    repo_root: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -105,7 +111,22 @@ def run_diagnose_pr(opts: DiagnoseOptions) -> DiagnoseResult:
         load_traces(list(opts.candidate_traces)) if opts.candidate_traces is not None else None
     )
 
-    deltas = extract_deltas(baseline, candidate, changed_files=opts.changed_files)
+    prompt_blame = None
+    if opts.baseline_ref and opts.changed_files:
+        from shadow.diagnose_pr.git_blame import blame_prompt_files
+
+        repo_root = opts.repo_root or Path.cwd()
+        prompt_blame = blame_prompt_files(
+            repo_root=repo_root,
+            baseline_ref=opts.baseline_ref,
+            paths=list(opts.changed_files),
+        )
+    deltas = extract_deltas(
+        baseline,
+        candidate,
+        changed_files=opts.changed_files,
+        prompt_blame=prompt_blame,
+    )
 
     if opts.max_traces > 0 and len(loaded) > opts.max_traces:
         from shadow.mine import mine as _mine
@@ -357,6 +378,7 @@ def _attribute_causes(
             replay_fn=_mock_replay,
             n_bootstrap=n_bootstrap,
             sensitivity=True,
+            deltas=deltas,
         )
         return causes, None, []
 
@@ -379,6 +401,7 @@ def _attribute_causes(
             replay_fn=live_fn,
             n_bootstrap=n_bootstrap,
             sensitivity=True,
+            deltas=deltas,
         )
         return causes, cost_tracker.total_usd, list(cost_tracker.breakdown)
 

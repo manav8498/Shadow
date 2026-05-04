@@ -41,6 +41,15 @@ def _verdict_blurb(verdict: str) -> str:
     }.get(verdict, "")
 
 
+def _truncate_for_display(text: str, max_len: int = 160) -> str:
+    """Truncate a long line for the PR comment so a 500-char prompt
+    line doesn't push the cause block past the visible window."""
+    text = text.rstrip()
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip() + "…"
+
+
 def _render_cause(c: CauseEstimate) -> list[str]:
     """Render the dominant cause when the evidence supports crowning one.
 
@@ -53,21 +62,43 @@ def _render_cause(c: CauseEstimate) -> list[str]:
         no CI). Same confident wording is fine.
       * Otherwise — soften to "is the most likely candidate" so we don't
         overclaim against weak attribution evidence.
+
+    When `file_path` + `line_no` are populated (prompt deltas with
+    `--baseline-ref` blame), the headline becomes
+    `prompts/refund.md:17 appears to be the main cause.` and a
+    "Removed:" / "Added:" code block lands directly below — readers
+    see the regression-causing instruction without leaving the PR
+    page.
     """
     confident = c.confidence >= 1.0
+    # Prefer file:line when available — that's the load-bearing
+    # detail for prompt regressions.
+    headline_id = (
+        f"{c.file_path}:{c.line_no}"
+        if c.file_path is not None and c.line_no is not None
+        else c.delta_id
+    )
     headline = (
-        f"`{c.delta_id}` appears to be the main cause."
+        f"`{headline_id}` appears to be the main cause."
         if confident
-        else f"`{c.delta_id}` is the most likely candidate."
+        else f"`{headline_id}` is the most likely candidate."
     )
     lines = [
         "### Dominant cause",
         "",
         headline,
         "",
-        f"- Axis: `{c.axis}`",
-        f"- ATE: `{_fmt_signed(c.ate)}`",
     ]
+    if c.removed_text or c.added_text:
+        lines.append("```diff")
+        if c.removed_text is not None:
+            lines.append(f"- {_truncate_for_display(c.removed_text)}")
+        if c.added_text is not None:
+            lines.append(f"+ {_truncate_for_display(c.added_text)}")
+        lines.append("```")
+        lines.append("")
+    lines.append(f"- Axis: `{c.axis}`")
+    lines.append(f"- ATE: `{_fmt_signed(c.ate)}`")
     if c.ci_low is not None and c.ci_high is not None:
         lines.append(f"- 95% CI: `[{c.ci_low:.2f}, {c.ci_high:.2f}]`")
     if c.e_value is not None:
