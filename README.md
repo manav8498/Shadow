@@ -20,7 +20,7 @@
 1. Did agent behavior change?
 2. How many real or production-like traces are affected?
 3. **Which exact candidate change caused the regression?**
-4. With what confidence (bootstrap CI + E-value)?
+4. With what confidence — `--backend live` reports ATE + bootstrap CI + E-value from real intervention; default `--backend recorded` reports affected traces and likely cause candidates from the deltas alone (no API spend, no causal CI).
 5. What fix should `verify-fix` confirm before merge?
 
 ```bash
@@ -225,35 +225,30 @@ The end-to-end setup, from a fresh repo to seeing your first Shadow comment land
 pip install shadow-diff
 ```
 
-**2. Record a baseline.** Wrap the place where your agent runs in a `Session` block. Shadow auto-instruments OpenAI / Anthropic SDK calls and writes a content-addressed `.agentlog` file:
+**2. Record baseline + candidate traces.** Wrap the place where your agent runs in a `Session` block. Shadow auto-instruments OpenAI / Anthropic SDK calls and writes content-addressed `.agentlog` files:
 
 ```python
-# scripts/record_baseline.py
+# scripts/record_traces.py
 import shadow
 
 with shadow.Session(output="baseline.agentlog"):
     run_my_agent()   # whatever your existing entry-point is
 ```
 
-```bash
-python scripts/record_baseline.py
-git add baseline.agentlog && git commit -m "chore: pin agent baseline trace"
-```
+Run it once on baseline (`main`), once on the candidate (your PR branch), and commit both `.agentlog` directories. Traces stay on your disk and inside your repo — nothing is uploaded.
 
-The trace stays on your disk and inside your repo. Nothing is uploaded.
-
-**3. Drop in the GitHub Action.** One command scaffolds a workflow you can commit:
+**3. Drop in the diagnose-pr GitHub Action.** Scaffold a workflow that runs `shadow diagnose-pr` on every PR — names the exact change that broke the agent, posts the verdict + suggested fix as a comment, and gates the merge with verdict-mapped exit codes (`ship`=0, `hold`/`probe`=1, `stop`=2):
 
 ```bash
 shadow init --github-action
-git add .github/workflows/shadow-diff.yml && git commit -m "ci: shadow PR diff"
+git add .github/workflows/shadow-diagnose-pr.yml && git commit -m "ci: shadow diagnose-pr"
 ```
 
-The generated workflow runs your agent against the same inputs on every PR, diffs the new run against `baseline.agentlog`, posts a comment, and (optionally) blocks the merge if a severe regression is detected.
+The generated workflow uses the [`shadow-diagnose-pr`](.github/actions/shadow-diagnose-pr/action.yml) composite action with the `recorded` backend by default (offline, no API spend). Switch to `--backend live` (and add an `OPENAI_API_KEY` secret) when you want real intervention-based ATE + bootstrap CI + E-value on the dominant cause.
 
-**4. Open a PR.** The Shadow comment lands automatically. It's a markdown comment with a verdict line ("Shadow recommends: hold this PR for review"), one-bullet plain-English recommendations, and a collapsible details section for reviewers who want the numbers. See [`docs/sample-pr-comment.md`](docs/sample-pr-comment.md) for what it looks like.
+**4. Open a PR.** The Shadow comment lands automatically. It leads with the verdict, names the dominant cause (or lists likely candidates when attribution can't crown one), explains the policy violation in plain English, and ends with the `shadow verify-fix` command to confirm a fix before merge. See [`docs/sample-pr-comment.md`](docs/sample-pr-comment.md) for an example, or [`examples/refund-causal-diagnosis/`](examples/refund-causal-diagnosis/) for a runnable scenario you can cargo-cult into your own repo.
 
-That's it. After this point everything below is optional depth.
+That's it. The earlier path of `shadow init --github-action --legacy-diff` (raw nine-axis `shadow diff` without causal attribution) still ships for repos that prefer the older flow; everything below is optional depth.
 
 ## Writing behavior rules
 
