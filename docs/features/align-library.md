@@ -149,7 +149,7 @@ If a number drifts between any two ports, fix it in all three.
 
 ## Standalone-tool example
 
-See [`examples/standalone-align/compare_tool_trajectories.py`](../../examples/standalone-align/compare_tool_trajectories.py)
+See [`examples/standalone-align/compare_tool_trajectories.py`](https://github.com/manav8498/Shadow/blob/main/examples/standalone-align/compare_tool_trajectories.py)
 for a runnable demo: a non-Shadow tool calls only `shadow.align`, produces
 real trajectory distances + tool-arg deltas + first-divergence output. Zero
 imports from `shadow.diagnose_pr`, `shadow.causal`, or `shadow.cli`.
