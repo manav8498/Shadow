@@ -114,27 +114,47 @@ def test_quickstart_prints_next_steps(tmp_path: Path) -> None:
 # ---- shadow init --github-action ----------------------------------------
 
 
-def test_init_github_action_writes_workflow_file(tmp_path: Path) -> None:
-    """`shadow init --github-action` must drop a valid workflow file."""
+def test_init_github_action_writes_diagnose_pr_workflow_by_default(tmp_path: Path) -> None:
+    """`shadow init --github-action` defaults to scaffolding the
+    diagnose-pr flow (the wedge), not the legacy raw `shadow diff`."""
     result = _shadow(tmp_path, "init", str(tmp_path), "--github-action")
+    assert result.returncode == 0, result.stderr
+    wf = tmp_path / ".github" / "workflows" / "shadow-diagnose-pr.yml"
+    assert wf.is_file(), "default --github-action should write shadow-diagnose-pr.yml"
+    # The legacy filename must NOT be present in the default path.
+    assert not (tmp_path / ".github" / "workflows" / "shadow-diff.yml").exists()
+
+    import yaml
+
+    parsed = yaml.safe_load(wf.read_text())
+    assert parsed["name"] == "shadow diagnose-pr"
+    # PyYAML interprets the `on:` key as a Python bool True, not a string —
+    # known YAML 1.1 quirk. Handle both.
+    triggers = parsed.get("on") or parsed.get(True)
+    assert triggers is not None
+    assert "pull_request" in triggers
+    job = parsed["jobs"]["diagnose"]
+    assert job["runs-on"] == "ubuntu-latest"
+    # At least one step must install shadow-diff and one must invoke
+    # the diagnose-pr CLI surface (via gate-pr for verdict-mapped exit).
+    text = wf.read_text()
+    assert "shadow-diff" in text
+    assert "shadow gate-pr" in text
+
+
+def test_init_github_action_legacy_diff_writes_old_workflow(tmp_path: Path) -> None:
+    """`--legacy-diff` opts back into the older raw `shadow diff` flow."""
+    result = _shadow(tmp_path, "init", str(tmp_path), "--github-action", "--legacy-diff")
     assert result.returncode == 0, result.stderr
     wf = tmp_path / ".github" / "workflows" / "shadow-diff.yml"
     assert wf.is_file()
 
-    # Sanity-parse the workflow as YAML.
     import yaml
 
     parsed = yaml.safe_load(wf.read_text())
     assert parsed["name"] == "shadow diff"
-    # Workflow must have a diff job that runs shadow.
-    # PyYAML interprets the `on:` key as a Python bool True, not a string —
-    # known YAML 1.1 quirk ("on"/"off" are booleans). Handle both.
-    triggers = parsed.get("on") or parsed.get(True)
-    assert triggers is not None
-    assert "pull_request" in triggers
     job = parsed["jobs"]["diff"]
     assert job["runs-on"] == "ubuntu-latest"
-    # At least one step must install shadow-diff.
     install_steps = [s for s in job["steps"] if "shadow-diff" in str(s)]
     assert install_steps, "no step installs shadow-diff"
 
@@ -143,7 +163,7 @@ def test_init_github_action_does_not_overwrite_existing(tmp_path: Path) -> None:
     """Existing workflow files must be preserved."""
     wf_dir = tmp_path / ".github" / "workflows"
     wf_dir.mkdir(parents=True)
-    wf_path = wf_dir / "shadow-diff.yml"
+    wf_path = wf_dir / "shadow-diagnose-pr.yml"
     wf_path.write_text("# user-crafted workflow\n")
 
     _shadow(tmp_path, "init", str(tmp_path), "--github-action")
@@ -175,7 +195,7 @@ def test_quickstart_then_init_github_action_produces_runnable_repo(
     assert (tmp_path / "fixtures" / "baseline.agentlog").is_file()
     assert (tmp_path / "fixtures" / "candidate.agentlog").is_file()
     assert (tmp_path / ".shadow" / "config.toml").is_file()
-    assert (tmp_path / ".github" / "workflows" / "shadow-diff.yml").is_file()
+    assert (tmp_path / ".github" / "workflows" / "shadow-diagnose-pr.yml").is_file()
 
 
 @pytest.mark.parametrize("extra_flag", [[], ["--force"]])

@@ -42,10 +42,28 @@ def _verdict_blurb(verdict: str) -> str:
 
 
 def _render_cause(c: CauseEstimate) -> list[str]:
+    """Render the dominant cause when the evidence supports crowning one.
+
+    Two sub-modes:
+      * Causal proof — bootstrap CI was computed and excludes zero
+        (`confidence == 1.0` AND `ci_low/ci_high` are present). Use the
+        confident wording "appears to be the main cause."
+      * Single-delta inference — only one config delta exists, so
+        attribution is identifying-by-construction (`confidence == 1.0`,
+        no CI). Same confident wording is fine.
+      * Otherwise — soften to "is the most likely candidate" so we don't
+        overclaim against weak attribution evidence.
+    """
+    confident = c.confidence >= 1.0
+    headline = (
+        f"`{c.delta_id}` appears to be the main cause."
+        if confident
+        else f"`{c.delta_id}` is the most likely candidate."
+    )
     lines = [
         "### Dominant cause",
         "",
-        f"`{c.delta_id}` appears to be the main cause.",
+        headline,
         "",
         f"- Axis: `{c.axis}`",
         f"- ATE: `{_fmt_signed(c.ate)}`",
@@ -54,6 +72,30 @@ def _render_cause(c: CauseEstimate) -> list[str]:
         lines.append(f"- 95% CI: `[{c.ci_low:.2f}, {c.ci_high:.2f}]`")
     if c.e_value is not None:
         lines.append(f"- E-value: `{c.e_value:.1f}`")
+    return lines
+
+
+def _render_likely_candidates(causes: list[CauseEstimate]) -> list[str]:
+    """Render a candidate-list section when no single cause can be crowned.
+
+    Fired by `runner.py` when `pick_dominant()` returns None — every
+    cause is tied at the top of the |ATE|*confidence ranking, so the
+    honest framing is "any one of these N candidates could be it."
+    The list is capped at 5; we sort by confidence desc, then delta id
+    for determinism.
+    """
+    ranked = sorted(causes, key=lambda c: (-c.confidence, c.delta_id))[:5]
+    lines = [
+        "### Likely cause candidates",
+        "",
+        "Multiple changes in this PR plausibly explain the regression — no "
+        "single one stands out from the others on the available evidence. "
+        "Re-run with `--backend live` to attribute by intervention, or "
+        "narrow the PR to one config change at a time.",
+        "",
+    ]
+    for c in ranked:
+        lines.append(f"- `{c.delta_id}` (axis: `{c.axis}`)")
     return lines
 
 
@@ -100,6 +142,12 @@ def render_pr_comment(report: DiagnosePrReport) -> str:
 
     if report.dominant_cause is not None:
         out.extend(_render_cause(report.dominant_cause))
+        out.append("")
+    elif report.top_causes:
+        # No single cause crowned but candidates exist — list them.
+        # This avoids the "behavior changed but the PR comment says
+        # nothing about why" silent-failure mode of v0.1.
+        out.extend(_render_likely_candidates(report.top_causes))
         out.append("")
 
     if report.worst_policy_rule is not None and report.new_policy_violations > 0:

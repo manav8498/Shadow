@@ -601,7 +601,7 @@ def test_init_github_action_pins_to_current_major(tmp_path: Path) -> None:
     result = runner.invoke(app, ["init", "--github-action", str(tmp_path)])
     assert result.exit_code == 0, result.output
 
-    workflow = (tmp_path / ".github" / "workflows" / "shadow-diff.yml").read_text()
+    workflow = (tmp_path / ".github" / "workflows" / "shadow-diagnose-pr.yml").read_text()
 
     # The pin must reference the major the Shadow that wrote the
     # workflow is at — not a hard-coded older major.

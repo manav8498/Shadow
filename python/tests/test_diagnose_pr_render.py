@@ -122,6 +122,87 @@ def test_renderer_includes_hidden_marker_for_pr_comment_dedup() -> None:
     assert "<!-- shadow-diagnose-pr -->" in md
 
 
+def test_likely_candidates_renders_when_no_dominant_cause() -> None:
+    """When attribution can't crown a single cause (ties at the top),
+    the renderer falls back to a candidate list rather than silently
+    skipping the cause section. This is the recorded-mode case where
+    multiple deltas all share confidence=0.5."""
+    r = DiagnosePrReport(
+        schema_version=SCHEMA_VERSION,
+        verdict="hold",
+        total_traces=3,
+        affected_traces=2,
+        blast_radius=2 / 3,
+        dominant_cause=None,
+        top_causes=[
+            CauseEstimate(
+                delta_id="prompt.system",
+                axis="trajectory",
+                ate=0.01,
+                ci_low=None,
+                ci_high=None,
+                e_value=None,
+                confidence=0.5,
+            ),
+            CauseEstimate(
+                delta_id="model:gpt-4.1->gpt-4.1-mini",
+                axis="trajectory",
+                ate=0.01,
+                ci_low=None,
+                ci_high=None,
+                e_value=None,
+                confidence=0.5,
+            ),
+        ],
+        trace_diagnoses=[],
+        affected_trace_ids=[],
+        new_policy_violations=0,
+        worst_policy_rule=None,
+        suggested_fix=None,
+        flags=[],
+    )
+    md = render_pr_comment(r)
+    assert "Likely cause candidates" in md
+    assert "prompt.system" in md
+    assert "model:gpt-4.1->gpt-4.1-mini" in md
+    # Honesty about why no single cause was crowned.
+    assert "no single one stands out" in md.lower()
+    # Should NOT crown one as "appears to be the main cause".
+    assert "appears to be the main cause" not in md.lower()
+
+
+def test_softens_language_when_attribution_confidence_is_weak() -> None:
+    """When a single dominant cause exists but bootstrap CI doesn't
+    exclude zero (confidence < 1.0), the headline must say 'most
+    likely candidate' not 'appears to be the main cause'."""
+    r = DiagnosePrReport(
+        schema_version=SCHEMA_VERSION,
+        verdict="probe",
+        total_traces=10,
+        affected_traces=4,
+        blast_radius=0.4,
+        dominant_cause=CauseEstimate(
+            delta_id="params.temperature:0.2->0.7",
+            axis="trajectory",
+            ate=0.15,
+            ci_low=-0.05,
+            ci_high=0.35,
+            e_value=1.4,
+            confidence=0.5,
+        ),
+        top_causes=[],
+        trace_diagnoses=[],
+        affected_trace_ids=[],
+        new_policy_violations=0,
+        worst_policy_rule=None,
+        suggested_fix=None,
+        flags=[],
+    )
+    md = render_pr_comment(r)
+    assert "most likely candidate" in md.lower()
+    assert "appears to be the main cause" not in md.lower()
+
+
 def test_synthetic_mock_flag_surfaces_disclosure_block() -> None:
     """When --backend mock was used, the renderer must disclose
     that cause magnitudes are synthetic, not grounded in real LLM
