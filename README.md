@@ -215,6 +215,46 @@ shadow diff shadow-quickstart/fixtures/baseline.agentlog \
             shadow-quickstart/fixtures/candidate.agentlog
 ```
 
+## Daily workflow — Shadow as `pytest` for agent behavior
+
+The four commands you'll actually run all day:
+
+```bash
+shadow inspect trace.agentlog                         # debug a single trace
+shadow scan baseline_traces/ candidate_traces/        # block secret leaks
+shadow baseline create baseline_traces/               # pin the gold standard
+shadow gate-pr ...                                    # gate every PR
+```
+
+**`shadow inspect`** opens a `.agentlog` file in your terminal — turn, role, tokens, latency, cost, redactions, first divergence. What `pytest -v` is to test runs, this is to recorded traces. Pass two paths to compare side-by-side; the first divergent turn is highlighted in red.
+
+**`shadow scan`** walks your `.agentlog` files looking for OpenAI / Anthropic / GitHub / AWS keys, JWTs, PEM private keys, emails, phone numbers, and Luhn-valid credit cards. Exit code is non-zero on any hit, so it composes into CI before `shadow gate-pr`. Add company-specific patterns via `--patterns ci/extra-secrets.txt`.
+
+**`shadow baseline`** is a frozen-trace workflow modeled on Insta and Jest snapshots:
+
+```bash
+shadow baseline create baseline_traces/    # pin the hash into shadow.yaml
+shadow baseline verify                     # exit non-zero on drift
+shadow baseline update --force             # re-pin after a deliberate regen
+shadow baseline approve candidate_traces/ --force  # promote candidate to baseline
+```
+
+The hash lives in `shadow.yaml` so PRs that change the baseline show up in `git diff` as a single line. Reviewers see "the baseline hash changed in this PR" — a deliberate signal that the agent's expected behavior was reset.
+
+**`shadow gate-pr`** prints a 1-screen failure summary that reads like a pytest assertion failure:
+
+```
+✗ Shadow gate-pr: STOP (exit 2) — 3/3 traces affected
+  Cause: prompts/refund.md:17 appears to be the main cause.
+  - removed: 4. Always confirm the refund amount before issuing the refund.
+  trajectory: ATE=+0.60  95% CI=[0.50, 0.70]  E=6.7
+  Policy: 3 new violation(s) of confirm-before-refund
+  Fix: Restore the prompt instruction at prompts/refund.md:17
+  Verify: shadow verify-fix --report .shadow/diagnose-pr/report.json
+```
+
+Pass `-v` / `--verbose` to also dump the full JSON report. The PR-comment markdown is always written via `--pr-comment` regardless of verbosity. Exit code: `0` ship, `1` hold/probe, `2` stop, `3` internal error.
+
 ## Get a Shadow comment on every PR (≈ 10 minutes)
 
 The end-to-end setup, from a fresh repo to seeing your first Shadow comment land on a real PR. Skip any step you've already done.
@@ -245,6 +285,21 @@ git add .github/workflows/shadow-diagnose-pr.yml && git commit -m "ci: shadow di
 ```
 
 The generated workflow uses the [`shadow-diagnose-pr`](.github/actions/shadow-diagnose-pr/action.yml) composite action with the `recorded` backend by default (offline, no API spend). Switch to `--backend live` (and add an `OPENAI_API_KEY` secret) when you want real intervention-based ATE + bootstrap CI + E-value on the dominant cause.
+
+For a hand-rolled workflow, the action is a one-liner:
+
+```yaml
+- uses: manav8498/Shadow/.github/actions/shadow-diagnose-pr@main
+  with:
+    baseline-traces: fixtures/baseline_traces
+    candidate-traces: fixtures/candidate_traces
+    baseline-config:  configs/baseline.yaml
+    candidate-config: configs/candidate.yaml
+    policy:           configs/shadow-policy.yaml
+    backend:          recorded
+```
+
+Forked PRs run with a read-only `GITHUB_TOKEN`, so the action falls back to the workflow summary instead of attempting to post a comment that would fail. The marker-dedup means a re-run on the same PR edits the existing comment rather than stacking new ones.
 
 **4. Open a PR.** The Shadow comment lands automatically. It leads with the verdict, names the dominant cause (or lists likely candidates when attribution can't crown one), explains the policy violation in plain English, and ends with the `shadow verify-fix` command to confirm a fix before merge. See [`docs/sample-pr-comment.md`](docs/sample-pr-comment.md) for an example, or [`examples/refund-causal-diagnosis/`](examples/refund-causal-diagnosis/) for a runnable scenario you can cargo-cult into your own repo.
 
@@ -422,9 +477,12 @@ If your agent is built on LangGraph, CrewAI, or AG2, prefer the matching adapter
 | `shadow gate-pr` | CI-friendly wrapper around `diagnose-pr` with verdict-mapped exit codes (0 ship / 1 hold\|probe / 2 stop / 3 internal error). |
 | `shadow dashboard --report report.json` | Serve a `diagnose-pr` report as a browsable HTML page. Local-by-default (`127.0.0.1:8080`); `--open` launches the browser. Requires the `[serve]` extra. |
 | `shadow serve --root .shadow` | Start the live tail dashboard over a `.shadow/` directory — diffs land as new traces arrive. Local-by-default (`127.0.0.1:8765`). Requires the `[serve]` extra. |
+| `shadow inspect <trace.agentlog> [<candidate>]` | One-screen terminal view of a trace — turn / role / tokens / latency / cost / redactions / first divergence. The daily-debug surface; what `pytest -v` is to test runs, this is to recorded agent traces. |
+| `shadow scan <paths>` | Scan committed `.agentlog` files for credentials / PII / custom patterns. Exits non-zero on any hit. `--patterns FILE` for company-specific rules; `--redact-snippets` for CI logs; `--json` for machine-readable output. |
+| `shadow baseline create / update / approve / verify` | Frozen-baseline workflow modeled on Insta + Jest snapshots. `create` pins a content hash to `shadow.yaml`; `update --force` re-pins after a deliberate regeneration; `approve --force` promotes a candidate; `verify` exits non-zero on drift. |
 | `shadow demo` | Run a nine-axis diff against bundled fixtures. One command, no API key, no files written. |
 | `shadow quickstart` | Drop a writable working demo scenario (agent.py, configs, fixtures) to edit and re-run. No API key needed. |
-| `shadow init` | Scaffold a `.shadow/` folder. `--github-action` drops a CI workflow. |
+| `shadow init` | Scaffold `shadow.yaml` + `.shadow/` and detect the project type (Python / Node / Rust). `--github-action` also drops a diagnose-pr CI workflow with `--changed-files` + `--baseline-ref` wired in. |
 | `shadow record -- <cmd>` | Run `<cmd>`, auto-capture its LLM calls. Zero code changes. |
 | `shadow replay <cfg> --baseline <trace>` | Replay baseline through a new config. `--partial --branch-at N` locks a prefix, replays only the suffix. |
 | `shadow diff <baseline> <candidate>` | Nine-axis behavior diff. `--policy <f>` to enforce rules. `--fail-on {minor,moderate,severe}` to gate the merge. `--token-diff` for per-turn token distribution. `--suggest-fixes` for LLM-assisted fix proposals. |

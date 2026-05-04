@@ -163,8 +163,27 @@ runs:
           echo "::warning::shadow diagnose-pr exited $rc; see $OUT/report.json"
         fi
 
-    - name: Post PR comment
+    - name: Detect forked-PR (no write token)
+      id: fork
       if: github.event.pull_request != null
+      shell: bash
+      run: |
+        # PRs from forks run with a read-only `GITHUB_TOKEN` that
+        # can't post comments. We detect this and fall back to a
+        # workflow summary so the PR author still sees the verdict
+        # in the Actions tab even when commenting is locked down.
+        head_repo='${{ github.event.pull_request.head.repo.full_name }}'
+        base_repo='${{ github.repository }}'
+        if [ "$head_repo" != "$base_repo" ]; then
+          echo "is_fork=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "is_fork=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Post PR comment (same-repo PRs)
+      if: |
+        github.event.pull_request != null &&
+        steps.fork.outputs.is_fork == 'false'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
@@ -173,11 +192,30 @@ runs:
         # shadow-action — it expects the marker without angle
         # brackets, then wraps as <!-- marker -->. Our renderer
         # already emits that exact form so the post path is happy.
+        # Marker dedup means a re-run of this action edits the
+        # existing PR comment in place rather than stacking new ones.
         python "${{ github.action_path }}/../shadow-action/comment.py" \
           --repo "${{ github.repository }}" \
           --pr "${{ github.event.pull_request.number }}" \
           --body-file "${{ steps.run.outputs.comment_path }}" \
           --marker 'shadow-diagnose-pr'
+
+    - name: Write workflow summary (forked PRs — no comment token)
+      if: |
+        github.event.pull_request != null &&
+        steps.fork.outputs.is_fork == 'true'
+      shell: bash
+      run: |
+        # Forked PRs can't post comments; surface the verdict in the
+        # Actions tab summary instead so the author + maintainers
+        # still see it without the action erroring out.
+        {
+          echo "## Shadow diagnose-pr"
+          echo ""
+          echo "_Forked PR — comment skipped; pasted here for visibility._"
+          echo ""
+          cat "${{ steps.run.outputs.comment_path }}"
+        } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Map verdict to exit code
       shell: bash

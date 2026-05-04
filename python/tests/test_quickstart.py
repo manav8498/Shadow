@@ -184,6 +184,46 @@ def test_init_without_flag_leaves_no_workflow(tmp_path: Path) -> None:
     assert not (tmp_path / ".github").exists()
 
 
+def test_init_writes_shadow_yaml_with_project_kind(tmp_path: Path) -> None:
+    """`shadow init` writes a top-level `shadow.yaml` so subsequent
+    commands (`shadow baseline ...`, `shadow gate-pr` defaults) can
+    read it. Detects project type from sentinel files for the
+    next-step output."""
+    (tmp_path / "package.json").write_text("{}")
+    result = _shadow(tmp_path, "init", str(tmp_path))
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "shadow.yaml").is_file()
+    combined = result.stdout + result.stderr
+    assert "node" in combined.lower(), "project-kind should be detected as node"
+
+
+def test_init_next_steps_output_includes_runnable_commands(tmp_path: Path) -> None:
+    """The whole point of `shadow init` is the activation moment —
+    the next-step output must be copy-pasteable."""
+    result = _shadow(tmp_path, "init", str(tmp_path))
+    assert result.returncode == 0
+    combined = (result.stdout + result.stderr).lower()
+    assert "shadow quickstart" in combined
+    assert "shadow gate-pr" in combined
+    assert "shadow baseline" in combined
+
+
+def test_init_does_not_clobber_existing_shadow_yaml(tmp_path: Path) -> None:
+    """A second `shadow init` on a project that already has
+    `shadow.yaml` must NOT overwrite the user's pinned baseline."""
+    yaml_path = tmp_path / "shadow.yaml"
+    yaml_path.write_text(
+        "# already exists\n" "baseline:\n" "  dir: my-traces\n" "  hash: sha256:" + "a" * 64 + "\n"
+    )
+    result = _shadow(tmp_path, "init", str(tmp_path))
+    assert result.returncode == 0
+    # Pin survived.
+    assert "sha256:" + "a" * 64 in yaml_path.read_text()
+    # And the user is told it was left alone.
+    combined = result.stdout + result.stderr
+    assert "already existed" in combined.lower()
+
+
 # ---- quickstart + init compose ------------------------------------------
 
 

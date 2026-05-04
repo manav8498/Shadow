@@ -237,6 +237,30 @@ jobs:
 """
 
 
+def _detect_project_kind(root: Path) -> str:
+    """Best-effort detection of the host project's primary language.
+
+    Walks `root` and the immediate parent looking for sentinel files.
+    Returns one of `python` / `node` / `rust` / `unknown`. Used by
+    `shadow init` only to surface a one-line confirmation in the
+    next-step output — Shadow doesn't *do* anything different per
+    project type. The value mirrors what the user already knows
+    about their repo, which converts "Shadow knows my stack" into
+    a small trust signal in the activation moment.
+    """
+    sentinels = {
+        "pyproject.toml": "python",
+        "setup.py": "python",
+        "package.json": "node",
+        "Cargo.toml": "rust",
+    }
+    for r in (root, root.parent):
+        for name, kind in sentinels.items():
+            if (r / name).is_file():
+                return kind
+    return "unknown"
+
+
 @app.command(rich_help_panel="Setup")
 def init(
     path: Annotated[Path, typer.Argument(help="Project root (defaults to cwd)")] = Path("."),
@@ -260,7 +284,12 @@ def init(
         ),
     ] = False,
 ) -> None:
-    """Scaffold `.shadow/` in PATH. Creates dirs, config.toml, sqlite index.
+    """Scaffold a Shadow project: `.shadow/` dirs, `shadow.yaml`, and (optionally) CI.
+
+    Detects whether this is a Python / Node / Rust project from the
+    sentinel files in cwd or its parent, drops a starter
+    `shadow.yaml` (the conventional config Shadow looks for), and
+    ends with a copy-pasteable next-step command.
 
     Pass `--github-action` to also drop a ready-to-commit GitHub
     Actions workflow:
@@ -273,10 +302,17 @@ def init(
         runs the older raw nine-axis `shadow diff`. Kept for repos
         that prefer the older flow.
 
-    Edit the env vars at the top of the generated workflow to point
-    at your repo's committed trace fixtures + configs + policy, then
-    git-commit and push.
+    Run `shadow quickstart` (in any directory) to scaffold a fully
+    runnable demo with baseline + candidate fixtures you can gate
+    against immediately.
     """
+    from shadow.baseline import (
+        SHADOW_YAML_NAME,
+        ShadowConfig,
+        load_shadow_yaml,
+        save_shadow_yaml,
+    )
+
     try:
         shadow_dir = path / ".shadow"
         (shadow_dir / "traces").mkdir(parents=True, exist_ok=True)
@@ -285,7 +321,23 @@ def init(
         config_path = shadow_dir / "config.toml"
         if not config_path.exists():
             config_path.write_text(DEFAULT_CONFIG_TOML)
+
+        # Top-level `shadow.yaml`. This is the file `shadow gate-pr`,
+        # `shadow baseline verify`, etc. read for project defaults.
+        # `shadow init` writes a minimal stub so users can see the
+        # conventional shape; `shadow baseline create` later fills in
+        # the baseline pin.
+        shadow_yaml_path = path / SHADOW_YAML_NAME
+        existed_before = shadow_yaml_path.is_file()
+        cfg = load_shadow_yaml(shadow_yaml_path) if existed_before else ShadowConfig()
+        save_shadow_yaml(shadow_yaml_path, cfg)
+
+        kind = _detect_project_kind(path.resolve())
         err_console.print(f"[green]✓[/] initialised shadow store at {shadow_dir}")
+        if existed_before:
+            err_console.print(f"[yellow]·[/] {shadow_yaml_path} already existed — left alone.")
+        else:
+            err_console.print(f"[green]✓[/] wrote {shadow_yaml_path} (project: {kind})")
 
         if github_action:
             workflow_dir = path / ".github" / "workflows"
@@ -323,6 +375,27 @@ def init(
                 )
                 workflow_path.write_text(content)
                 err_console.print(f"[green]✓[/] wrote {workflow_path}\n{next_step_hint}")
+
+        # Actionable closer: the user just ran `shadow init`. Tell
+        # them the exact command(s) to run next so they see the
+        # tool work without reading docs.
+        err_console.print("")
+        err_console.print("[bold]Next:[/]")
+        err_console.print(
+            "  1. [cyan]shadow quickstart[/]              "
+            "# scaffolds a runnable baseline+candidate demo"
+        )
+        err_console.print(
+            "  2. [cyan]cd shadow-quickstart && shadow demo[/]   "
+            "# see Shadow catch a synthetic regression"
+        )
+        err_console.print(
+            "  3. [cyan]shadow baseline create <traces-dir>[/]   "
+            "# pin your real agent's baseline"
+        )
+        err_console.print(
+            "  4. [cyan]shadow gate-pr ...[/]                 " "# gate every PR against the pin"
+        )
     except Exception as e:
         _fail(e)
 
@@ -3208,6 +3281,548 @@ class SchemaWatchFormat(StrEnum):
     json = "json"
 
 
+baseline_app = typer.Typer(
+    help=(
+        "Frozen-baseline workflow: create / update / approve a "
+        "trace set as the gold standard for `shadow gate-pr`. "
+        "Mirrors snapshot-testing conventions (Insta, Jest)."
+    ),
+    no_args_is_help=True,
+)
+app.add_typer(baseline_app, name="baseline", rich_help_panel="Common")
+
+
+def _shadow_yaml_path() -> Path:
+    """Where to read / write `shadow.yaml`. Always relative to cwd —
+    monorepos point Shadow at the relevant subdir via `cd <subdir>`
+    before running, mirroring how `pytest` and `cargo` discover
+    config."""
+    from shadow.baseline import SHADOW_YAML_NAME
+
+    return Path.cwd() / SHADOW_YAML_NAME
+
+
+@baseline_app.command("create")
+def baseline_create_cmd(
+    baseline_dir: Annotated[
+        Path,
+        typer.Argument(help="Directory of .agentlog files to freeze as the baseline."),
+    ],
+) -> None:
+    """First-time pin: hash every record under `baseline_dir`, write
+    the digest to `shadow.yaml`. Refuses to overwrite an existing
+    pin (use `update --force` for that)."""
+    from shadow.baseline import (
+        compute_baseline_hash,
+        load_shadow_yaml,
+        save_shadow_yaml,
+    )
+
+    cfg_path = _shadow_yaml_path()
+    cfg = load_shadow_yaml(cfg_path)
+    if cfg.baseline_hash is not None:
+        _fail(
+            Exception(
+                f"baseline already pinned in {cfg_path} ({cfg.baseline_hash}). "
+                f"Use `shadow baseline update --force` to change it."
+            )
+        )
+        return
+
+    try:
+        h = compute_baseline_hash(baseline_dir)
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        _fail(exc)
+        return
+
+    cfg.baseline_dir = str(baseline_dir)
+    cfg.baseline_hash = h.stamp
+    save_shadow_yaml(cfg_path, cfg)
+    err_console.print(
+        f"[green]✓[/] pinned baseline\n"
+        f"  dir:    {baseline_dir}\n"
+        f"  hash:   {h.stamp}\n"
+        f"  files:  {h.n_files}, records: {h.n_records}\n"
+        f"  config: {cfg_path}"
+    )
+
+
+@baseline_app.command("update")
+def baseline_update_cmd(
+    baseline_dir: Annotated[
+        Path | None,
+        typer.Argument(
+            help=(
+                "Directory of .agentlog files to re-pin. Defaults to the "
+                "directory recorded in shadow.yaml."
+            ),
+        ),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help=(
+                "Required. The flag is intentional friction — `update` "
+                "is the moment a regression could be silently approved."
+            ),
+        ),
+    ] = False,
+) -> None:
+    """Re-pin the baseline after a deliberate regeneration. Requires
+    `--force` so a fat-fingered run can't silently approve a
+    regression."""
+    from shadow.baseline import (
+        compute_baseline_hash,
+        load_shadow_yaml,
+        save_shadow_yaml,
+    )
+
+    if not force:
+        _fail(
+            Exception(
+                "`shadow baseline update` requires --force.\n"
+                "  hint: this is intentional — re-pinning a baseline "
+                "approves whatever behaviour the new traces represent."
+            )
+        )
+        return
+
+    cfg_path = _shadow_yaml_path()
+    cfg = load_shadow_yaml(cfg_path)
+    target_dir = baseline_dir
+    if target_dir is None:
+        if cfg.baseline_dir is None:
+            _fail(
+                Exception(
+                    "no baseline dir to update — pass it explicitly or "
+                    "run `shadow baseline create <dir>` first."
+                )
+            )
+            return
+        target_dir = Path(cfg.baseline_dir)
+
+    try:
+        h = compute_baseline_hash(target_dir)
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        _fail(exc)
+        return
+
+    old_hash = cfg.baseline_hash
+    cfg.baseline_dir = str(target_dir)
+    cfg.baseline_hash = h.stamp
+    save_shadow_yaml(cfg_path, cfg)
+    err_console.print(
+        f"[green]✓[/] re-pinned baseline\n"
+        f"  dir:    {target_dir}\n"
+        f"  before: {old_hash}\n"
+        f"  after:  {h.stamp}\n"
+        f"  files:  {h.n_files}, records: {h.n_records}\n"
+        f"  config: {cfg_path}"
+    )
+
+
+@baseline_app.command("approve")
+def baseline_approve_cmd(
+    candidate_dir: Annotated[
+        Path,
+        typer.Argument(
+            help=(
+                "Directory of candidate-side .agentlog files to promote "
+                "to baseline. Files are copied into the configured "
+                "baseline dir, replacing any existing baseline files."
+            ),
+        ),
+    ],
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Same intentional friction as `update`.",
+        ),
+    ] = False,
+) -> None:
+    """Promote a candidate trace set to baseline. Copies files into
+    the configured baseline dir and re-pins the hash. Used right
+    after `shadow gate-pr` returns SHIP for a behaviour change you
+    explicitly approve."""
+    import shutil
+
+    from shadow.baseline import (
+        compute_baseline_hash,
+        load_shadow_yaml,
+        save_shadow_yaml,
+    )
+
+    if not force:
+        _fail(
+            Exception(
+                "`shadow baseline approve` requires --force.\n"
+                "  hint: same friction as `update` — promoting a candidate "
+                "is the moment behaviour gets re-baselined."
+            )
+        )
+        return
+
+    cfg_path = _shadow_yaml_path()
+    cfg = load_shadow_yaml(cfg_path)
+    if cfg.baseline_dir is None:
+        _fail(
+            Exception(
+                "no baseline directory configured in shadow.yaml. "
+                "Run `shadow baseline create <dir>` first."
+            )
+        )
+        return
+
+    baseline_dir = Path(cfg.baseline_dir)
+    if not candidate_dir.is_dir():
+        _fail(Exception(f"candidate path is not a directory: {candidate_dir}"))
+        return
+
+    # Copy candidate files into the baseline dir, overwriting matches.
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for src in sorted(candidate_dir.rglob("*.agentlog")):
+        rel = src.relative_to(candidate_dir)
+        dst = baseline_dir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        copied += 1
+
+    try:
+        h = compute_baseline_hash(baseline_dir)
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        _fail(exc)
+        return
+
+    old_hash = cfg.baseline_hash
+    cfg.baseline_hash = h.stamp
+    save_shadow_yaml(cfg_path, cfg)
+    err_console.print(
+        f"[green]✓[/] approved candidate as new baseline\n"
+        f"  copied: {copied} file(s)\n"
+        f"  dir:    {baseline_dir}\n"
+        f"  before: {old_hash}\n"
+        f"  after:  {h.stamp}\n"
+        f"  files:  {h.n_files}, records: {h.n_records}\n"
+        f"  config: {cfg_path}"
+    )
+
+
+@baseline_app.command("verify")
+def baseline_verify_cmd() -> None:
+    """Check that the on-disk baseline matches the pinned hash in
+    `shadow.yaml`. Useful as a CI pre-step (`shadow baseline verify`
+    before `shadow gate-pr`) so a baseline-edit-without-update bug
+    fails loud rather than silently shifting the gate.
+
+    Exit 0 when pin matches, 1 otherwise.
+    """
+    from shadow.baseline import load_shadow_yaml, verify_baseline_pinned
+
+    cfg_path = _shadow_yaml_path()
+    cfg = load_shadow_yaml(cfg_path)
+    if cfg.baseline_dir is None:
+        _fail(Exception(f"no baseline directory configured in {cfg_path}"))
+        return
+    ok, message = verify_baseline_pinned(cfg, Path(cfg.baseline_dir))
+    if ok:
+        err_console.print(f"[green]✓[/] baseline matches pin: {cfg.baseline_hash}")
+        return
+    err_console.print(f"[bold red]✗ baseline drift[/]\n{message}")
+    raise typer.Exit(code=1)
+
+
+@app.command("inspect", rich_help_panel="Common")
+def inspect_cmd(
+    trace: Annotated[
+        Path,
+        typer.Argument(help="Path to a `.agentlog` file."),
+    ],
+    candidate: Annotated[
+        Path | None,
+        typer.Argument(
+            help=(
+                "Optional second `.agentlog`. When given, inspect renders the "
+                "two traces side-by-side and highlights the first divergent "
+                "turn in red."
+            ),
+        ),
+    ] = None,
+    show_full: Annotated[
+        bool,
+        typer.Option(
+            "--full",
+            help=(
+                "Print the full payload summary for every row instead of a 60-char "
+                "truncation. Useful when grepping for a specific instruction or "
+                "tool argument."
+            ),
+        ),
+    ] = False,
+) -> None:
+    """One-screen terminal view of an `.agentlog` file.
+
+    Daily-debug surface — what `pytest -v` is to test runs, this is
+    to recorded agent traces. Reads the content-addressed envelope,
+    pulls turn / role / token counts / latency / cost / redaction
+    counts / first-text snippet for each record, and renders one
+    table.
+
+    Single-file mode: `shadow inspect trace.agentlog`.
+    Comparison mode: `shadow inspect baseline.agentlog candidate.agentlog`
+    paints the first divergent turn in red.
+    """
+    from rich.table import Table
+
+    from shadow.inspect import first_divergence_index, load_trace_rows
+
+    try:
+        base_rows = load_trace_rows(trace)
+    except (OSError, ValueError) as exc:
+        _fail(exc)
+        return
+
+    cand_rows: list[Any] | None = None
+    div_idx: int | None = None
+    if candidate is not None:
+        try:
+            cand_rows = load_trace_rows(candidate)
+        except (OSError, ValueError) as exc:
+            _fail(exc)
+            return
+        div_idx = first_divergence_index(base_rows, cand_rows)
+
+    title = (
+        f"shadow inspect — {trace.name}"
+        if cand_rows is None or candidate is None
+        else f"shadow inspect — {trace.name} ↔ {candidate.name}"
+    )
+    table = Table(title=title)
+    table.add_column("turn", justify="right")
+    table.add_column("kind")
+    table.add_column("role/tool")
+    table.add_column("summary", overflow="fold")
+    table.add_column("in", justify="right")
+    table.add_column("out", justify="right")
+    table.add_column("latency_ms", justify="right")
+    table.add_column("cost_$", justify="right")
+    table.add_column("red.", justify="right", header_style="dim")
+    table.add_column("stop")
+
+    def _fmt_row(r: Any, *, dim: bool = False, color: str | None = None) -> tuple[str, ...]:
+        summary = r.summary
+        if not show_full and len(summary) > 60:
+            summary = summary[:57] + "..."
+
+        def _wrap(s: str) -> str:
+            if color:
+                return f"[{color}]{s}[/]"
+            if dim:
+                return f"[dim]{s}[/]"
+            return s
+
+        return (
+            _wrap(str(r.turn) if r.turn else "-"),
+            _wrap(r.kind),
+            _wrap(r.role_or_tool),
+            _wrap(summary),
+            _wrap(str(r.input_tokens) if r.input_tokens is not None else "-"),
+            _wrap(str(r.output_tokens) if r.output_tokens is not None else "-"),
+            _wrap(str(r.latency_ms) if r.latency_ms is not None else "-"),
+            _wrap(f"{r.cost_usd:.4f}" if r.cost_usd is not None else "-"),
+            _wrap(str(r.redactions) if r.redactions else ""),
+            _wrap(r.stop_reason),
+        )
+
+    if cand_rows is None:
+        for row in base_rows:
+            table.add_row(*_fmt_row(row, dim=row.kind == "metadata"))
+    else:
+        # Side-by-side mode: alternate baseline / candidate rows
+        # at each index, prefixing the role label so the user knows
+        # which side fired.
+        n = max(len(base_rows), len(cand_rows))
+        for i in range(n):
+            for label, src, color_default in (
+                ("base", base_rows, None),
+                ("cand", cand_rows, "yellow"),
+            ):
+                if i >= len(src):
+                    table.add_row(
+                        f"[dim]{i + 1}[/]",
+                        "[dim]-[/]",
+                        f"[dim]{label}[/]",
+                        "[dim](missing)[/]",
+                        "-",
+                        "-",
+                        "-",
+                        "-",
+                        "",
+                        "",
+                    )
+                    continue
+                r = src[i]
+                color = color_default
+                if div_idx is not None and i == div_idx:
+                    color = "red bold"
+                cells = list(_fmt_row(r, dim=r.kind == "metadata", color=color))
+                # Re-mark the role/tool cell with the side label so the
+                # reader can see which side fired which row at a glance.
+                cells[2] = (
+                    f"[{color}]{label}/{r.role_or_tool}[/]"
+                    if color
+                    else f"{label}/{r.role_or_tool}"
+                )
+                table.add_row(*cells)
+
+    console = Console()
+    console.print(table)
+
+    if cand_rows is not None:
+        if div_idx is None:
+            console.print("[green]✓ traces agree end-to-end (no divergence detected)[/]")
+        else:
+            console.print(
+                f"[red bold]✗ first divergence at turn {div_idx + 1}[/]  "
+                "(see the highlighted row above)"
+            )
+
+
+@app.command("scan", rich_help_panel="Common")
+def scan_cmd(
+    paths: Annotated[
+        list[Path],
+        typer.Argument(help=".agentlog files or directories to scan (recurses into directories)."),
+    ],
+    patterns: Annotated[
+        Path | None,
+        typer.Option(
+            "--patterns",
+            "-p",
+            help=(
+                "Path to a custom-patterns file. Format: one `name=regex` per line; "
+                "lines starting with `#` are comments. Adds to the default pattern set."
+            ),
+        ),
+    ] = None,
+    only: Annotated[
+        str | None,
+        typer.Option(
+            "--only",
+            help=(
+                "Comma-separated list of pattern names to restrict to "
+                "(e.g. `openai_api_key,email`). Default: every pattern."
+            ),
+        ),
+    ] = None,
+    redact_snippets: Annotated[
+        bool,
+        typer.Option(
+            "--redact-snippets",
+            help=(
+                "Replace match text with `[REDACTED:<name>]` in the output. "
+                "Use in CI logs that you don't want carrying the literal "
+                "credential."
+            ),
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit a JSON document on stdout instead of the human table."),
+    ] = False,
+) -> None:
+    """Scan `.agentlog` files for secrets, PII, and custom patterns.
+
+    Default pattern set covers OpenAI / Anthropic / GitHub / AWS keys,
+    JWTs, PEM private keys, emails, E.164 phones, and Luhn-valid credit
+    cards. Add company-specific patterns via `--patterns`.
+
+    Exit code is `0` if no hits, `1` on any hit. Designed to compose
+    into CI:
+
+        shadow scan baseline_traces/ candidate_traces/ \\
+          --patterns ci/extra-secrets.txt
+        shadow gate-pr ...
+
+    A hit doesn't mean the trace is unusable — it means the
+    `Session` that wrote it should have had the matching pattern in
+    its Redactor. The fix is to add the pattern there and re-record;
+    the scanner is the safety net that catches misses.
+    """
+    import json as _json
+
+    from shadow.scan import Hit, load_extra_patterns, scan_paths
+
+    extra: list[Any] = []
+    if patterns is not None:
+        try:
+            extra = load_extra_patterns(patterns)
+        except (ValueError, OSError) as exc:
+            _fail(exc)
+            return
+
+    name_filter: set[str] | None = None
+    if only is not None:
+        name_filter = {p.strip() for p in only.split(",") if p.strip()}
+
+    try:
+        result = scan_paths(paths, extra_patterns=extra, pattern_names=name_filter)
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        _fail(exc)
+        return
+
+    if json_output:
+        out = {
+            "files_scanned": result.files_scanned,
+            "records_scanned": result.records_scanned,
+            "hits": [
+                {
+                    "file": h.file_path,
+                    "record_id": h.record_id,
+                    "record_kind": h.record_kind,
+                    "pattern": h.pattern_name,
+                    "snippet": (f"[REDACTED:{h.pattern_name}]" if redact_snippets else h.snippet),
+                }
+                for h in result.hits
+            ],
+        }
+        typer.echo(_json.dumps(out, indent=2))
+        if result.hits:
+            raise typer.Exit(code=1)
+        return
+
+    # Human-friendly table.
+    if not result.hits:
+        err_console.print(
+            f"[green]✓[/] {result.files_scanned} file(s), "
+            f"{result.records_scanned} record(s) scanned — no secrets found."
+        )
+        return
+
+    err_console.print(
+        f"[bold red]✗[/] {len(result.hits)} hit(s) in {result.files_scanned} file(s) "
+        f"({result.records_scanned} records scanned):\n"
+    )
+    grouped: dict[str, list[Hit]] = {}
+    for h in result.hits:
+        grouped.setdefault(h.file_path, []).append(h)
+    for fp, fhits in grouped.items():
+        err_console.print(f"[bold]{fp}[/]")
+        for h in fhits:
+            shown = f"[REDACTED:{h.pattern_name}]" if redact_snippets else h.snippet
+            err_console.print(
+                f"  - {h.record_kind} {h.record_id[:24]}…  " f"[yellow]{h.pattern_name}[/]  {shown}"
+            )
+        err_console.print("")
+    err_console.print(
+        "[bold]Fix:[/] add the matching pattern to your Session's Redactor "
+        "(`shadow.redact.Redactor`) and re-record."
+    )
+    raise typer.Exit(code=1)
+
+
 @app.command("schema-watch", rich_help_panel="Replay & analysis")
 def schema_watch_cmd(
     old_config: Annotated[Path, typer.Argument(help="Baseline config YAML")],
@@ -3891,6 +4506,17 @@ def gate_pr_cmd(
             "prompt deltas carry file:line + removed text via `git diff <ref>...HEAD`."
         ),
     ),
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            "-v",
+            help=(
+                "Print the full diagnose-pr report to stdout in addition to the "
+                "pytest-style 1-screen failure summary. Default is the summary only."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """CI-friendly wrapper around `shadow diagnose-pr` with verdict-mapped exit codes:
 
@@ -3899,8 +4525,11 @@ def gate_pr_cmd(
       2 = stop    (critical violation; do not merge)
       3 = internal/tooling error  (treat as fail-closed in CI)
 
-    Always writes the JSON report (to a tempfile if --out omitted)
-    and the PR comment markdown so a follow-up step can post it.
+    On non-ship verdicts, prints a pytest-style 1-screen summary —
+    verdict, axis, ATE/CI, dominant cause file:line, and the
+    suggested-fix command. Pass `--verbose` for the full JSON
+    report on stdout. The full markdown PR comment is always
+    written via `--pr-comment`.
     """
     import tempfile
 
@@ -3941,12 +4570,102 @@ def gate_pr_cmd(
 
     verdict = result.report.verdict
     code = {"ship": 0, "probe": 1, "hold": 1, "stop": 2}.get(verdict, 3)
-    msg = f"Shadow gate-pr: {verdict.upper()} (exit {code})"
-    if result.cost_usd is not None:
-        msg += f" — live cost: ${result.cost_usd:.4f}"
-    typer.echo(msg)
-    if code != 0:
-        raise typer.Exit(code=code)
+    if code == 0:
+        msg = "[green]✓[/] Shadow gate-pr: SHIP (exit 0)"
+        if result.cost_usd is not None:
+            msg += f" — live cost: ${result.cost_usd:.4f}"
+        err_console.print(msg)
+        return
+
+    # Pytest-style 1-screen failure summary. The PR comment carries
+    # the full markdown; the local runner gets the load-bearing five
+    # lines that tell a developer what to do next.
+    _render_gate_pr_failure_summary(result.report, cost_usd=result.cost_usd)
+    if verbose:
+        typer.echo("")
+        typer.echo("--- full report (--verbose) ---")
+        typer.echo(to_json(result.report))
+    raise typer.Exit(code=code)
+
+
+def _render_gate_pr_failure_summary(
+    report: Any,
+    *,
+    cost_usd: float | None,
+) -> None:
+    """Print a five-line failure summary in the pytest-assertion shape:
+    verdict, axis, ATE/CI, dominant cause `file:line`, and the
+    `shadow verify-fix` command. Each line stands alone; together
+    they fit on a laptop terminal without scrolling.
+
+    The information already lives on `DiagnosePrReport`; this just
+    chooses what to surface front-and-center vs. push behind
+    `--verbose` / `--pr-comment` / the JSON report.
+    """
+    verdict = report.verdict
+    color = {"ship": "green", "probe": "yellow", "hold": "yellow", "stop": "red"}.get(
+        verdict, "red"
+    )
+    code = {"ship": 0, "probe": 1, "hold": 1, "stop": 2}.get(verdict, 3)
+
+    # Line 1: verdict + exit code + blast radius.
+    affected = report.affected_traces
+    total = report.total_traces
+    head = (
+        f"[bold {color}]✗ Shadow gate-pr: {verdict.upper()}[/] (exit {code}) "
+        f"— {affected}/{total} traces affected"
+    )
+    if cost_usd is not None:
+        head += f" — live cost ${cost_usd:.4f}"
+    err_console.print(head)
+
+    # Line 2: dominant cause / likely candidate, citing file:line if blame found one.
+    dom = report.dominant_cause
+    if dom is not None:
+        cite = (
+            f"{dom.file_path}:{dom.line_no}"
+            if dom.file_path is not None and dom.line_no is not None
+            else dom.delta_id
+        )
+        confident = dom.confidence >= 1.0
+        verb = "appears to be the main cause" if confident else "is the most likely candidate"
+        err_console.print(f"  [bold]Cause[/]: [cyan]{cite}[/] {verb}.")
+        if dom.removed_text:
+            snippet = dom.removed_text.strip()
+            if len(snippet) > 100:
+                snippet = snippet[:97] + "..."
+            err_console.print(f"  [bold red]- removed[/]: {snippet}")
+        # Line 3: numeric evidence.
+        ate_str = f"{dom.ate:+.2f}"
+        ci_str = (
+            f"[{dom.ci_low:.2f}, {dom.ci_high:.2f}]"
+            if dom.ci_low is not None and dom.ci_high is not None
+            else "n/a"
+        )
+        e_str = f"{dom.e_value:.1f}" if dom.e_value is not None else "n/a"
+        err_console.print(f"  [bold]{dom.axis}[/]: ATE={ate_str}  95% CI={ci_str}  E={e_str}")
+    elif report.top_causes:
+        names = [c.delta_id for c in sorted(report.top_causes, key=lambda c: c.delta_id)[:3]]
+        err_console.print(
+            f"  [bold]Likely candidates[/]: {', '.join(names)} — re-run with `--backend live` "
+            "for ATE/CI."
+        )
+    else:
+        err_console.print("  [dim]no dominant cause inferred[/]")
+
+    # Line 4: policy violation if any.
+    if report.worst_policy_rule and report.new_policy_violations > 0:
+        err_console.print(
+            f"  [bold]Policy[/]: {report.new_policy_violations} new violation(s) of "
+            f"[yellow]{report.worst_policy_rule}[/]"
+        )
+
+    # Line 5: actionable next-step command.
+    if report.suggested_fix:
+        err_console.print(f"  [bold]Fix[/]: {report.suggested_fix}")
+    err_console.print(
+        "  [dim]Verify:[/] [cyan]shadow verify-fix --report .shadow/diagnose-pr/report.json[/]"
+    )
 
 
 @app.command("dashboard", rich_help_panel="Common")
