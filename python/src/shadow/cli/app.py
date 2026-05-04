@@ -128,18 +128,33 @@ jobs:
           # Only set this in the workflow secrets when BACKEND=live.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           mkdir -p .shadow/diagnose-pr
-          shadow gate-pr \\
-            --traces "$BASELINE_TRACES" \\
-            --candidate-traces "$CANDIDATE_TRACES" \\
-            --baseline-config "$BASELINE_CONFIG" \\
-            --candidate-config "$CANDIDATE_CONFIG" \\
-            --policy "$POLICY" \\
-            --backend "$BACKEND" \\
-            --max-cost "$MAX_COST_USD" \\
-            --out .shadow/diagnose-pr/report.json \\
+          # Build the argv list. --changed-files is repeated once per
+          # changed file so the runner can use them for prompt-blame
+          # attribution; --baseline-ref enables hunk-level
+          # `prompts/foo.md:LINE removed: "..."` citation in the PR
+          # comment when a prompt file changed.
+          ARGS=(
+            --traces "$BASELINE_TRACES"
+            --candidate-traces "$CANDIDATE_TRACES"
+            --baseline-config "$BASELINE_CONFIG"
+            --candidate-config "$CANDIDATE_CONFIG"
+            --policy "$POLICY"
+            --backend "$BACKEND"
+            --max-cost "$MAX_COST_USD"
+            --baseline-ref "$BASE_SHA"
+            --out .shadow/diagnose-pr/report.json
             --pr-comment .shadow/diagnose-pr/comment.md
+          )
+          if [ -s changed.txt ]; then
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              ARGS+=( --changed-files "$f" )
+            done < changed.txt
+          fi
+          shadow gate-pr "${ARGS[@]}"
 
       - name: Post PR comment
         if: always()  # post the comment even when gate-pr exits non-zero
