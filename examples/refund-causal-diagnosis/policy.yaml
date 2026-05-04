@@ -1,0 +1,12 @@
+apiVersion: shadow.dev/v1alpha1
+rules:
+  - id: confirm-before-refund
+    kind: must_call_before
+    params:
+      first: confirm_refund_amount
+      then: issue_refund
+    severity: error
+    description: >
+      Money-movement: every issue_refund call must be preceded by a
+      confirm_refund_amount call in the same trace. Skipping
+      confirmation is a critical violation.
