@@ -4,6 +4,43 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [unreleased] — Causal Regression Forensics + OTel + Align (Py + TS)
+
+Phase 7: TypeScript port of `shadow.align` + comparison docs.
+
+### Added
+
+* **TypeScript port** of `shadow.align` — published as part of the
+  existing `shadow-diff` npm package under `@shadow-diff/align`-style
+  imports. Two functions ship as fully-native TS (`trajectoryDistance`,
+  `toolArgDelta`); three Rust-backed (`alignTraces`, `firstDivergence`,
+  `topKDivergences`) ship as v0.1 stubs that throw with a clear
+  migration-path message pointing at `pip install shadow-diff` or the
+  v0.2 napi-rs binding once landed.
+* **Cross-language parity tests** — same inputs produce byte-identical
+  outputs in Python and TypeScript (`typescript/test/align.test.ts`
+  mirrors `python/tests/test_align_library.py` test for test).
+* **Comparison docs** — `docs/comparison.md` honest matrix of Shadow vs
+  EvalView / Microsoft AGT / Preloop / AgentEvals / Speedscale. No
+  vaporware claims; every "✓" cell is backed by a committed test.
+
+### Fixed (Phase 7 audit findings)
+
+* `toolArgDelta` in TypeScript now correctly returns `type_changed`
+  for number-vs-string, matching Python's `type()` semantics. Earlier
+  `jsonType()` lumped all scalars under one bucket and silently
+  emitted `changed` instead — broke cross-language parity.
+
+### Verified
+
+* TypeScript: 94 tests pass (22 new align tests including parity
+  cases), `tsc --noEmit` clean.
+* Python: 1829 tests pass (unchanged from Phase 6).
+* No native bindings needed for the v0.1 TS surface (pure-TS
+  Levenshtein + structural diff).
+
+---
+
 ## [unreleased] — Causal Regression Forensics + OTel + Align library
 
 Phase 6: `shadow.align` standalone alignment library.
