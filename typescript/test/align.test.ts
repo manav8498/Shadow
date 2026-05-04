@@ -246,3 +246,28 @@ describe('cross-language parity (vs Python shadow.align)', () => {
     expect(deltas[0].path).toBe('/a/b');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Native binding (napi-rs) — optional
+// ---------------------------------------------------------------------------
+
+import { isNativeAvailable } from '../src/align/index.js';
+
+describe('native binding probe (optional)', () => {
+  it('isNativeAvailable returns boolean without throwing', () => {
+    const ok = isNativeAvailable();
+    expect(typeof ok).toBe('boolean');
+  });
+
+  it('produces same results whether native or pure-TS path is used', () => {
+    // The wedge guarantee: enabling/disabling native must not
+    // change observable output.
+    const aSeq = ['search', 'edit', 'send'];
+    const bSeq = ['search', 'edit'];
+    const d = trajectoryDistance(aSeq, bSeq);
+    expect(d).toBeCloseTo(1 / 3, 2);
+
+    const deltas = toolArgDelta({ x: 1 }, { x: '1' });
+    expect(deltas[0].kind).toBe('type_changed');
+  });
+});

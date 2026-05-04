@@ -3687,6 +3687,62 @@ def gate_pr_cmd(
         raise typer.Exit(code=code)
 
 
+@app.command("dashboard", rich_help_panel="Common")
+def dashboard_cmd(
+    report: Path = typer.Option(  # noqa: B008
+        ...,
+        "--report",
+        help="Path to a diagnose-pr report.json (or any JSON matching diagnose-pr/v0.1).",
+    ),
+    port: int = typer.Option(
+        8080, "--port", help="Port to bind. Default 8080."
+    ),
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Bind address. Default localhost; pass 0.0.0.0 to expose on the network.",
+    ),
+    open_browser: bool = typer.Option(
+        False,
+        "--open",
+        help="Open the dashboard URL in the default browser on startup.",
+    ),
+) -> None:
+    """Serve a diagnose-pr report.json as a browsable web page.
+
+    Single-process, single-report, no auth. Meant for local
+    review of CI artefacts or sharing with someone who can't
+    run the CLI. Don't expose to the public internet without a
+    reverse proxy doing TLS + auth.
+    """
+    try:
+        import uvicorn
+
+        from shadow.diagnose_pr.dashboard import build_app
+    except ImportError as exc:
+        _fail(
+            Exception(
+                "shadow dashboard requires fastapi + uvicorn. "
+                "Install: pip install 'shadow-diff[dashboard]' "
+                f"({exc})"
+            )
+        )
+        return
+
+    if not report.is_file():
+        _fail(Exception(f"report file not found: {report}"))
+        return
+
+    app_instance = build_app(report)
+    url = f"http://{host}:{port}/"
+    typer.echo(f"Shadow dashboard serving {report} at {url}")
+    if open_browser:
+        import webbrowser
+
+        webbrowser.open(url)
+    uvicorn.run(app_instance, host=host, port=port, log_level="warning")
+
+
 @app.command("verify-fix", rich_help_panel="Common")
 def verify_fix_cmd(
     report: Path = typer.Option(  # noqa: B008

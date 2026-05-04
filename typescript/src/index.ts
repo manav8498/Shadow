@@ -104,6 +104,7 @@ export {
   type Divergence,
   alignTraces,
   firstDivergence,
+  isNativeAvailable,
   toolArgDelta,
   topKDivergences,
   trajectoryDistance,
