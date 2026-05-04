@@ -3517,11 +3517,10 @@ def diagnose_pr_cmd(
     from shadow.diagnose_pr.report import build_report, to_json
     from shadow.diagnose_pr.risk import is_dangerous_violation
 
-    if backend not in {"recorded", "mock"}:
+    if backend not in {"recorded", "mock", "live"}:
         _fail(
             Exception(
-                f"--backend must be one of {{recorded, mock}}, got {backend!r} "
-                "(live backend lands in Week 4)"
+                f"--backend must be one of {{recorded, mock, live}}, got {backend!r}"
             )
         )
         return
@@ -3713,6 +3712,73 @@ def diagnose_pr_cmd(
                 baseline_config=flat_baseline,
                 candidate_config=flat_candidate,
                 replay_fn=_mock_replay,
+                n_bootstrap=n_bootstrap,
+                sensitivity=True,
+            )
+        except Exception as exc:
+            _fail(exc)
+            return
+    elif backend == "live" and deltas:
+        # Live backend: route through OpenAI via the existing
+        # OpenAIReplayer. Anchor on the first baseline trace's user
+        # prompt + response text — production users with multiple
+        # traces should run this command per-trace and aggregate
+        # externally for now (a per-trace live-replay aggregation
+        # surface lands in a follow-up).
+        from shadow.diagnose_pr.live import build_live_replay_fn
+
+        if not loaded:
+            _fail(Exception("--backend live requires at least one baseline trace"))
+            return
+
+        anchor = loaded[0]
+        first_user = ""
+        first_resp_text = ""
+        for rec in anchor.records:
+            if rec.get("kind") == "chat_request":
+                msgs = rec.get("payload", {}).get("messages") or []
+                for m in msgs:
+                    if m.get("role") == "user":
+                        first_user = str(m.get("content", ""))
+                        break
+                if first_user:
+                    break
+        for rec in anchor.records:
+            if rec.get("kind") == "chat_response":
+                content = rec.get("payload", {}).get("content") or []
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        first_resp_text = str(block.get("text", ""))
+                        break
+                if first_resp_text:
+                    break
+        if not first_user:
+            _fail(Exception("--backend live: anchor trace has no user message"))
+            return
+
+        # Flatten configs (same shape as the mock backend).
+        def _flatten_live(d: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+            out: dict[str, Any] = {}
+            for k, v in d.items():
+                key = f"{prefix}.{k}" if prefix else k
+                if isinstance(v, dict):
+                    out.update(_flatten_live(v, key))
+                else:
+                    out[key] = v
+            return out
+
+        flat_baseline = _flatten_live(baseline)
+        flat_candidate = _flatten_live(candidate)
+
+        try:
+            live_fn = build_live_replay_fn(
+                baseline_user_prompt=first_user,
+                baseline_response_text=first_resp_text,
+            )
+            top_causes = causal_from_replay(
+                baseline_config=flat_baseline,
+                candidate_config=flat_candidate,
+                replay_fn=live_fn,
                 n_bootstrap=n_bootstrap,
                 sensitivity=True,
             )
