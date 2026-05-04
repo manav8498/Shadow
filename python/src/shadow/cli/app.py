@@ -3569,41 +3569,63 @@ def diagnose_pr_cmd(
 @app.command("gate-pr", rich_help_panel="Common")
 def gate_pr_cmd(
     traces: list[Path] = typer.Option(  # noqa: B008
-        ..., "--traces", help="Baseline production-like .agentlog files.",
+        ...,
+        "--traces",
+        help="Baseline production-like .agentlog files.",
     ),
     candidate_traces: list[Path] | None = typer.Option(  # noqa: B008
-        None, "--candidate-traces", help="Candidate .agentlog files paired by filename.",
+        None,
+        "--candidate-traces",
+        help="Candidate .agentlog files paired by filename.",
     ),
     baseline_config: Path = typer.Option(  # noqa: B008
-        ..., "--baseline-config", help="Baseline agent config YAML.",
+        ...,
+        "--baseline-config",
+        help="Baseline agent config YAML.",
     ),
     candidate_config: Path = typer.Option(  # noqa: B008
-        ..., "--candidate-config", help="Candidate agent config YAML.",
+        ...,
+        "--candidate-config",
+        help="Candidate agent config YAML.",
     ),
     policy: Path | None = typer.Option(  # noqa: B008
-        None, "--policy", help="Optional behavior-policy YAML.",
+        None,
+        "--policy",
+        help="Optional behavior-policy YAML.",
     ),
     pr_comment: Path | None = typer.Option(  # noqa: B008
-        None, "--pr-comment", help="Path to write the markdown PR comment (CI typically posts this).",
+        None,
+        "--pr-comment",
+        help="Path to write the markdown PR comment (CI typically posts this).",
     ),
     out: Path | None = typer.Option(  # noqa: B008
-        None, "--out", help="Optional path to write the JSON report (omit to write tempfile).",
+        None,
+        "--out",
+        help="Optional path to write the JSON report (omit to write tempfile).",
     ),
     changed_files: list[str] | None = typer.Option(  # noqa: B008
-        None, "--changed-files", help="Files changed in the PR (used to attach filenames to deltas).",
+        None,
+        "--changed-files",
+        help="Files changed in the PR (used to attach filenames to deltas).",
     ),
     backend: str = typer.Option(
-        "recorded", "--backend", help="Cause attribution backend: recorded | mock | live.",
+        "recorded",
+        "--backend",
+        help="Cause attribution backend: recorded | mock | live.",
     ),
     n_bootstrap: int = typer.Option(
-        500, "--n-bootstrap",
+        500,
+        "--n-bootstrap",
         help="Bootstrap resample count for causal CI (used when --backend != recorded).",
     ),
     max_traces: int = typer.Option(
-        200, "--max-traces", help="Cap on traces (mining selects representatives above this).",
+        200,
+        "--max-traces",
+        help="Cap on traces (mining selects representatives above this).",
     ),
     max_cost: float | None = typer.Option(
-        None, "--max-cost",
+        None,
+        "--max-cost",
         help="Maximum total USD spend for --backend live runs.",
     ),
 ) -> None:

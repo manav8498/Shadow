@@ -4,6 +4,64 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [unreleased] — Causal Regression Forensics
+
+Strategic-pivot work landed across four weeks of plan-driven development.
+The wedge product, `shadow diagnose-pr`, plus `verify-fix` and `gate-pr`,
+ship the three-command loop:
+
+  diagnose -> fix -> verify
+
+### Added
+
+* `shadow diagnose-pr` (new command) — names the exact change that broke
+  the agent, with bootstrap CI + E-value when a backend is supplied.
+  Produces a `diagnose-pr/v0.1` JSON report and a Markdown PR comment.
+* `shadow verify-fix` (new command) — reads the diagnose report, re-diffs
+  affected traces against a fixed candidate, asserts the regression is
+  reversed without collateral damage. Pass criteria configurable via
+  `--affected-threshold` / `--safe-ceiling`.
+* `shadow gate-pr` (new command) — CI-friendly wrapper, verdict-mapped
+  exit codes (0 ship / 1 hold|probe / 2 stop / 3 internal error).
+* `--backend live` — real OpenAI replay anchored per baseline trace
+  (corpus-mean divergence). `--max-cost USD` caps total spend; pricing
+  table covers gpt-4o-mini / gpt-4o / gpt-4.1-mini / gpt-4.1 with a
+  conservative-high fallback for unknown models.
+* `--backend mock` — synthetic deterministic per-delta intervention
+  for tests + offline demos. PR comment surfaces a "synthetic mock
+  backend" disclosure so reviewers can't mistake it for real evidence.
+* `examples/refund-causal-diagnosis/` — packaged wedge demo with
+  baseline + candidate traces, policy, configs, and a `demo.sh`.
+* `.github/actions/shadow-diagnose-pr/` — composite GitHub Action
+  posting the diagnose-pr PR comment via dedup-by-marker.
+* `docs/features/causal-pr-diagnosis.md` — feature page covering the
+  flow, verdict matrix, three backends, performance, CI integration.
+* README hero rewritten to lead with `shadow diagnose-pr`.
+
+### Changed
+
+* `shadow.mine` and `shadow.diagnose_pr.loaders` both prefer the
+  envelope `meta.trace_id` (the per-trace UUID added in v3.0.5) over
+  the metadata record's content hash, ending the silent collapse-to-
+  one-cluster behavior on byte-identical metadata.
+* Per-trace 9-axis diff + policy check now run in a thread pool
+  above 16-pair corpora (Rust differ + regex policy both release
+  the GIL).
+
+### Internal
+
+* Refactored: `shadow.diagnose_pr.runner.run_diagnose_pr(opts)` is the
+  pure-Python entry point. The Typer commands are thin wrappers.
+* Tests: 1795 passed, 15 expected skips. Live API e2e test
+  (`test_diagnose_pr_live_api_e2e.py`) gated by
+  `SHADOW_RUN_NETWORK_TESTS=1` + `OPENAI_API_KEY`. Snapshot test on
+  the demo's PR comment (`test_diagnose_pr_demo_snapshot.py`).
+* Performance (M-series, single Python 3.11): 1000 paired pairs +
+  bootstrap + causal in 0.95s @ 85 MB; 5000 single-side traces with
+  mining in 0.54s.
+
+---
+
 ## [3.0.7](https://github.com/manav8498/Shadow/compare/v3.0.6...v3.0.7) (2026-05-03)
 
 External customer retest of v3.0.6 surfaced three follow-up items.
