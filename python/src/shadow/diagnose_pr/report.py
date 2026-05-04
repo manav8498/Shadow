@@ -22,6 +22,7 @@ from dataclasses import asdict
 from shadow.diagnose_pr import SCHEMA_VERSION
 from shadow.diagnose_pr.loaders import LoadedTrace
 from shadow.diagnose_pr.models import (
+    CauseEstimate,
     ConfigDelta,
     DiagnosePrReport,
     TraceDiagnosis,
@@ -41,12 +42,15 @@ def build_report(
     worst_policy_rule: str | None = None,
     has_dangerous_violation: bool = False,
     has_severe_axis: bool = False,
+    top_causes: list[CauseEstimate] | None = None,
+    dominant_cause: CauseEstimate | None = None,
+    suggested_fix: str | None = None,
 ) -> DiagnosePrReport:
     """Assemble a DiagnosePrReport.
 
-    Two call modes:
+    Two call modes for the per-trace state:
 
-      * Week 2 path: pass `diagnoses=[TraceDiagnosis, ...]` already
+      * Week 2+ path: pass `diagnoses=[TraceDiagnosis, ...]` already
         carrying per-trace `affected`, `worst_axis`, etc. The
         verdict is computed from those + the policy/axis flags.
 
@@ -54,10 +58,15 @@ def build_report(
         skeleton TraceDiagnosis entries (no per-trace detail) so
         the JSON shape is uniform.
 
+    Week 3 adds three new optional kwargs — `top_causes`,
+    `dominant_cause`, `suggested_fix` — populated by
+    `shadow.diagnose_pr.attribution`. When omitted, all three stay
+    at v0.1 defaults (empty list / None / None).
+
     Exactly one of `diagnoses` / `affected_trace_ids` must be
     supplied; passing both raises a ValueError.
     """
-    del deltas  # v0.1: not yet ranked into top_causes (Week 3)
+    del deltas  # caller pre-extracted; we don't store deltas in the report
 
     if diagnoses is not None and affected_trace_ids is not None:
         raise ValueError("pass exactly one of `diagnoses` or `affected_trace_ids`")
@@ -98,13 +107,13 @@ def build_report(
         total_traces=total,
         affected_traces=affected,
         blast_radius=blast_radius,
-        dominant_cause=None,  # Week 3
-        top_causes=[],  # Week 3
+        dominant_cause=dominant_cause,
+        top_causes=list(top_causes) if top_causes else [],
         trace_diagnoses=diagnoses,
         affected_trace_ids=sorted(affected_trace_set),
         new_policy_violations=new_policy_violations,
         worst_policy_rule=worst_policy_rule,
-        suggested_fix=None,  # Week 3
+        suggested_fix=suggested_fix,
         flags=flags,
     )
 
