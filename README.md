@@ -148,10 +148,41 @@ is enabled are listed in the module docstring.
 ## Try it in sixty seconds
 
 ```bash
+git clone https://github.com/manav8498/Shadow.git
+cd Shadow/examples/refund-causal-diagnosis
+./demo.sh
+```
+
+That runs `shadow diagnose-pr` end-to-end on a refund-agent scenario where the candidate config drops a "always confirm before refunding" instruction. Shadow names the prompt change as the dominant cause and tells you the fix:
+
+```
+## Shadow verdict: STOP
+
+This PR violates a critical policy and must not merge as-is.
+This PR changes agent behavior on **3** / **3** production-like traces.
+
+### Dominant cause
+`prompt.system` appears to be the main cause.
+- Axis: `trajectory`
+- ATE: `+0.60`
+- 95% CI: `[0.60, 0.60]`
+- E-value: `6.7`
+
+### Why it matters
+3 traces violate the `confirm-before-refund` policy rule.
+
+### Suggested fix
+Review the prompt change at `prompts/candidate.md` — restore the
+instruction or constraint it removed.
+```
+
+For the underlying nine-axis behavior diff (without the causal layer), `shadow demo` runs the same fixtures through `shadow diff` and prints a severity table — useful when you want raw signal numbers:
+
+```bash
 shadow demo
 ```
 
-That runs a real diff on bundled `.agentlog` fixtures. No API key, no agent code, nothing written to your working directory. The output looks like this (abbreviated):
+That output looks like this (abbreviated):
 
 ```
 signal             baseline  candidate    change     severity
@@ -391,6 +422,9 @@ If your agent is built on LangGraph, CrewAI, or AG2, prefer the matching adapter
 
 | Command | Does |
 |---|---|
+| `shadow diagnose-pr` | **The wedge command.** Names the exact change that broke the agent — verdict + dominant cause + bootstrap CI + E-value + Markdown PR comment. `--backend recorded\|mock\|live`; `--max-cost USD` caps live spend. |
+| `shadow verify-fix` | Closes the diagnose -> fix -> verify loop. Reads a diagnose-pr `report.json`, re-diffs only the affected traces against a candidate-with-patch, asserts regression reversed without collateral damage. |
+| `shadow gate-pr` | CI-friendly wrapper around `diagnose-pr` with verdict-mapped exit codes (0 ship / 1 hold\|probe / 2 stop / 3 internal error). |
 | `shadow demo` | Run a nine-axis diff against bundled fixtures. One command, no API key, no files written. |
 | `shadow quickstart` | Drop a writable working demo scenario (agent.py, configs, fixtures) to edit and re-run. No API key needed. |
 | `shadow init` | Scaffold a `.shadow/` folder. `--github-action` drops a CI workflow. |
