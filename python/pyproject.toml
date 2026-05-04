@@ -244,6 +244,7 @@ module = [
     "shadow.adapters.*",
     "shadow.tools.sandbox",
     "shadow.certify_sign",
+    "shadow.diagnose_pr.dashboard",
 ]
 ignore_errors = true
 
