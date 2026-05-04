@@ -132,16 +132,36 @@ def otel_to_agentlog(data: dict[str, Any]) -> list[dict[str, Any]]:
     _augment_metadata_from_spans(meta_payload, spans, resource_attrs)
 
     meta_id = _core.content_id(meta_payload)
-    records: list[dict[str, Any]] = [
-        {
-            "version": "0.1",
-            "id": meta_id,
-            "kind": "metadata",
-            "ts": _now_iso(),
-            "parent": None,
-            "payload": meta_payload,
-        }
-    ]
+    # Stamp envelope `meta.trace_id` with the imported OTel traceId
+    # (a globally-unique 128-bit hex string per the OTel spec). This
+    # is what Shadow.diagnose_pr.loaders + shadow.mine use to
+    # distinguish traces; without it, multiple OTel-imported traces
+    # with byte-identical metadata payloads collapse to one trace_id
+    # (the metadata content hash) and the diagnose-pr mining filter
+    # silently collapses the corpus. Same defense as v3.0.5 fixed
+    # for the recording path.
+    envelope_meta: dict[str, Any] = {}
+    first_trace_id = ""
+    for s in spans:
+        tid = str(s.get("traceId") or "")
+        if tid:
+            first_trace_id = tid
+            break
+    if first_trace_id:
+        envelope_meta["trace_id"] = first_trace_id
+        envelope_meta["otel_trace_id"] = first_trace_id
+
+    metadata_envelope: dict[str, Any] = {
+        "version": "0.1",
+        "id": meta_id,
+        "kind": "metadata",
+        "ts": _now_iso(),
+        "parent": None,
+        "payload": meta_payload,
+    }
+    if envelope_meta:
+        metadata_envelope["meta"] = envelope_meta
+    records: list[dict[str, Any]] = [metadata_envelope]
     last_parent = meta_id
 
     # Walk spans in order; emit tool_call + tool_result for tool spans
@@ -502,7 +522,15 @@ def _span_to_response_payload(
     # message's parts + tool_calls become Shadow content blocks.
     blocks = _messages_to_response_content_blocks(content)
     stop_reason = _extract_stop_reason(attrs, span)
-    latency_ms = _duration_ms(start_ts, end_ts)
+    # Prefer the explicit `shadow.latency_ms` attribute when present
+    # (Shadow's own exporter writes it). Span duration is the
+    # fallback for OTel data from third-party SDKs that don't emit
+    # the attribute.
+    explicit_latency = attrs.get("shadow.latency_ms")
+    if isinstance(explicit_latency, int):
+        latency_ms = explicit_latency
+    else:
+        latency_ms = _duration_ms(start_ts, end_ts)
     usage = _extract_usage(attrs)
 
     payload: dict[str, Any] = {

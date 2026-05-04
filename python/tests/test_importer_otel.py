@@ -497,6 +497,9 @@ def test_v140_spans_sorted_by_start_time_for_deterministic_ids() -> None:
     reverse = otel_to_agentlog(_otlp([s1, s2]))
     # The chat spans (after metadata) should come out in the same order
     # regardless of input order.
-    assert [r["meta"]["otel_span_id"] for r in forward if "meta" in r] == [
-        r["meta"]["otel_span_id"] for r in reverse if "meta" in r
-    ]
+    # The metadata record now also carries `meta` (with trace_id),
+    # but only chat/tool records have `otel_span_id`. Filter to
+    # records that actually have it.
+    assert [
+        r["meta"]["otel_span_id"] for r in forward if "meta" in r and "otel_span_id" in r["meta"]
+    ] == [r["meta"]["otel_span_id"] for r in reverse if "meta" in r and "otel_span_id" in r["meta"]]

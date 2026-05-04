@@ -156,6 +156,64 @@ def _chat_span(
         if "latency_ms" in resp_payload:
             attrs.append(_attr("shadow.latency_ms", int(resp_payload["latency_ms"])))
     status = {"code": 1} if response is not None else {"code": 2}  # OK vs ERROR
+
+    # Emit GenAI message events so the round-trip preserves prompt
+    # and response content. Without these, importers see only the
+    # attributes (model, usage, finish_reason) and lose the actual
+    # text + tool_use blocks — which makes the 9-axis differ
+    # think nothing happened. Emitting message events is the
+    # spec-blessed way; the v1.37+ "input.messages"/"output.messages"
+    # body fields are an alternative we don't emit here yet.
+    events: list[dict[str, Any]] = []
+    for msg in req_payload.get("messages") or []:
+        role = str(msg.get("role", "user"))
+        ev_name = {
+            "user": "gen_ai.user.message",
+            "system": "gen_ai.system.message",
+            "assistant": "gen_ai.assistant.message",
+            "tool": "gen_ai.tool.message",
+        }.get(role, "gen_ai.user.message")
+        ev_attrs = [_attr("content", str(msg.get("content", "")))]
+        events.append(
+            {
+                "name": ev_name,
+                "timeUnixNano": _rfc3339_to_unix_nano(start_ts),
+                "attributes": ev_attrs,
+            }
+        )
+    if response is not None:
+        # The assistant's response goes as one gen_ai.assistant.message
+        # event. tool_use blocks become a tool_calls attribute (a
+        # JSON string per OTel convention since the AnyValue oneof
+        # has no native list-of-objects).
+        content_blocks = resp_payload.get("content") or []
+        text_parts = [
+            str(b.get("text", ""))
+            for b in content_blocks
+            if isinstance(b, dict) and b.get("type") == "text"
+        ]
+        tool_uses = [
+            {
+                "id": str(b.get("id", "")),
+                "name": str(b.get("name", "")),
+                "input": b.get("input") or {},
+            }
+            for b in content_blocks
+            if isinstance(b, dict) and b.get("type") == "tool_use"
+        ]
+        ev_attrs = [_attr("content", "\n".join(text_parts))]
+        if tool_uses:
+            import json as _json
+
+            ev_attrs.append(_attr("tool_calls", _json.dumps(tool_uses)))
+        events.append(
+            {
+                "name": "gen_ai.assistant.message",
+                "timeUnixNano": _rfc3339_to_unix_nano(end_ts),
+                "attributes": ev_attrs,
+            }
+        )
+
     return {
         "traceId": trace_id,
         "spanId": _span_id_from(request["id"]),
@@ -165,6 +223,7 @@ def _chat_span(
         "startTimeUnixNano": _rfc3339_to_unix_nano(start_ts),
         "endTimeUnixNano": _rfc3339_to_unix_nano(end_ts),
         "attributes": attrs,
+        "events": events,
         "status": status,
     }
 
