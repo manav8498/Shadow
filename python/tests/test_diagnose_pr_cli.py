@@ -263,4 +263,11 @@ def test_diagnose_pr_candidate_traces_with_no_filename_overlap_fails_loud(
         ],
     )
     assert result.exit_code != 0
-    assert "filename" in result.stdout.lower()
+    # _fail() writes to stderr. click 8.1 mixed stderr into stdout by
+    # default; click 8.3+ separates them. Combine both safely.
+    captured = result.stdout
+    try:
+        captured = (captured or "") + (result.stderr or "")
+    except (ValueError, AttributeError):
+        pass
+    assert "filename" in captured.lower()
