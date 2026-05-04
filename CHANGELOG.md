@@ -10,6 +10,78 @@ End of the strategic-pivot 8-phase roadmap. Phases 1–8 are landed
 + stress-tested + cross-language paired. Final v0.2 wrap-up adds
 the remaining deferred items.
 
+### Added (DX/enterprise polish — pytest-for-agents)
+
+The five-plus-three list from the developer/enterprise-experience
+review, executed as one round. Goal: make Shadow feel like
+`pytest` or `cargo test` — one command locally, one command in CI,
+clear failures, easy baseline updates.
+
+* **`shadow inspect <trace.agentlog> [<candidate>]`** — terminal
+  renderer for `.agentlog` files. Columns: turn, kind, role/tool,
+  summary, tokens (in/out), latency, cost, redactions count, stop
+  reason. Comparison mode highlights the first divergent turn in
+  red. The daily-debug surface; what `pytest -v` is to test runs.
+* **`shadow scan <paths>`** — secret/PII/custom-pattern scanner
+  that runs Shadow's `Redactor` patterns in detect-only mode
+  against committed `.agentlog` files. Exits non-zero on any hit
+  so it composes into CI before `shadow gate-pr`. `--patterns
+  FILE` adds company-specific rules; `--redact-snippets` for CI
+  log safety; `--json` for machine-readable output.
+* **`shadow baseline create / update / approve / verify`** —
+  frozen-baseline workflow modeled on Insta + Jest snapshots.
+  Pins a content hash to `shadow.yaml`; PRs that change the
+  baseline show up in `git diff` as a single line. `update` and
+  `approve` require `--force` so a typo can't silently approve a
+  regression.
+* **Pytest-style `shadow gate-pr` failure output** — the 1-screen
+  failure summary now leads with verdict + exit code + blast
+  radius, then the dominant cause cited as `file:line` (when
+  `--baseline-ref` lit up the prompt blame), then ATE/CI/E-value
+  on one line, the policy violation if any, and the
+  `shadow verify-fix` command. Pass `--verbose` for the full JSON
+  report inline. The PR-comment markdown is always written
+  separately via `--pr-comment`.
+* **`shadow init` excellence** — detects project type
+  (Python/Node/Rust) from sentinel files in cwd, writes a
+  starter `shadow.yaml`, and ends stdout with copy-pasteable
+  next-step commands (`shadow quickstart`, `shadow baseline
+  create`, `shadow gate-pr`). The activation moment for new
+  users.
+* **PII policy pack** at `examples/policy-packs/pii.yaml` —
+  ready-to-use `forbidden_text` rules for emails, SSNs, credit
+  cards, bearer tokens, AWS keys, PEM private keys. Pairs with
+  `shadow scan --secrets`: the scanner catches secrets in
+  recorded traces; the policy blocks the agent from generating
+  them at all. README at `examples/policy-packs/README.md`
+  explains usage and customization.
+* **30-min production-readiness brief** at
+  `docs/security/production-readiness.md` — single page CISOs
+  and security reviewers can sign off on in one sitting.
+  Mermaid data-flow diagram, on-disk artifact table, redaction
+  pattern table, signing chain summary, offline-operation guide,
+  threat model in one paragraph, and a compliance-question
+  mapping table that points reviewers at the right docs.
+* **Forked-PR fallback in the GitHub Action** —
+  `.github/actions/shadow-diagnose-pr` now detects forked PRs
+  (read-only `GITHUB_TOKEN`) and writes the verdict to
+  `$GITHUB_STEP_SUMMARY` instead of attempting a comment that
+  would fail. README documents the one-line workflow activation.
+  Marker dedup means a re-run on the same PR edits the existing
+  comment in place rather than stacking new ones.
+* **`cargo test --workspace --all-features` works** — the
+  `extension` Cargo feature is now an alias for `python`;
+  `pyo3/extension-module` is set only by maturin via
+  `[tool.maturin] features` in `python/pyproject.toml`. Reverses
+  a previously-documented limitation.
+* **Symlinked source-installs of the TS SDK record correctly** —
+  `instrumentation.ts` anchors module resolution on
+  `process.argv[1]` (the user's script) rather than
+  `import.meta.url` (shadow-diff's location). Loads both `.js`
+  and `.mjs` siblings to handle dual-package layouts where the
+  `import` and `require` conditions resolve to different physical
+  files (openai v6+).
+
 ### Added (post-roadmap closures)
 
 * **napi-rs native binding for `shadow-align`** — new

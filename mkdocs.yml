@@ -81,6 +81,7 @@ nav:
       - Pricing table: reference/pricing.md
       - Sample PR comment: sample-pr-comment.md
   - Security and supply chain:
+      - Production-readiness brief: security/production-readiness.md
       - Security policy: security.md
       - Supply-chain integrity: SUPPLY-CHAIN.md
       - SOC 2 readiness: SOC2-READINESS.md

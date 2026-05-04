@@ -9,6 +9,7 @@ Exit codes:
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
@@ -105,6 +106,98 @@ def test_gate_pr_stop_verdict_returns_exit_2(tmp_path: Path) -> None:
     assert result.exit_code == 2, result.stdout
     parsed = json.loads(out_json.read_text())
     assert parsed["verdict"] == "stop"
+
+
+def test_gate_pr_failure_summary_is_pytest_shaped(tmp_path: Path) -> None:
+    """On non-ship verdicts, the 1-screen summary must carry the
+    five load-bearing pieces a developer needs to act:
+      1. Verdict + exit + blast-radius
+      2. Dominant cause id (file:line preferred when available)
+      3. Numeric evidence (axis + ATE + CI + E-value)
+      4. Policy violation if any
+      5. The verify-fix command
+
+    Drift between the engine and the renderer here is the bug — if
+    a CauseEstimate field disappears, this test fires before the PR
+    comment regression hits a real user.
+    """
+    runner = CliRunner()
+    base_dir, cand_dir = _stage_traces(tmp_path)
+    base_cfg, cand_cfg, pol = _stage_configs(tmp_path)
+    out_json = tmp_path / "report.json"
+    result = runner.invoke(
+        app,
+        [
+            "gate-pr",
+            "--traces",
+            str(base_dir),
+            "--candidate-traces",
+            str(cand_dir),
+            "--baseline-config",
+            str(base_cfg),
+            "--candidate-config",
+            str(cand_cfg),
+            "--policy",
+            str(pol),
+            "--backend",
+            "mock",
+            "--out",
+            str(out_json),
+        ],
+    )
+    assert result.exit_code == 2, result.output
+    # Combine streams — click 8.1 vs 8.3 differ on stderr separation.
+    captured = result.output
+    with contextlib.suppress(ValueError, AttributeError):
+        captured = (captured or "") + (result.stderr or "")
+    low = captured.lower()
+    # Five-line summary structure.
+    assert "stop" in low or "exit 2" in low
+    assert "cause" in low or "main cause" in low or "candidate" in low
+    assert "ate=" in low or "trajectory" in low
+    assert "policy" in low
+    assert "verify-fix" in low or "verify:" in low
+    # Verbose flag NOT set — full JSON report should NOT appear inline.
+    # (it's still written to --out)
+    assert '"schema_version"' not in captured
+
+
+def test_gate_pr_verbose_flag_dumps_full_report(tmp_path: Path) -> None:
+    """--verbose surfaces the JSON report after the summary so power
+    users have everything in one place without re-running."""
+    runner = CliRunner()
+    base_dir, cand_dir = _stage_traces(tmp_path)
+    base_cfg, cand_cfg, pol = _stage_configs(tmp_path)
+    out_json = tmp_path / "report.json"
+    result = runner.invoke(
+        app,
+        [
+            "gate-pr",
+            "--traces",
+            str(base_dir),
+            "--candidate-traces",
+            str(cand_dir),
+            "--baseline-config",
+            str(base_cfg),
+            "--candidate-config",
+            str(cand_cfg),
+            "--policy",
+            str(pol),
+            "--backend",
+            "mock",
+            "--out",
+            str(out_json),
+            "--verbose",
+        ],
+    )
+    assert result.exit_code == 2
+    captured = result.output
+    with contextlib.suppress(ValueError, AttributeError):
+        captured = (captured or "") + (result.stderr or "")
+    # Summary still present.
+    assert "stop" in captured.lower() or "exit 2" in captured.lower()
+    # Plus the full JSON dump.
+    assert '"schema_version"' in captured
 
 
 def test_gate_pr_ship_verdict_returns_exit_0(tmp_path: Path) -> None:
