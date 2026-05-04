@@ -60,7 +60,7 @@ toolArgDelta({ x: 1 }, { x: '1' });                   // [{ kind: 'type_changed'
 ### Optional native acceleration (napi-rs)
 
 For workloads with large traces, the same algorithms ship as a Rust
-addon (`@shadow-diff/align-napi`, built from `crates/shadow-align`).
+addon (`@shadow-diff/align-native`, built from `crates/shadow-align`).
 When the platform-specific `.node` file is present, `trajectoryDistance`
 and `toolArgDelta` transparently use it — same surface, same results,
 substantially faster on long sequences. `isNativeAvailable()` reports
