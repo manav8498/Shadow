@@ -4,6 +4,38 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [unreleased] — Causal Regression Forensics + OTel + Align library
+
+Phase 6: `shadow.align` standalone alignment library.
+
+### Added
+
+* `shadow.align` — five public functions for external tools that
+  want Shadow's trace alignment + divergence detection without
+  pulling in the diagnose-pr / 9-axis / policy machinery:
+  `align_traces`, `first_divergence`, `top_k_divergences`,
+  `trajectory_distance`, `tool_arg_delta`. Plus four stable
+  dataclasses: `Alignment`, `AlignedTurn`, `Divergence`,
+  `ArgDelta`.
+* `examples/standalone-align/compare_tool_trajectories.py` —
+  runnable demo of a non-Shadow tool calling only
+  `shadow.align`; zero imports from diagnose_pr / causal / cli.
+* `docs/features/align-library.md` — public-facing documentation
+  (API reference, when to reach for it, stability statement,
+  future Rust-crate + TypeScript split deferred to v0.2).
+
+### Notes
+
+* `align_traces`, `first_divergence`, `top_k_divergences`
+  delegate to `shadow._core.compute_diff_report` so the alignment
+  matches what the 9-axis differ already does — one canonical
+  alignment algorithm in the project, not two.
+* `trajectory_distance` and `tool_arg_delta` are pure Python so
+  callers without the Rust extension can still use the core
+  comparators.
+
+---
+
 ## [unreleased] — Causal Regression Forensics + OTel bridge
 
 Adds Phase 5 of the strategic-pivot roadmap: any OTel-GenAI-instrumented
