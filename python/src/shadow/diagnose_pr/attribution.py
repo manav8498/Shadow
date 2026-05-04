@@ -146,9 +146,39 @@ def pick_dominant(causes: list[CauseEstimate]) -> CauseEstimate | None:
     return max(causes, key=lambda c: abs(c.ate) * c.confidence)
 
 
+_FIX_HINTS: dict[str, str] = {
+    "prompt": "Review the prompt change at `{delta}` — restore the instruction or constraint it removed.",
+    "model": "Pin the model back: revert `{delta}` until the candidate model's behavior is verified.",
+    "temperature": "Revert `{delta}` to the baseline value, or rerun with the candidate value against more traces.",
+    "tool_schema": "Review the tool schema change at `{delta}` — confirm the candidate respects the same call protocol as baseline.",
+    "retriever": "Review the retriever change at `{delta}` — confirm document set + ranking match baseline.",
+    "policy": "Review the policy change at `{delta}` — restore the rule or update affected callers.",
+    "unknown": "Investigate the change at `{delta}` — kind is unrecognized, rerun with --changed-files for better attribution.",
+}
+
+
+def suggested_fix_for(
+    dominant: CauseEstimate | None,
+    *,
+    deltas: list[ConfigDelta],
+) -> str | None:
+    """Generate a one-sentence fix hint for the dominant cause.
+
+    The hint is deliberately advisory — v1 cannot generate a real
+    patch. The text picks a template by `DeltaKind`, names the
+    delta, and suggests the recovery action.
+    """
+    if dominant is None:
+        return None
+    kind = next((d.kind for d in deltas if d.id == dominant.delta_id), "unknown")
+    template = _FIX_HINTS.get(kind, _FIX_HINTS["unknown"])
+    return template.format(delta=dominant.delta_id)
+
+
 __all__ = [
     "ReplayFn",
     "causal_from_replay",
     "pick_dominant",
     "simple_attribution",
+    "suggested_fix_for",
 ]
