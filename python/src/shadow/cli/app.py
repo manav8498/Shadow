@@ -3891,7 +3891,11 @@ def dashboard_cmd(
     reverse proxy doing TLS + auth.
     """
     try:
-        import uvicorn  # type: ignore[import-not-found]
+        # uvicorn is only present when the [serve] extra is installed.
+        # Suppress import-not-found in the default-extras CI venv
+        # (where uvicorn is missing) AND unused-ignore in the
+        # all-extras venv (where it has type stubs).
+        import uvicorn  # type: ignore[import-not-found, unused-ignore]
 
         from shadow.diagnose_pr.dashboard import build_app
     except ImportError as exc:
