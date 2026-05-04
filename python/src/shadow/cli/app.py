@@ -1558,17 +1558,28 @@ def record(
 ) -> None:
     """Run a subcommand with zero-config auto-instrumentation.
 
-    Example:
+    Examples:
         shadow record -o demo.agentlog -- python agent.py
+        shadow record -o demo.agentlog -- node my-agent.js
+        shadow record -o demo.agentlog -- npx tsx my-agent.ts
+        shadow record -o demo.agentlog -- ts-node my-agent.ts
 
-    The wrapped command's Python interpreter loads a sitecustomize
-    shim that starts a `Session` around the whole process. Every
-    `anthropic.*.messages.create` / `openai.*.chat.completions.create`
-    call made by the agent gets recorded without the agent touching
-    any Shadow code.
+    For Python commands, the wrapped interpreter loads a
+    sitecustomize shim that starts a `Session` around the whole
+    process. For Node-family runtimes (node / npx / tsx / ts-node),
+    `NODE_OPTIONS='--import shadow-diff/auto'` is injected so the
+    TypeScript SDK's auto entrypoint starts a Session on startup
+    (requires Node >= 20.6). Either way, every
+    `anthropic.*.messages.create` /
+    `openai.*.chat.completions.create` call made by the agent gets
+    recorded without touching agent code.
 
-    If the wrapped command already imports `shadow.sdk.Session` on
-    its own, pass `--no-auto-instrument` to avoid a double session.
+    The Node auto path requires `shadow-diff` to be installed in
+    the wrapped command's working tree (`npm install shadow-diff`
+    or a workspace dependency).
+
+    If the wrapped command already opens its own `Session` on its
+    own, pass `--no-auto-instrument` to avoid a double session.
     """
     args = ctx.args
     if not args:
@@ -1613,8 +1624,70 @@ def record(
         bootstrap_dir = str(Path(_bootstrap.__file__).resolve().parent)
         existing = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = f"{bootstrap_dir}{os.pathsep}{existing}" if existing else bootstrap_dir
+
+        # Mirror the same zero-config flow for Node-family runtimes
+        # so `shadow record -- node my-agent.js` Just Works against
+        # arbitrary OpenAI/Anthropic JS SDK callers, including
+        # LangChain.js / LangGraph TS agents. The TS SDK ships an
+        # auto-entrypoint at `shadow-diff/auto` that reads the same
+        # SHADOW_SESSION_OUTPUT / SHADOW_SESSION_TAGS env we just set
+        # and starts a Session with autoInstrument(). We inject it
+        # via NODE_OPTIONS so the user doesn't have to add `--import`
+        # themselves. Requires Node >=20.6 (--import flag).
+        if _is_node_runtime(args[0]):
+            shadow_auto = "shadow-diff/auto"
+            inject = f"--import {shadow_auto}"
+            existing_node_opts = env.get("NODE_OPTIONS", "").strip()
+            env["NODE_OPTIONS"] = f"{inject} {existing_node_opts}" if existing_node_opts else inject
     result = subprocess.run(args, env=env, check=False)
     raise typer.Exit(code=result.returncode)
+
+
+# Node-family runtime executables that respect the `NODE_OPTIONS` env
+# var the same way `node` itself does. `shadow record` injects
+# `--import shadow-diff/auto` when the wrapped command starts with one
+# of these; consumers like LangChain.js / LangGraph TS pick up
+# zero-config recording without touching their agent code.
+#
+# `bun` is intentionally excluded — its module loader uses a different
+# preload mechanism and the auto entrypoint's top-level await + ESM
+# semantics aren't yet mapped onto bun-native equivalents. `deno` is
+# also excluded for the same reason. Users on those runtimes can
+# import `shadow-diff/auto` explicitly from their entrypoint.
+_NODE_RUNTIME_BINARIES = frozenset(
+    {
+        "node",
+        "node.exe",
+        "nodejs",
+        "npx",
+        "npx.cmd",
+        "tsx",
+        "ts-node",
+        "ts-node.cmd",
+    }
+)
+
+
+def _is_node_runtime(executable: str) -> bool:
+    """True when `executable` is a Node-family CLI that honors NODE_OPTIONS.
+
+    Matches against the basename so `/usr/local/bin/node` and the bare
+    `node` both register. Treats both `/` and `\\` as separators so a
+    Windows path like `C:\\Program Files\\nodejs\\node.exe` is
+    classified correctly when this code runs on a non-Windows host
+    (used to build the env for a wrapped subprocess; the actual
+    runtime check happens by string match, not by os.path semantics).
+    """
+    # Manual basename so cross-platform paths classify identically.
+    # pathlib.Path on POSIX won't strip `\\` segments, so the bare
+    # rsplit handles that. lower() folds the `.exe` / `.cmd` casing.
+    last_slash = max(executable.rfind("/"), executable.rfind("\\"))
+    basename = executable[last_slash + 1 :].lower() if last_slash >= 0 else executable.lower()
+    if basename in _NODE_RUNTIME_BINARIES:
+        return True
+    # Some installs symlink with a version suffix (`node18`, `node20`).
+    # Conservative match — only `node` followed by digits.
+    return basename.startswith("node") and basename[4:].isdigit()
 
 
 # allow `shadow record -- python agent.py` (trailing args)
