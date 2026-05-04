@@ -104,8 +104,23 @@ keyed by slash-separated JSON-pointer paths. Pure Python.
   internal alignment, so the per-turn pairing matches what the 9-axis
   differ already does. There's exactly one canonical alignment algorithm
   in the project, not two.
-* `trajectory_distance` and `tool_arg_delta` are pure Python so callers
-  without the Rust extension can still use the core comparators.
+* `trajectory_distance` and `tool_arg_delta` don't themselves call
+  Rust, but importing `shadow.align` still loads the parent `shadow`
+  package which pulls in the Rust extension via `shadow/__init__.py`.
+  So the v0.1 align surface still requires the Rust extension to be
+  installed. The spec-literal top-level `shadow_align` package (no
+  parent dependency) is deferred to v0.2.
+
+## Known limitations (v0.1)
+
+* `first_divergence` and `align_traces` return `None` / zero turns
+  when one side of the pair is empty (asymmetric pair count). The
+  underlying Rust differ surfaces no divergence in this case; v0.2
+  will add an explicit `structural_drift_full` divergence kind for
+  the empty-candidate case.
+* `trajectory_distance` is O(n²) DP Levenshtein. 1000-tool sequences
+  run in ~0.12 s; 2000-tool sequences in ~0.51 s. For very long
+  sequences (>5 K), use a streaming approximation upstream.
 
 ## Stability
 

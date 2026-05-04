@@ -1,13 +1,25 @@
 """Internal implementation of the `shadow.align` public surface.
 
-Three of the five public functions delegate to
+Three of the five public functions (`align_traces`,
+`first_divergence`, `top_k_divergences`) delegate to
 `shadow._core.compute_diff_report` so the alignment matches what
 the 9-axis differ already does — there's one canonical pairing
 algorithm in the project, not two.
 
-The other two (`trajectory_distance`, `tool_arg_delta`) are pure
-Python because they don't need Rust; pure-Python keeps the
-external-tool integration story honest.
+The other two (`trajectory_distance`, `tool_arg_delta`) don't
+themselves call Rust, but importing `shadow.align` still loads
+the parent `shadow` package which pulls in the Rust extension
+via `shadow/__init__.py`. So the v0.1 align surface still
+requires the Rust extension to be installed. The spec-literal
+top-level `shadow_align` package (no parent dependency) is
+deferred to v0.2.
+
+Known limitations:
+  * `first_divergence` and `align_traces` return None / zero
+    turns when one side is empty (asymmetric pair count). The
+    underlying Rust differ surfaces no divergence in this case;
+    v0.2 will add an explicit "structural_drift_full" divergence
+    kind for the empty-candidate case.
 """
 
 from __future__ import annotations

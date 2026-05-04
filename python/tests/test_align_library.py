@@ -239,3 +239,122 @@ class TestInputValidation:
 
         with pytest.raises(TypeError, match="candidate must be a list"):
             top_k_divergences([], 42)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Documented limitations + edge cases (Phase 6 stress findings)
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeCases:
+    def test_align_handles_empty_traces_without_crash(self) -> None:
+        """Empty inputs must not crash — they return empty results."""
+        from shadow.align import align_traces, first_divergence, top_k_divergences
+
+        assert first_divergence([], []) is None
+        assert top_k_divergences([], []) == []
+        aln = align_traces([], [])
+        assert aln.turns == []
+        assert aln.total_cost == 0.0
+
+    def test_align_handles_one_side_empty_without_crash(self) -> None:
+        """Asymmetric (non-empty, []) doesn't crash. Documented v0.1
+        limitation: returns None / zero turns rather than reporting
+        a structural-drift divergence; v0.2 will surface a
+        structural_drift_full kind."""
+        from shadow.align import align_traces, first_divergence
+
+        b, _ = _quickstart_pair()
+        # Should not raise, even if it doesn't fully report the gap.
+        assert first_divergence(b, []) is None  # documented v0.1 limit
+        aln = align_traces(b, [])
+        assert aln is not None  # at least returns a valid Alignment
+
+    def test_trajectory_distance_handles_non_string_elements(self) -> None:
+        """Levenshtein is type-agnostic — int sequences work the
+        same as string sequences (compared by equality)."""
+        from shadow.align import trajectory_distance
+
+        assert trajectory_distance([1, 2, 3], [1, 2, 3]) == 0.0
+        d = trajectory_distance([1, 2, 3], [1, 9, 3])
+        assert d == pytest.approx(1 / 3, abs=0.01)
+
+    def test_tool_arg_delta_none_inputs(self) -> None:
+        from shadow.align import tool_arg_delta
+
+        assert tool_arg_delta(None, None) == []
+        assert len(tool_arg_delta(None, {"x": 1})) == 1
+        assert len(tool_arg_delta({"x": 1}, None)) == 1
+
+    def test_tool_arg_delta_deeply_nested_structure(self) -> None:
+        """100-deep nested dict produces exactly one delta with a
+        100-segment path. Stack-safe."""
+        from shadow.align import tool_arg_delta
+
+        a = "old"
+        b = "new"
+        for _ in range(100):
+            a = {"inner": a}
+            b = {"inner": b}
+        deltas = tool_arg_delta(a, b)
+        assert len(deltas) == 1
+        # Path is "/inner/inner/.../inner" (100 segments)
+        assert deltas[0].path.count("/") == 100
+
+    def test_results_deterministic_across_5_reruns(self) -> None:
+        """Same input produces same output. No threading or RNG
+        means this should always hold."""
+        from shadow.align import first_divergence, top_k_divergences
+
+        b, c = _quickstart_pair()
+        outcomes = []
+        for _ in range(5):
+            fd = first_divergence(b, c)
+            top = top_k_divergences(b, c, k=3)
+            outcomes.append((fd.kind if fd else None, tuple((d.kind, d.primary_axis) for d in top)))
+        assert len(set(outcomes)) == 1, f"non-deterministic: {outcomes}"
+
+
+class TestStandaloneImportClaim:
+    def test_align_does_not_pull_in_diagnose_pr_or_causal_or_cli(self) -> None:
+        """The promise of `shadow.align` as a standalone library:
+        importing it should NOT bring in the diagnose-pr / causal /
+        CLI surfaces. The Rust _core extension IS pulled in via the
+        parent shadow package — that's a documented v0.1 limitation
+        (spec §6 calls for a top-level shadow_align package in v0.2).
+
+        Runs the import in a subprocess so this test doesn't pollute
+        sys.modules for other tests in the suite. (A previous
+        in-process implementation del'd cached `shadow*` modules and
+        broke ~29 unrelated tests that relied on module-level state.)
+        """
+        import json
+        import subprocess
+        import sys as _sys
+
+        result = subprocess.run(
+            [
+                _sys.executable,
+                "-c",
+                (
+                    "import sys, json; "
+                    "import shadow.align; "
+                    "print(json.dumps(sorted("
+                    "[m for m in sys.modules if m.startswith('shadow')]"
+                    ")))"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        loaded = set(json.loads(result.stdout.strip()))
+        banned = {
+            "shadow.diagnose_pr",
+            "shadow.causal",
+            "shadow.cli",
+            "shadow.hierarchical",
+            "shadow.policy_runtime",
+        }
+        leaked = banned & loaded
+        assert leaked == set(), f"shadow.align leaked these heavy modules: {leaked}"
