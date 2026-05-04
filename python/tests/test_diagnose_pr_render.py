@@ -122,6 +122,49 @@ def test_renderer_includes_hidden_marker_for_pr_comment_dedup() -> None:
     assert "<!-- shadow-diagnose-pr -->" in md
 
 
+def test_dominant_cause_with_file_line_blame_shows_diff_block() -> None:
+    """When the cause carries file_path / line_no / removed_text
+    (P3 — line-level blame from --baseline-ref), the headline cites
+    `path:line` and a fenced ```diff``` block shows the load-bearing
+    instruction. This is the difference between
+    `prompts/refund.md` and `prompts/refund.md:17 removed: \"Always
+    confirm…\"`."""
+    cause = CauseEstimate(
+        delta_id="prompts/refund.md",
+        axis="trajectory",
+        ate=0.6,
+        ci_low=0.5,
+        ci_high=0.7,
+        e_value=6.7,
+        confidence=1.0,
+        file_path="prompts/refund.md",
+        line_no=17,
+        removed_text="4. Always confirm the refund amount before issuing the refund.",
+        added_text=None,
+    )
+    r = DiagnosePrReport(
+        schema_version=SCHEMA_VERSION,
+        verdict="stop",
+        total_traces=3,
+        affected_traces=3,
+        blast_radius=1.0,
+        dominant_cause=cause,
+        top_causes=[cause],
+        trace_diagnoses=[],
+        affected_trace_ids=[],
+        new_policy_violations=3,
+        worst_policy_rule="confirm-before-refund",
+        suggested_fix="Restore the prompt instruction.",
+        flags=[],
+    )
+    md = render_pr_comment(r)
+    # Headline cites file:line, not just the file.
+    assert "prompts/refund.md:17" in md
+    # The diff block shows the actual removed instruction text.
+    assert "```diff" in md
+    assert "Always confirm the refund amount" in md
+
+
 def test_likely_candidates_renders_when_no_dominant_cause() -> None:
     """When attribution can't crown a single cause (ties at the top),
     the renderer falls back to a candidate list rather than silently

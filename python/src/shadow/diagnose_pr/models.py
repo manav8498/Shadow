@@ -41,6 +41,13 @@ class ConfigDelta:
     are hex sha256 over canonical bytes when comparable, `None` when
     the side wasn't a hashable artefact (e.g. when the file didn't
     exist on one side).
+
+    Line-level blame fields (`file_path`, `line_no`, `removed_text`,
+    `added_text`) are populated only for prompt deltas when
+    `--baseline-ref` lets us run `git diff` against the file. They
+    let the renderer cite e.g. `prompts/refund.md:17 removed:
+    "Always confirm the refund amount before issuing refund."`
+    instead of just `prompt.system`. None on every other DeltaKind.
     """
 
     id: str
@@ -49,6 +56,10 @@ class ConfigDelta:
     old_hash: str | None
     new_hash: str | None
     display: str
+    file_path: str | None = None
+    line_no: int | None = None
+    removed_text: str | None = None
+    added_text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +86,13 @@ class CauseEstimate:
     `--n-bootstrap 0`). `e_value` is `None` when sensitivity wasn't
     requested. `confidence` is a coarse v1 marker — 1.0 when the CI
     excludes zero, 0.5 otherwise.
+
+    Line-level blame fields (`file_path`, `line_no`, `removed_text`,
+    `added_text`) propagate from the matching `ConfigDelta` so the
+    renderer can cite e.g. `prompts/refund.md:17 removed: "Always
+    confirm…"` on the dominant cause without needing to look the
+    delta back up. None when blame is unavailable (no
+    `--baseline-ref`, non-prompt cause, or no matching hunk).
     """
 
     delta_id: str
@@ -84,6 +102,10 @@ class CauseEstimate:
     ci_high: float | None
     e_value: float | None
     confidence: float
+    file_path: str | None = None
+    line_no: int | None = None
+    removed_text: str | None = None
+    added_text: str | None = None
 
 
 @dataclass(frozen=True)

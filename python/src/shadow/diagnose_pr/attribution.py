@@ -37,6 +37,29 @@ keys in {semantic, trajectory, safety, verbosity, latency}."""
 _SIMPLE_ATE_PLACEHOLDER = 0.01
 
 
+def _cause_from_delta(d: ConfigDelta, *, confidence: float) -> CauseEstimate:
+    """Build a CauseEstimate that propagates the delta's blame text.
+
+    Centralises the blame-pass-through so simple_attribution and
+    causal_from_replay both surface file:line + removed/added text
+    when the underlying delta has them. The replay path matches by
+    `delta_id`; this helper is the simple-path equivalent.
+    """
+    return CauseEstimate(
+        delta_id=d.id,
+        axis="trajectory",
+        ate=_SIMPLE_ATE_PLACEHOLDER,
+        ci_low=None,
+        ci_high=None,
+        e_value=None,
+        confidence=confidence,
+        file_path=d.file_path,
+        line_no=d.line_no,
+        removed_text=d.removed_text,
+        added_text=d.added_text,
+    )
+
+
 def simple_attribution(
     *,
     deltas: list[ConfigDelta],
@@ -54,32 +77,8 @@ def simple_attribution(
     if not deltas:
         return []
     if len(deltas) == 1 and has_divergence:
-        d = deltas[0]
-        # We don't know which axis without intervention; trajectory
-        # is the most useful default for the renderer.
-        return [
-            CauseEstimate(
-                delta_id=d.id,
-                axis="trajectory",
-                ate=_SIMPLE_ATE_PLACEHOLDER,
-                ci_low=None,
-                ci_high=None,
-                e_value=None,
-                confidence=1.0,
-            )
-        ]
-    return [
-        CauseEstimate(
-            delta_id=d.id,
-            axis="trajectory",
-            ate=_SIMPLE_ATE_PLACEHOLDER,
-            ci_low=None,
-            ci_high=None,
-            e_value=None,
-            confidence=0.5,
-        )
-        for d in deltas
-    ]
+        return [_cause_from_delta(deltas[0], confidence=1.0)]
+    return [_cause_from_delta(d, confidence=0.5) for d in deltas]
 
 
 def causal_from_replay(
@@ -92,6 +91,7 @@ def causal_from_replay(
     sensitivity: bool = False,
     confidence_level: float = 0.95,
     seed: int = 42,
+    deltas: list[ConfigDelta] | None = None,
 ) -> list[CauseEstimate]:
     """Wrap `shadow.causal.attribution.causal_attribution` and
     convert the multi-dimensional CausalAttribution into a flat
@@ -114,8 +114,16 @@ def causal_from_replay(
         seed=seed,
     )
 
+    # Build a delta_id -> ConfigDelta lookup so we can propagate
+    # file:line blame onto the resulting CauseEstimate. The causal
+    # backend identifies deltas by the same `delta.id` extract_deltas
+    # produced; matching also picks up the `path/to/prompt.md:LINE`
+    # ids when blame was attached upstream.
+    delta_by_id: dict[str, ConfigDelta] = {d.id: d for d in (deltas or [])}
+
     out: list[CauseEstimate] = []
     for delta_id, per_axis_ate in result.ate.items():
+        d = delta_by_id.get(delta_id)
         for axis, ate_val in per_axis_ate.items():
             ci_low = result.ci_low.get(delta_id, {}).get(axis) if result.ci_low else None
             ci_high = result.ci_high.get(delta_id, {}).get(axis) if result.ci_high else None
@@ -132,6 +140,10 @@ def causal_from_replay(
                     ci_high=ci_high,
                     e_value=e_val,
                     confidence=1.0 if ci_excludes_zero else 0.5,
+                    file_path=d.file_path if d is not None else None,
+                    line_no=d.line_no if d is not None else None,
+                    removed_text=d.removed_text if d is not None else None,
+                    added_text=d.added_text if d is not None else None,
                 )
             )
     # Sort deterministically. Underlying causal_attribution uses sets

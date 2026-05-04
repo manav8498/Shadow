@@ -3642,6 +3642,15 @@ def diagnose_pr_cmd(
             "Aborts before exceeding the cap; ignored for recorded/mock backends."
         ),
     ),
+    baseline_ref: str | None = typer.Option(
+        None,
+        "--baseline-ref",
+        help=(
+            "Optional git ref (e.g. `origin/main` or a PR base SHA). When set "
+            "along with --changed-files, prompt deltas are augmented with "
+            "file:line attribution from `git diff <ref>...HEAD`."
+        ),
+    ),
 ) -> None:
     """Diagnose a candidate config against production-like traces.
 
@@ -3682,6 +3691,7 @@ def diagnose_pr_cmd(
                 backend=backend,
                 n_bootstrap=n_bootstrap,
                 max_cost_usd=max_cost,
+                baseline_ref=baseline_ref,
             )
         )
     except Exception as exc:
@@ -3773,6 +3783,14 @@ def gate_pr_cmd(
         "--max-cost",
         help="Maximum total USD spend for --backend live runs.",
     ),
+    baseline_ref: str | None = typer.Option(
+        None,
+        "--baseline-ref",
+        help=(
+            "Optional git ref (e.g. `origin/main`). When set with --changed-files, "
+            "prompt deltas carry file:line + removed text via `git diff <ref>...HEAD`."
+        ),
+    ),
 ) -> None:
     """CI-friendly wrapper around `shadow diagnose-pr` with verdict-mapped exit codes:
 
@@ -3806,6 +3824,7 @@ def gate_pr_cmd(
                 backend=backend,
                 n_bootstrap=n_bootstrap,
                 max_cost_usd=max_cost,
+                baseline_ref=baseline_ref,
             )
         )
     except Exception as exc:
