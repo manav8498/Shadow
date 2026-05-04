@@ -191,10 +191,18 @@ def test_scan_default_patterns_match_redactor(tmp_path: Path) -> None:
 
 
 def _run_scan(*args: str) -> subprocess.CompletedProcess[str]:
+    # Force UTF-8 decoding so Rich's status markers (✓ ✗) survive on
+    # Windows runners whose default codepage is cp1252.
+    import os as _os
+
+    env = dict(_os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
     return subprocess.run(
         [sys.executable, "-m", "shadow.cli.app", "scan", *args],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
         check=False,
     )
 
