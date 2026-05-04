@@ -67,6 +67,39 @@ substantially faster on long sequences. `isNativeAvailable()` reports
 whether the addon was found. The pure-TS path is the silent fallback,
 so consumers don't need to handle the absence.
 
+## Zero-config recording (`shadow record -- node ...`)
+
+The Python `shadow record` CLI auto-instruments JS agents the same
+way it auto-instruments Python ones — no code change required:
+
+```bash
+shadow record -o trace.agentlog -- node my-agent.js
+shadow record -o trace.agentlog -- npx tsx my-langgraph-agent.ts
+```
+
+`shadow record` detects Node-family commands (`node` / `npx` / `tsx`
+/ `ts-node`) and injects `NODE_OPTIONS='--import shadow-diff/auto'`
+along with `SHADOW_SESSION_OUTPUT=...`. The `shadow-diff/auto`
+entrypoint then opens a `Session` on Node startup, runs
+`autoInstrument()`, and flushes the `.agentlog` on `beforeExit`.
+
+Requirements:
+
+* `shadow-diff` installed in your Node project (`npm install
+  shadow-diff` or workspace dep).
+* Node ≥ 20.6 (for the `--import` flag).
+* Your agent reaches a natural exit. `process.exit()` is synchronous
+  in Node and skips `beforeExit`, so a hard exit drops the trailing
+  records. The content-addressed envelope means partial traces still
+  parse — they just stop early.
+
+You can also activate it directly:
+
+```bash
+SHADOW_SESSION_OUTPUT=trace.agentlog \
+  node --import shadow-diff/auto my-agent.js
+```
+
 ## Distributed tracing
 
 Multi-process agents can join a single logical trace via
