@@ -1,5 +1,117 @@
 # CLI reference
 
+## `shadow diagnose-pr`
+
+The wedge command. Names the exact change that broke the agent and
+emits a markdown PR comment. Composes the parser, mining, the
+nine-axis differ, the policy checker, and the causal-attribution
+module into one PR-time surface.
+
+Required flags:
+
+- `--traces PATH ...`, baseline production-like `.agentlog` files
+  (or directories). Repeatable.
+- `--baseline-config FILE`, baseline agent config YAML (same schema
+  as `shadow replay`).
+- `--candidate-config FILE`, candidate agent config YAML.
+- `--out PATH`, where to write the JSON report (`diagnose-pr/v0.1`
+  schema).
+
+Common optional flags:
+
+- `--candidate-traces PATH ...`, candidate `.agentlog` files paired
+  by filename to baseline (omit to skip per-trace diff).
+- `--policy FILE`, behavior-policy YAML overlay.
+- `--pr-comment FILE`, write the markdown PR comment.
+- `--changed-files PATH ...`, files changed in the PR (e.g. from
+  `git diff --name-only`); used to attach human-readable filenames
+  to prompt deltas.
+- `--max-traces N`, cap on traces fed to the per-trace loop. Mining
+  selects representatives above this. Default 200.
+- `--fail-on {none,probe,hold,stop}`, exit non-zero on this verdict
+  floor. Default `none`.
+- `--n-bootstrap N`, bootstrap resample count for causal CIs. Used
+  only when `--backend != recorded`. Default 500.
+- `--backend {recorded,mock,live}`, cause-attribution backend:
+  - `recorded` (default): simple attribution from observed deltas;
+    no CI; one-delta runs still get conf=1.0.
+  - `mock`: deterministic per-delta intervention for tests/demos;
+    real bootstrap CIs but synthetic ATE magnitudes (PR comment
+    surfaces the disclosure).
+  - `live`: real OpenAI replay per baseline trace; divergence is
+    the corpus mean.
+- `--max-cost USD`, hard ceiling on total spend during `--backend
+  live` runs. Aborts before exceeding the cap; ignored otherwise.
+
+The verdict is one of `ship` / `probe` / `hold` / `stop`. The
+`affected_trace_ids` field of the JSON report drives `shadow
+verify-fix`. See [Causal PR diagnosis](../features/causal-pr-diagnosis.md)
+for the underlying flow.
+
+## `shadow verify-fix`
+
+Closes the diagnose → fix → verify loop. Reads a previous
+`diagnose-pr` report, re-diffs only the affected traces against a
+candidate-with-patch, and reports pass/fail with explicit
+fail-reasons. Exit 0 pass, 1 fail.
+
+Required flags:
+
+- `--report FILE`, path to the diagnose-pr `report.json`.
+- `--traces PATH ...`, original baseline `.agentlog` files.
+- `--fixed-traces PATH ...`, candidate-with-patch `.agentlog` files,
+  paired by filename to baseline.
+- `--out PATH`, where to write the verify-fix JSON report.
+
+Optional flags:
+
+- `--policy FILE`, behavior-policy YAML overlay (same schema as
+  diagnose-pr).
+- `--affected-threshold FLOAT`, minimum fraction of affected traces
+  that must be reversed. Default 0.90.
+- `--safe-ceiling FLOAT`, maximum fraction of previously-safe traces
+  that may regress. Default 0.02.
+
+## `shadow gate-pr`
+
+CI-friendly wrapper around `shadow diagnose-pr` with verdict-mapped
+exit codes:
+
+| Verdict | Exit | Meaning |
+|---|---:|---|
+| `ship` | 0 | No behavior regression — merge clear. |
+| `probe` / `hold` | 1 | Regression detected — merge held. |
+| `stop` | 2 | Critical violation — do not merge. |
+| (internal/tooling error) | 3 | Treat as fail-closed in CI. |
+
+Always writes the JSON report (to a tempfile if `--out` omitted) and
+the PR comment markdown so a follow-up CI step can post it. Flags
+mirror `diagnose-pr` (`--traces`, `--candidate-traces`,
+`--baseline-config`, `--candidate-config`, `--policy`,
+`--changed-files`, `--max-traces`, `--backend`, `--n-bootstrap`,
+`--max-cost`, `--pr-comment`, `--out`); see above for full
+descriptions.
+
+## `shadow dashboard --report FILE`
+
+Serve a `diagnose-pr` `report.json` as a browsable HTML page —
+verdict, top causes, and per-trace diagnoses. Single-process,
+single-report, no auth. Meant for local review of CI artefacts or
+sharing with someone who can't run the CLI.
+
+Flags:
+
+- `--report FILE` (required), the report to render.
+- `--port N`, default 8080.
+- `--host HOST`, default `127.0.0.1`. Pass `0.0.0.0` to expose on
+  the network — but **don't expose to the public internet without
+  a reverse proxy doing TLS + auth**.
+- `--open`, launch the URL in the default browser on startup.
+
+Routes: `/` (HTML), `/report.json` (raw JSON), `/healthz` (liveness
+probe). User-controlled fields are HTML-escaped. Requires the
+`serve` extra: `pip install 'shadow-diff[serve]'`.
+
 ## `shadow quickstart [PATH]`
 
 Scaffold a working Shadow scenario in `PATH` (default

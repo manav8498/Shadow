@@ -426,6 +426,7 @@ If your agent is built on LangGraph, CrewAI, or AG2, prefer the matching adapter
 | `shadow verify-fix` | Closes the diagnose -> fix -> verify loop. Reads a diagnose-pr `report.json`, re-diffs only the affected traces against a candidate-with-patch, asserts regression reversed without collateral damage. |
 | `shadow gate-pr` | CI-friendly wrapper around `diagnose-pr` with verdict-mapped exit codes (0 ship / 1 hold\|probe / 2 stop / 3 internal error). |
 | `shadow dashboard --report report.json` | Serve a `diagnose-pr` report as a browsable HTML page. Local-by-default (`127.0.0.1:8080`); `--open` launches the browser. Requires the `[serve]` extra. |
+| `shadow serve --root .shadow` | Start the live tail dashboard over a `.shadow/` directory — diffs land as new traces arrive. Local-by-default (`127.0.0.1:8765`). Requires the `[serve]` extra. |
 | `shadow demo` | Run a nine-axis diff against bundled fixtures. One command, no API key, no files written. |
 | `shadow quickstart` | Drop a writable working demo scenario (agent.py, configs, fixtures) to edit and re-run. No API key needed. |
 | `shadow init` | Scaffold a `.shadow/` folder. `--github-action` drops a CI workflow. |
