@@ -96,7 +96,14 @@ def load_traces(paths: list[Path]) -> list[LoadedTrace]:
 
         if not records:
             raise ShadowParseError(f"{f}: empty .agentlog (no records)")
-        trace_id = str(records[0].get("id", ""))
+        # Prefer envelope `meta.trace_id` (unique UUID added in v3.0.5
+        # to fix content-id collisions on byte-identical metadata).
+        # Fall back to the metadata record's content id for traces
+        # written before that fix. This MUST match what shadow.mine
+        # uses for `MinedCase.baseline_source` so the diagnose-pr
+        # mining filter never silently collapses corpora.
+        envelope_meta = records[0].get("meta") or {}
+        trace_id = str(envelope_meta.get("trace_id", "")) or str(records[0].get("id", ""))
         if not trace_id:
             raise ShadowParseError(f"{f}: first record missing id")
         out.append(LoadedTrace(path=f, trace_id=trace_id, records=records))
