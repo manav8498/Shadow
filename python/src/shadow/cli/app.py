@@ -2734,6 +2734,7 @@ class ImportFormat(StrEnum):
     langfuse = "langfuse"
     braintrust = "braintrust"
     otel = "otel"
+    otel_genai = "otel-genai"  # alias for `otel` per design spec §5
     langsmith = "langsmith"
     openai_evals = "openai-evals"
     mcp = "mcp"
@@ -2777,7 +2778,7 @@ def import_cmd(
         elif fmt is ImportFormat.braintrust:
             rows = _parse_braintrust_input(text)
             records = braintrust_to_agentlog(rows)
-        elif fmt is ImportFormat.otel:
+        elif fmt is ImportFormat.otel or fmt is ImportFormat.otel_genai:
             data = json.loads(text)
             records = otel_to_agentlog(data)
         elif fmt is ImportFormat.langsmith:
@@ -2898,6 +2899,7 @@ class ExportFormat(StrEnum):
     """Formats `shadow export` can emit."""
 
     otel = "otel"
+    otel_genai = "otel-genai"  # alias for `otel` per design spec §5
 
 
 @app.command(rich_help_panel="Release & integrations")
@@ -2920,7 +2922,7 @@ def export(
 
     try:
         records = _core.parse_agentlog(trace.read_bytes())
-        if fmt is ExportFormat.otel:
+        if fmt is ExportFormat.otel or fmt is ExportFormat.otel_genai:
             result = agentlog_to_otel(records)
         else:
             raise ValueError(f"unknown export format: {fmt}")

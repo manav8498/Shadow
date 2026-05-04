@@ -4,6 +4,44 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [unreleased] — Causal Regression Forensics + OTel bridge
+
+Adds Phase 5 of the strategic-pivot roadmap: any OTel-GenAI-instrumented
+trace can now be imported into Shadow and run through `diagnose-pr`.
+
+### Added
+
+* `shadow import --format otel-genai` and `shadow export --format otel-genai`
+  alias the existing `--format otel` flags (per design spec §5 wording).
+* `docs/features/otel-bridge.md` — user-facing OTel bridge documentation.
+
+### Fixed (Phase 5 audit findings)
+
+* OTel exporter now emits `gen_ai.user.message`, `gen_ai.system.message`,
+  `gen_ai.assistant.message`, and `gen_ai.tool.message` events on chat
+  spans. Previously, only attributes (model, usage, finish_reasons) were
+  emitted, so the importer recovered empty messages + empty content
+  blocks on round-trip — losing the signal the 9-axis differ needed.
+* OTel importer now stamps the OTel `traceId` into envelope
+  `meta.trace_id` so multiple OTel-imported traces with byte-identical
+  metadata payloads stay distinct in the diagnose-pr mining filter.
+  (Same class of fix as v3.0.5's content-hash collision; the import path
+  needed it too.)
+* OTel importer now prefers the `shadow.latency_ms` attribute over span
+  duration for `latency_ms` in chat_response. Span duration is the
+  fallback for third-party OTel data without the explicit attribute.
+
+### Verified
+
+* Round-trip preserves per-pair 9-axis diff outcome on the refund demo
+  (per-axis severities + first_divergence identical native vs.
+  roundtripped).
+* `diagnose-pr` against an OTel-roundtripped corpus produces the same
+  verdict + affected count + dominant cause as the native run
+  (`STOP, 3/3 affected, prompt.system`).
+
+---
+
 ## [unreleased] — Causal Regression Forensics
 
 Strategic-pivot work landed across four weeks of plan-driven development.
