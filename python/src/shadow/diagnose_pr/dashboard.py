@@ -28,7 +28,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 _HTML_TEMPLATE = """<!doctype html>
 <html lang="en">
 <head>
@@ -235,9 +234,13 @@ def render_report_html(report: dict[str, Any], source_path: str = "") -> str:
         ci_low = dom.get("ci_low")
         ci_high = dom.get("ci_high")
         e_value = dom.get("e_value")
-        ci_str = f"[{ci_low:.2f}, {ci_high:.2f}]" if ci_low is not None and ci_high is not None else "n/a"
+        ci_str = (
+            f"[{ci_low:.2f}, {ci_high:.2f}]"
+            if ci_low is not None and ci_high is not None
+            else "n/a"
+        )
         e_str = f"{e_value:.1f}" if e_value is not None else "n/a"
-        ate_str = f"{ate:+.2f}" if isinstance(ate, (int, float)) else "n/a"
+        ate_str = f"{ate:+.2f}" if isinstance(ate, int | float) else "n/a"
         dominant_cause_html = (
             f"<h2>Dominant cause</h2>"
             f'<p><code class="delta-id">{_esc(dom.get("delta_id", ""))}</code> on '
@@ -286,10 +289,7 @@ def render_report_html(report: dict[str, Any], source_path: str = "") -> str:
         top_causes_html = ""
 
     suggested = report.get("suggested_fix")
-    if suggested:
-        suggested_fix_html = f"<h2>Suggested fix</h2><p>{_esc(suggested)}</p>"
-    else:
-        suggested_fix_html = ""
+    suggested_fix_html = f"<h2>Suggested fix</h2><p>{_esc(suggested)}</p>" if suggested else ""
 
     diagnoses = report.get("trace_diagnoses") or []
     if diagnoses:
@@ -301,7 +301,11 @@ def render_report_html(report: dict[str, Any], source_path: str = "") -> str:
             for d in diagnoses[:50]
         )
     else:
-        trace_rows = '<tr><td colspan="4" style="color: var(--muted);">no per-trace diagnoses</td></tr>'
+        trace_rows = (
+            '<tr><td colspan="4" style="color: var(--muted);">'
+            "no per-trace diagnoses"
+            "</td></tr>"
+        )
 
     return _HTML_TEMPLATE.format(
         verdict=verdict,
@@ -335,7 +339,7 @@ def build_app(report_path: Path) -> Any:
     except ImportError as exc:
         raise RuntimeError(
             "shadow dashboard requires fastapi. Install with: "
-            "pip install 'shadow-diff[dashboard]' "
+            "pip install 'shadow-diff[serve]' "
             "(or: pip install fastapi uvicorn)"
         ) from exc
 
@@ -350,7 +354,8 @@ def build_app(report_path: Path) -> Any:
         if not report_path.is_file():
             raise HTTPException(404, f"report not found: {report_path}")
         try:
-            return json.loads(report_path.read_text(encoding="utf-8"))
+            data: dict[str, Any] = json.loads(report_path.read_text(encoding="utf-8"))
+            return data
         except json.JSONDecodeError as e:
             raise HTTPException(400, f"could not parse report: {e}") from e
 

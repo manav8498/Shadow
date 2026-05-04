@@ -3694,9 +3694,7 @@ def dashboard_cmd(
         "--report",
         help="Path to a diagnose-pr report.json (or any JSON matching diagnose-pr/v0.1).",
     ),
-    port: int = typer.Option(
-        8080, "--port", help="Port to bind. Default 8080."
-    ),
+    port: int = typer.Option(8080, "--port", help="Port to bind. Default 8080."),
     host: str = typer.Option(
         "127.0.0.1",
         "--host",
