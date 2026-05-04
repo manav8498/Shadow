@@ -46,13 +46,19 @@ default = []
 # `extension-module`, which means `cargo test --features python` links
 # libpython normally and runs as a regular test binary.
 python = ["dep:pyo3", "dep:pythonize"]
-# `extension` additionally enables `pyo3/extension-module`, which tells
-# PyO3 to OMIT the libpython link directives — the Python interpreter
-# provides those symbols at import time. This is what maturin builds.
-# Do NOT run `cargo test --features extension` (or `--all-features`)
-# without also overriding linker flags; the resulting binary has
-# unresolved `_Py*` symbols. Use `--features python` for tests.
-extension = ["python", "pyo3/extension-module"]
+# `extension` is kept as an alias of `python` for backwards-compat —
+# old maturin invocations still pass `--features extension`.
+#
+# The `pyo3/extension-module` flag (which omits libpython link
+# directives so the resulting cdylib loads cleanly into a Python
+# interpreter) is intentionally NOT propagated here. Including it
+# would make `cargo test --workspace --all-features` fail to link
+# the test binary on every platform that doesn't pre-link libpython
+# into the test process. Maturin enables `pyo3/extension-module`
+# directly via `[tool.maturin] features = [...]` in
+# `python/pyproject.toml`, so wheel builds are unaffected by this
+# split.
+extension = ["python"]
 
 # Direct deps use exact (`=x.y.z`) pins per the "pin to exact versions"
 # constraint in CONTRIBUTING.md. Transitive dep versions are frozen via

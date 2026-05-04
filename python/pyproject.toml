@@ -171,7 +171,15 @@ shadow = "shadow.cli.app:main"
 [tool.maturin]
 manifest-path = "../crates/shadow-core/Cargo.toml"
 module-name = "shadow._core"
-features = ["extension"]
+# `extension` enables PyO3-facing code; `pyo3/extension-module` tells
+# PyO3 to omit libpython link directives so the wheel cdylib loads
+# cleanly into a Python interpreter at import time. The
+# `pyo3/extension-module` flag is set HERE rather than as part of the
+# local `extension` feature on shadow-core so that
+# `cargo test --workspace --all-features` keeps linking on every
+# platform — the test binary needs libpython linked normally, the
+# wheel doesn't.
+features = ["extension", "pyo3/extension-module"]
 python-source = "src"
 # The project's `license-files` field above tells maturin which
 # license files to package into both the sdist and wheel. We don't
