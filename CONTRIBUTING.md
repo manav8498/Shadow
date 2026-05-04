@@ -81,6 +81,43 @@ use `just lint` to get full strict mypy locally before pushing.
 
 ## Working on each layer
 
+### TypeScript SDK (`typescript/`)
+
+```bash
+cd typescript
+npm install                    # install dev deps + peers
+npm run typecheck              # tsc --noEmit
+npm test                       # vitest
+npm run build                  # produces dist/
+```
+
+**Testing the auto-instrumentation against a real Node agent:**
+
+The `shadow-diff/auto` entrypoint (loaded via `node --import shadow-diff/auto`)
+patches the user app's `openai` / `@anthropic-ai/sdk` packages. Module
+resolution in Node respects symlinks by default, so a *symlinked*
+local install of shadow-diff (`npm link` or `npm install ../shadow/typescript`)
+can resolve `import('openai')` from inside shadow-diff's own dev tree
+instead of the user app's `node_modules`. The result: shadow-diff
+patches its own dev copy of `openai`, the app's copy goes
+un-instrumented, and `shadow record` produces a metadata-only trace.
+
+To validate the auto-record path against a real agent, **always test
+via `npm pack`** + tarball install:
+
+```bash
+cd typescript && npm pack            # produces shadow-diff-<v>.tgz
+cd /path/to/test-app
+npm install shadow-diff-<v>.tgz
+# Now `npm install openai` resolves to the test app's own copy and
+# `node --import shadow-diff/auto -- ./agent.js` patches THAT copy.
+```
+
+Vitest tests under `typescript/test/` exercise the auto entrypoint
+correctly because vitest loads `shadow-diff` from the workspace root,
+not via a symlink — those tests are reliable. The symlink trap only
+bites the manual end-to-end check against an external repo.
+
 ### shadow-diff core crate (Rust, source dir `crates/shadow-core/`)
 
 ```bash

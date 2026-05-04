@@ -1,11 +1,10 @@
 /** Shadow Session — records chat pairs into a `.agentlog` file. */
 
-import { readFileSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { contentId, writeAgentlog, type AgentlogRecord } from './agentlog.js';
+import { canonicalJson, contentId, type AgentlogRecord } from './agentlog.js';
 import {
   autoInstrument,
   uninstrument,
@@ -103,7 +102,16 @@ export class Session {
     const redactedMeta = this.redact(metaPayload);
     const id = contentId(redactedMeta);
     this.rootId = id;
-    this.records.push(this.envelope('metadata', redactedMeta, id, null));
+    // Initialise the on-disk file synchronously and write the metadata
+    // record immediately. Doing this in `enter()` (rather than buffering
+    // until `exit()`) means a process that crashes mid-run still leaves
+    // a parseable .agentlog containing every record produced before the
+    // crash, instead of writing nothing at all. JSONL appends are
+    // self-terminating so a partial trace parses cleanly.
+    mkdirSync(dirname(this.outputPath), { recursive: true });
+    const env = this.envelope('metadata', redactedMeta, id, null);
+    this.records.push(env);
+    writeFileSync(this.outputPath, this._encodeRecord(env));
     if (this.autoInstrumentFlag) {
       this.instrumentor = await autoInstrument(this);
     }
@@ -115,8 +123,9 @@ export class Session {
       uninstrument(this.instrumentor);
       this.instrumentor = null;
     }
-    await mkdir(dirname(this.outputPath), { recursive: true });
-    await writeFile(this.outputPath, writeAgentlog(this.records));
+    // No final flush needed — every record was appended synchronously
+    // as it was captured (see `enter()` and `recordChat()`). exit() is
+    // now solely about un-monkey-patching the openai/anthropic SDKs.
   }
 
   /** Append a chat_request + chat_response pair. */
@@ -138,7 +147,29 @@ export class Session {
     const respId = contentId(redactedResp);
     const respEnv = this.envelope('chat_response', redactedResp, respId, reqId);
     this.records.push(respEnv);
+    // Append both records synchronously so a crash AFTER this call
+    // returns still leaves them on disk. appendFileSync is one syscall
+    // per record and is durable in the same way `>>` from a shell
+    // would be — fine for the < 100 records/sec rate a typical agent
+    // produces. If recording were on the hot path of every token we'd
+    // batch, but chat_request + chat_response is one pair per LLM call.
+    appendFileSync(this.outputPath, this._encodeRecord(reqEnv));
+    appendFileSync(this.outputPath, this._encodeRecord(respEnv));
     return { requestId: reqId, responseId: respId };
+  }
+
+  /**
+   * Encode a single record as canonical JSONL bytes (one line + LF).
+   * Same wire format as `writeAgentlog([record])` but allocates one
+   * record at a time so per-record appends don't quadratically rebuild
+   * the whole file.
+   */
+  private _encodeRecord(env: AgentlogRecord): Uint8Array {
+    const line = canonicalJson(env);
+    const out = new Uint8Array(line.length + 1);
+    out.set(line, 0);
+    out[line.length] = 0x0a; // '\n'
+    return out;
   }
 
   get traceId(): string {

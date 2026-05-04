@@ -40,6 +40,16 @@ from shadow.cli.app import _is_node_runtime
         "tsx",
         "ts-node",
         "ts-node.cmd",
+        # Package managers — they spawn Node child processes that
+        # inherit NODE_OPTIONS. The TS auto entrypoint detects the
+        # wrapper itself via `process.argv[1]` and skips, so only
+        # the grandchild user agent records.
+        "npm",
+        "npm.cmd",
+        "pnpm",
+        "pnpm.cmd",
+        "yarn",
+        "yarn.cmd",
     ],
 )
 def test_is_node_runtime_true_for_node_family(executable: str) -> None:

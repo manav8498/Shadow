@@ -98,4 +98,134 @@ describe('shadow-diff/auto', () => {
     expect(r.stdout).toContain('user code ran anyway');
     expect(r.stderr).toContain('[shadow-diff/auto]');
   });
+
+  it('records ONE chat_request + ONE chat_response per real chat call (no duplicates)', async () => {
+    // Regression: when auto.ts also called autoInstrument(session)
+    // after Session.enter() (which already auto-instruments), every
+    // chat call recorded TWICE — the second wrapper saw the first
+    // wrapper as its `original` and chained the records. The fix
+    // removes the redundant call AND tags wrappers with a Symbol so
+    // future patchCreate calls skip already-wrapped prototypes.
+    const dir = mkdtempSync(join(tmpdir(), 'shadow-auto-'));
+    const out = join(dir, 'trace.agentlog');
+
+    // Inline child program that:
+    //  1. Stubs global fetch so no network is needed.
+    //  2. Imports openai dynamically (matches real-world ESM usage).
+    //  3. Issues exactly ONE chat.completions.create.
+    // The auto entrypoint is loaded via --import on the runChild
+    // command line below, so by the time this code runs Session is
+    // already entered + openai is patched.
+    const code = `
+      globalThis.fetch = async () => new Response(JSON.stringify({
+        id: 'cmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+      const { default: OpenAI } = await import('openai');
+      const c = new OpenAI({ apiKey: 'x' });
+      await c.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+    `;
+
+    // Skip when openai isn't installed in the parent's node_modules
+    // (CI installs it via the test deps; local dev may not).
+    let openaiAvailable = true;
+    try {
+      await import('openai');
+    } catch {
+      openaiAvailable = false;
+    }
+    if (!openaiAvailable) return;
+
+    const r = runChild({ SHADOW_SESSION_OUTPUT: out }, code);
+    expect(r.status).toBe(0);
+    expect(existsSync(out)).toBe(true);
+
+    const lines = readFileSync(out, 'utf-8').split('\n').filter(Boolean);
+    const kinds = lines.map((l) => JSON.parse(l).kind);
+    // Exactly one of each (plus the metadata at index 0).
+    expect(kinds.filter((k) => k === 'chat_request')).toHaveLength(1);
+    expect(kinds.filter((k) => k === 'chat_response')).toHaveLength(1);
+  });
+
+  it('preserves recorded chat pairs even when the agent crashes after recording', async () => {
+    // Regression: Session.exit() previously buffered all records in
+    // memory and flushed via writeFile() at exit. An agent that
+    // process.exit(1)'d or threw uncaughtException after a recorded
+    // chat call would leave a 0-byte trace on disk. Per-record
+    // appendFileSync in recordChat() means the records hit disk
+    // immediately and survive any exit path.
+    let openaiAvailable = true;
+    try {
+      await import('openai');
+    } catch {
+      openaiAvailable = false;
+    }
+    if (!openaiAvailable) return;
+
+    const dir = mkdtempSync(join(tmpdir(), 'shadow-auto-'));
+    const out = join(dir, 'trace.agentlog');
+
+    // Record one chat call, then hard-exit with a non-zero code.
+    // beforeExit will NOT fire on process.exit() — the test verifies
+    // the file already has the records BEFORE any exit handler.
+    const code = `
+      globalThis.fetch = async () => new Response(JSON.stringify({
+        id: 'cmpl-1',
+        choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+      const { default: OpenAI } = await import('openai');
+      const c = new OpenAI({ apiKey: 'x' });
+      await c.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: 'hi' }],
+      });
+      // Hard exit — skips beforeExit, never runs Session.exit() flush.
+      process.exit(42);
+    `;
+
+    const r = runChild({ SHADOW_SESSION_OUTPUT: out }, code);
+    expect(r.status).toBe(42);
+    // Trace file MUST exist and contain the metadata + the chat pair.
+    expect(existsSync(out)).toBe(true);
+    const lines = readFileSync(out, 'utf-8').split('\n').filter(Boolean);
+    const kinds = lines.map((l) => JSON.parse(l).kind);
+    expect(kinds[0]).toBe('metadata');
+    expect(kinds.filter((k) => k === 'chat_request')).toHaveLength(1);
+    expect(kinds.filter((k) => k === 'chat_response')).toHaveLength(1);
+  });
+
+  it('skips the bootstrap when running inside an npm CLI wrapper', () => {
+    // `shadow record -- npm start` injects NODE_OPTIONS on the npm
+    // process AND its grandchild. Without the wrapper-skip check
+    // both would write to SHADOW_SESSION_OUTPUT and (since Session
+    // uses writeFile, not append) one would clobber the other.
+    // We simulate the wrapper case by setting argv[1] to a path
+    // matching the package-manager CLI pattern.
+    const dir = mkdtempSync(join(tmpdir(), 'shadow-auto-'));
+    const out = join(dir, 'trace.agentlog');
+
+    // Spawn a fake "npm-cli.js" so process.argv[1] looks like npm.
+    const fakeNpmDir = mkdtempSync(join(tmpdir(), 'fake-npm-'));
+    const fakeNpm = join(fakeNpmDir, 'npm-cli.js');
+    require('node:fs').writeFileSync(fakeNpm, 'console.log("would-be-npm");');
+
+    const result = spawnSync(
+      process.execPath,
+      ['--import', distAuto, fakeNpm],
+      {
+        env: { ...process.env, SHADOW_SESSION_OUTPUT: out },
+        encoding: 'utf-8',
+      },
+    );
+    expect(result.status).toBe(0);
+    // Wrapper-skip path = no trace file created (auto returned early).
+    // The would-be-npm script ran fine.
+    expect(result.stdout).toContain('would-be-npm');
+    expect(existsSync(out)).toBe(false);
+  });
 });
