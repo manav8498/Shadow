@@ -26,6 +26,12 @@ Common optional flags:
 - `--changed-files PATH ...`, files changed in the PR (e.g. from
   `git diff --name-only`); used to attach human-readable filenames
   to prompt deltas.
+- `--baseline-ref REF`, git ref or SHA to diff prompt files against
+  (typically `${{ github.event.pull_request.base.sha }}` in CI). When
+  set with `--changed-files`, prompt deltas pick up file:line +
+  removed-text blame so the PR comment cites
+  `prompts/refund.md:17 removed: "Always confirm…"` instead of the
+  flattened config path.
 - `--max-traces N`, cap on traces fed to the per-trace loop. Mining
   selects representatives above this. Default 200.
 - `--fail-on {none,probe,hold,stop}`, exit non-zero on this verdict

@@ -140,6 +140,14 @@ def test_init_github_action_writes_diagnose_pr_workflow_by_default(tmp_path: Pat
     text = wf.read_text()
     assert "shadow-diff" in text
     assert "shadow gate-pr" in text
+    # The scaffold must wire --changed-files and --baseline-ref into
+    # gate-pr so line-level prompt blame fires automatically in PRs.
+    # Otherwise the new file:line attribution from P3 is dead code in
+    # CI and only available to manual CLI users.
+    assert "--changed-files" in text
+    assert "--baseline-ref" in text
+    # And the base SHA env var the action reads from must be defined.
+    assert "BASE_SHA" in text
 
 
 def test_init_github_action_legacy_diff_writes_old_workflow(tmp_path: Path) -> None:

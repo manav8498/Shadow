@@ -28,6 +28,14 @@ inputs:
     description: 'Newline-separated list of changed files (typically `git diff --name-only main...HEAD`).'
     required: false
     default: ''
+  baseline-ref:
+    description: >
+      Git ref/SHA the candidate is being compared against (typically the PR base
+      SHA — `${{ github.event.pull_request.base.sha }}`). When set along with
+      changed-files, prompt deltas pick up file:line + removed-text blame in
+      the PR comment instead of just the flattened config path.
+    required: false
+    default: ''
   backend:
     description: 'Cause-attribution backend: recorded | mock | live.'
     required: false
@@ -128,6 +136,12 @@ runs:
             [ -z "$f" ] && continue
             ARGS+=( --changed-files "$f" )
           done <<< "${{ inputs.changed-files }}"
+        fi
+        # Pass the baseline ref through so prompt deltas pick up
+        # `prompts/foo.md:LINE removed: "..."` blame in the PR comment.
+        # The runner falls back gracefully when no ref is supplied.
+        if [ -n "${{ inputs.baseline-ref }}" ]; then
+          ARGS+=( --baseline-ref "${{ inputs.baseline-ref }}" )
         fi
 
         # Don't fail-on yet; we'll exit-code map after extracting outputs.
