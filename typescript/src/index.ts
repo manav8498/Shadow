@@ -95,3 +95,16 @@ export {
   gate,
   renderGateSummary,
 } from './gate/index.js';
+
+export {
+  type AlignedTurn,
+  type Alignment,
+  type ArgDelta,
+  type ArgDeltaKind,
+  type Divergence,
+  alignTraces,
+  firstDivergence,
+  toolArgDelta,
+  topKDivergences,
+  trajectoryDistance,
+} from './align/index.js';
