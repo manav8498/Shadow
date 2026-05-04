@@ -14,8 +14,6 @@ Run:
 
 from __future__ import annotations
 
-import json
-
 # The only Shadow import — the standalone alignment library.
 from shadow.align import (
     Divergence,
@@ -104,7 +102,7 @@ def demo_first_divergence() -> None:
     if fd is None:
         print("  traces agree end-to-end")
     else:
-        print(f"  first divergence:")
+        print("  first divergence:")
         print(f"    baseline_turn:  {fd.baseline_turn}")
         print(f"    candidate_turn: {fd.candidate_turn}")
         print(f"    kind:           {fd.kind}")
