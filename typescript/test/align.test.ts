@@ -137,22 +137,85 @@ describe('toolArgDelta', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Rust-backed stubs throw with a clear v0.2 message (v0.1 contract)
+// Pure-TS alignTraces / firstDivergence / topKDivergences (v0.2)
 // ---------------------------------------------------------------------------
 
-describe('Rust-backed stubs (v0.1)', () => {
-  it('alignTraces throws with migration message', () => {
-    expect(() => alignTraces([], [])).toThrow(
-      /requires the Rust 9-axis differ.*pip install shadow-diff/s,
-    );
+function makePair(toolName: string | null, text: string = '') {
+  const content = toolName
+    ? [{ type: 'tool_use', name: toolName, input: {}, id: '1' }]
+    : [{ type: 'text', text }];
+  return [
+    { kind: 'chat_request', payload: { messages: [{ role: 'user', content: 'q' }] } },
+    { kind: 'chat_response', payload: { content } },
+  ];
+}
+
+describe('alignTraces (pure TS)', () => {
+  it('returns empty alignment for two empty inputs', () => {
+    const aln = alignTraces([], []);
+    expect(aln.turns).toEqual([]);
+    expect(aln.totalCost).toBe(0);
   });
 
-  it('firstDivergence throws with migration message', () => {
-    expect(() => firstDivergence([], [])).toThrow(/v0.2/);
+  it('pairs index-by-index for equal-length symmetric pairs', () => {
+    const records = [...makePair('search'), ...makePair('summarize')];
+    const aln = alignTraces(records, records);
+    expect(aln.turns).toHaveLength(2);
+    expect(aln.totalCost).toBe(0);
   });
 
-  it('topKDivergences throws with migration message', () => {
-    expect(() => topKDivergences([], [], 5)).toThrow(/v0.2/);
+  it('asymmetric pair counts emit gap turns with cost 1', () => {
+    const a = makePair('search');
+    const b = [...makePair('search'), ...makePair('extra')];
+    const aln = alignTraces(a, b);
+    expect(aln.turns).toHaveLength(2);
+    expect(aln.turns[1].baselineIndex).toBeNull();
+    expect(aln.turns[1].cost).toBe(1.0);
+  });
+});
+
+describe('firstDivergence (pure TS)', () => {
+  it('returns null for identical traces', () => {
+    const records = makePair('search');
+    expect(firstDivergence(records, records)).toBeNull();
+  });
+
+  it('detects asymmetric corpus as structural_drift_full', () => {
+    const fd = firstDivergence(makePair('search'), []);
+    expect(fd).not.toBeNull();
+    expect(fd!.kind).toBe('structural_drift_full');
+    expect(fd!.primaryAxis).toBe('trajectory');
+  });
+
+  it('detects tool-sequence drift as structural_drift', () => {
+    const fd = firstDivergence(makePair('search'), makePair('summarize'));
+    expect(fd).not.toBeNull();
+    expect(fd!.kind).toBe('structural_drift');
+    expect(fd!.primaryAxis).toBe('trajectory');
+  });
+
+  it('detects text drift as decision_drift', () => {
+    const fd = firstDivergence(makePair(null, 'hello'), makePair(null, 'hi there'));
+    expect(fd).not.toBeNull();
+    expect(fd!.kind).toBe('decision_drift');
+    expect(fd!.primaryAxis).toBe('semantic');
+  });
+});
+
+describe('topKDivergences (pure TS)', () => {
+  it('returns empty for identical', () => {
+    expect(topKDivergences(makePair('search'), makePair('search'))).toEqual([]);
+  });
+
+  it('caps at k', () => {
+    const a = [...makePair('a'), ...makePair('b'), ...makePair('c')];
+    const b = [...makePair('x'), ...makePair('y'), ...makePair('z')];
+    const out = topKDivergences(a, b, 2);
+    expect(out.length).toBeLessThanOrEqual(2);
+  });
+
+  it('rejects k<1', () => {
+    expect(() => topKDivergences([], [], 0)).toThrow(/k must be >= 1/);
   });
 });
 

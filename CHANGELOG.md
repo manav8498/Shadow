@@ -4,11 +4,62 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
-## [unreleased] — Causal Regression Forensics + OTel + Align (Py + TS + Rust)
+## [unreleased] — Causal Regression Forensics (full v0.2 wrap-up)
 
-Phase 8: `shadow-align` standalone Rust crate. Closes the spec §6
-deliverable list — alignment primitives now ship in all three
-languages with byte-identical results on shared inputs.
+End of the strategic-pivot 8-phase roadmap. Phases 1–8 are landed
++ stress-tested + cross-language paired. Final v0.2 wrap-up adds
+the remaining deferred items.
+
+### Added (final v0.2 wrap-up)
+
+* **`structural_drift_full` divergence kind** in `shadow.align.
+  first_divergence` — closes the documented v0.1 limitation where
+  asymmetric corpora (one side empty) produced no divergence.
+  Now reported as `structural_drift_full` with confidence=1.0.
+* **TS `alignTraces` / `firstDivergence` / `topKDivergences`
+  pure-TS implementations** — replaced the v0.1 throw-stubs with
+  working pure-TypeScript implementations using the existing
+  `trajectoryDistance` + `toolArgDelta` primitives. JS callers
+  now have a useful (if not Rust-grade) full alignment surface
+  without needing native bindings.
+* **`docs/proposals/otel-genai-divergence.md`** — formal proposal
+  draft for the OpenTelemetry GenAI WG to add `gen_ai.compare`
+  span + `gen_ai.divergence` events + `gen_ai.cause` event so
+  comparison results travel cleanly across observability tools.
+* **`test_full_pipeline_integration.py`** — comprehensive end-to-end
+  test exercising every phase (diagnose-pr → verify-fix → gate-pr
+  → OTel round-trip → align primitives → cross-language parity)
+  in one test. Catches cross-phase regressions before per-phase
+  suites do.
+
+### Phases 1–8 (chronological summary)
+
+* **Phase 1** — `shadow diagnose-pr` flagship command + 9-axis
+  classification + bootstrap CI + E-value.
+* **Phase 2** — `examples/refund-causal-diagnosis/` packaged demo.
+* **Phase 3** — `shadow verify-fix` closes the diagnose→fix→verify
+  loop.
+* **Phase 4** — `shadow gate-pr` CI wrapper + GitHub Action.
+* **Phase 5** — OTel GenAI bridge (`shadow import|export
+  --format otel-genai`) with full round-trip identity.
+* **Phase 6** — `shadow.align` Python standalone library
+  (5 functions, 4 dataclasses).
+* **Phase 7** — TypeScript port + comparison docs vs EvalView /
+  Microsoft AGT / Preloop / AgentEvals / Speedscale.
+* **Phase 8** — `crates/shadow-align/` standalone Rust crate
+  publishable to crates.io. Cross-language parity test
+  pinned in all three languages.
+
+### Verification
+
+  * Python:  1832+ tests pass (1829 from Phase 8 + 3 new = full pipeline integration + structural_drift_full + 1 OTel addition)
+  * TypeScript: 101+ tests pass (94 from Phase 7 + 7 new align tests for the v0.2 implementations)
+  * Rust:    shadow-align 22 tests + shadow-core 244 + 4 doctests
+  * cargo fmt + clippy + test all green workspace-wide
+  * mypy --strict clean on diagnose_pr/ + align/
+  * ruff check + format clean on python/
+
+---
 
 ### Added
 

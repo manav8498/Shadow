@@ -112,9 +112,34 @@ def first_divergence(
     `shadow._core.compute_diff_report`. Equivalent to taking
     `report["first_divergence"]` and reshaping into the stable
     `Divergence` dataclass.
+
+    Special case: when one side is empty and the other has chat
+    pairs, the underlying Rust differ surfaces no divergence (the
+    pair-count is zero, so its alignment loop never fires). This
+    function detects that asymmetry up front and returns a
+    `structural_drift_full` Divergence — closing the v0.1
+    documented limitation.
     """
     _records_or_raise("baseline", baseline)
     _records_or_raise("candidate", candidate)
+
+    base_pairs = _count_chat_pairs(baseline)
+    cand_pairs = _count_chat_pairs(candidate)
+    if base_pairs == 0 and cand_pairs == 0:
+        return None
+    if base_pairs == 0 or cand_pairs == 0:
+        return Divergence(
+            baseline_turn=0,
+            candidate_turn=0,
+            kind="structural_drift_full",
+            primary_axis="trajectory",
+            explanation=(
+                f"asymmetric corpus: baseline has {base_pairs} chat pair(s), "
+                f"candidate has {cand_pairs}"
+            ),
+            confidence=1.0,
+        )
+
     from shadow import _core
 
     report = _core.compute_diff_report(list(baseline), list(candidate), None, None)
@@ -122,6 +147,23 @@ def first_divergence(
     if fd is None:
         return None
     return _divergence_from_dict(fd)
+
+
+def _count_chat_pairs(records: Sequence[dict[str, Any]]) -> int:
+    """Count the number of chat_request -> chat_response pairs in a
+    record list. Used by `first_divergence` / `align_traces` to
+    detect the asymmetric-corpus case the underlying differ doesn't
+    flag."""
+    pairs = 0
+    pending_req = False
+    for r in records:
+        kind = r.get("kind")
+        if kind == "chat_request":
+            pending_req = True
+        elif kind == "chat_response" and pending_req:
+            pairs += 1
+            pending_req = False
+    return pairs
 
 
 def top_k_divergences(

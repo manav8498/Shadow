@@ -258,17 +258,24 @@ class TestEdgeCases:
         assert aln.total_cost == 0.0
 
     def test_align_handles_one_side_empty_without_crash(self) -> None:
-        """Asymmetric (non-empty, []) doesn't crash. Documented v0.1
-        limitation: returns None / zero turns rather than reporting
-        a structural-drift divergence; v0.2 will surface a
-        structural_drift_full kind."""
+        """Asymmetric (non-empty, []) doesn't crash and now produces
+        an explicit `structural_drift_full` divergence (v0.2 closes
+        the v0.1 limitation)."""
         from shadow.align import align_traces, first_divergence
 
         b, _ = _quickstart_pair()
-        # Should not raise, even if it doesn't fully report the gap.
-        assert first_divergence(b, []) is None  # documented v0.1 limit
+        fd = first_divergence(b, [])
+        assert fd is not None
+        assert fd.kind == "structural_drift_full"
+        assert fd.primary_axis == "trajectory"
+        assert fd.confidence == 1.0
+        # And the reverse direction:
+        fd_rev = first_divergence([], b)
+        assert fd_rev is not None and fd_rev.kind == "structural_drift_full"
+        # align_traces still works without crashing (full per-turn
+        # representation of asymmetric corpora is a v0.3 item).
         aln = align_traces(b, [])
-        assert aln is not None  # at least returns a valid Alignment
+        assert aln is not None
 
     def test_trajectory_distance_handles_non_string_elements(self) -> None:
         """Levenshtein is type-agnostic — int sequences work the
