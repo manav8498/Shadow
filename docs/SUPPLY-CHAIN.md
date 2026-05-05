@@ -12,7 +12,7 @@ Every Shadow release artifact is:
 
 ## Verifying a release
 
-Assume you downloaded `shadow_diff-3.0.7-cp311-abi3-macosx_11_0_arm64.whl` from the GitHub release:
+Assume you downloaded `shadow_diff-3.1.0-cp311-abi3-macosx_11_0_arm64.whl` from the GitHub release:
 
 ```bash
 # 1. Install cosign (https://docs.sigstore.dev/cosign/installation)
@@ -23,15 +23,15 @@ brew install cosign
 # tags only, rejecting forged certificates from forked repos or non-tag
 # workflow runs.
 cosign verify-blob \
-  --certificate shadow_diff-3.0.7-cp311-abi3-macosx_11_0_arm64.whl.crt \
-  --signature   shadow_diff-3.0.7-cp311-abi3-macosx_11_0_arm64.whl.sig \
+  --certificate shadow_diff-3.1.0-cp311-abi3-macosx_11_0_arm64.whl.crt \
+  --signature   shadow_diff-3.1.0-cp311-abi3-macosx_11_0_arm64.whl.sig \
   --certificate-identity-regexp '^https://github\.com/manav8498/Shadow/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  shadow_diff-3.0.7-cp311-abi3-macosx_11_0_arm64.whl
+  shadow_diff-3.1.0-cp311-abi3-macosx_11_0_arm64.whl
 
 # 3. Verify the SLSA build provenance attestation.
 gh attestation verify \
-  shadow_diff-3.0.7-cp311-abi3-macosx_11_0_arm64.whl \
+  shadow_diff-3.1.0-cp311-abi3-macosx_11_0_arm64.whl \
   --owner manav8498
 ```
 

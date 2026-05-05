@@ -66,8 +66,8 @@ Once steps 1 and 2 are done, every tag push runs the publish job:
 
 ```bash
 # Bump versions, commit, tag, push.
-git tag -a v3.0.7 -m "shadow v3.0.7"
-git push origin v3.0.7
+git tag -a v3.1.0 -m "shadow v3.1.0"
+git push origin v3.1.0
 ```
 
 Watch the **release** workflow run at
@@ -75,7 +75,7 @@ https://github.com/manav8498/Shadow/actions/workflows/release.yml.
 If a required reviewer is configured, the `publish-pypi` job waits
 for approval.
 
-On success: `pip install shadow-diff==3.0.7` works within ~60 s.
+On success: `pip install shadow-diff==3.1.0` works within ~60 s.
 
 ## Backfilling a tag whose publish run pre-dated this workflow
 

@@ -13,10 +13,13 @@ GPT Researcher, BrowserOS) now capture
 `metadata + chat_request + chat_response` correctly under
 `shadow record`. CI 15/15 green.
 
-The earlier v0.2 strategic-pivot wrap-up (the "[unreleased]"
-section below) is rolled into this release.
+The five "Phase N" sections below are the incremental development
+phases of v3.x; they all shipped as part of the v3.0.x → v3.1.0
+release trail. Headers preserved for forward-traceability but
+demoted to subsections so the changelog reads as a single
+chronological tree.
 
-## [unreleased] — Causal Regression Forensics (full v0.2 wrap-up)
+### Phase 8 — full v0.2 wrap-up (Causal Regression Forensics)
 
 End of the strategic-pivot 8-phase roadmap. Phases 1–8 are landed
 + stress-tested + cross-language paired. Final v0.2 wrap-up adds
@@ -302,7 +305,7 @@ clear failures, easy baseline updates.
 
 ---
 
-## [unreleased] — Causal Regression Forensics + OTel + Align (Py + TS)
+### Phase 7 — TypeScript port of shadow.align
 
 Phase 7: TypeScript port of `shadow.align` + comparison docs.
 
@@ -339,7 +342,7 @@ Phase 7: TypeScript port of `shadow.align` + comparison docs.
 
 ---
 
-## [unreleased] — Causal Regression Forensics + OTel + Align library
+### Phase 6 — shadow.align standalone alignment library
 
 Phase 6: `shadow.align` standalone alignment library.
 
@@ -371,7 +374,7 @@ Phase 6: `shadow.align` standalone alignment library.
 
 ---
 
-## [unreleased] — Causal Regression Forensics + OTel bridge
+### Phase 5 — OpenTelemetry GenAI bridge
 
 Adds Phase 5 of the strategic-pivot roadmap: any OTel-GenAI-instrumented
 trace can now be imported into Shadow and run through `diagnose-pr`.
@@ -409,7 +412,7 @@ trace can now be imported into Shadow and run through `diagnose-pr`.
 
 ---
 
-## [unreleased] — Causal Regression Forensics
+### Phase 4 — Causal Regression Forensics core
 
 Strategic-pivot work landed across four weeks of plan-driven development.
 The wedge product, `shadow diagnose-pr`, plus `verify-fix` and `gate-pr`,
