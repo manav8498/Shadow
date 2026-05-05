@@ -9,13 +9,12 @@
 > unknown kind and is allowed to skip them.
 >
 > **License:** This specification document is licensed under the
-> Apache License, Version 2.0 (full text: [LICENSE-APACHE](LICENSE-APACHE)).
+> Apache License, Version 2.0 (full text: [LICENSE](LICENSE)).
 > Apache-2.0's explicit patent grant lets any implementer produce
 > `.agentlog`-compatible tools without downstream patent risk —
 > standard practice for protocol / file-format specs (OpenTelemetry,
 > CycloneDX, SLSA all do the same). The Shadow software itself is
-> dual-licensed under MIT OR Apache-2.0; see [LICENSE](LICENSE) and
-> the README.
+> licensed under Apache-2.0; see [LICENSE](LICENSE) and the README.
 >
 > **Editor:** manav8498.
 >
@@ -384,7 +383,7 @@ A single streaming-LLM chunk. Records the per-chunk content delta plus an absolu
 |---|---|---|---|
 | `chunk_index` | integer | yes | Zero-based ordinal within the parent response. |
 | `time_unix_nano` | integer | yes | Absolute timestamp at the moment this chunk arrived. Use UTC nanos since 1970. Stored absolute (not relative) so clock-skew correction and partial replay survive. |
-| `delta` | object | yes | Provider-shape delta. For Anthropic: `{type, text|partial_json|...}`. For OpenAI: `{content?, tool_calls?[]}`. Schema is intentionally a passthrough — the assembler in `chat_response` reconstructs canonical content. |
+| `delta` | object | yes | Provider-shape delta. For Anthropic: `{type, text\|partial_json\|...}`. For OpenAI: `{content?, tool_calls?[]}`. Schema is intentionally a passthrough — the assembler in `chat_response` reconstructs canonical content. |
 | `is_final` | boolean | no | True on the chunk that closes the stream (carries `finish_reason` / `stop_reason`). Default false. |
 
 ```json
@@ -729,10 +728,14 @@ The default redactor matches and replaces:
 
 | Pattern name | Regex (Python/Rust flavor) | Replacement |
 |---|---|---|
-| `openai_api_key` | `sk-[A-Za-z0-9]{20,}` | `[REDACTED:openai_api_key]` |
+| `openai_api_key` | `sk-(proj-\|svcacct-\|admin-)?[A-Za-z0-9]{20,}` | `[REDACTED:openai_api_key]` |
 | `anthropic_api_key` | `sk-ant-[A-Za-z0-9\-_]{20,}` | `[REDACTED:anthropic_api_key]` |
+| `aws_access_key_id` | `(AKIA\|ASIA\|AIDA\|AROA)[A-Z0-9]{16}` | `[REDACTED:aws_access_key_id]` |
+| `github_token` | `(ghp\|gho\|ghu\|ghs\|ghr)_[A-Za-z0-9]{36,251}` | `[REDACTED:github_token]` |
+| `private_key` | PEM-armoured RSA / EC / ED25519 / OpenSSH / encrypted / PGP private keys | `[REDACTED:private_key]` |
+| `jwt` | three base64url segments `header.payload.signature` (≥10/10/20 chars) | `[REDACTED:jwt]` |
 | `email` | `[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}` | `[REDACTED:email]` |
-| `phone_e164` | `\+[1-9]\d{1,14}(?!\d)` | `[REDACTED:phone]` |
+| `phone` | `\+[1-9]\d{1,14}(?!\d)` (E.164) | `[REDACTED:phone]` |
 | `credit_card` | 13–19 digit sequences that pass the Luhn check | `[REDACTED:credit_card]` |
 
 Implementations MAY add patterns. They MUST NOT remove default patterns
@@ -803,9 +806,13 @@ to match the baseline order before writing the candidate trace.
 
 ## §11 Compatibility with existing tools
 
-`.agentlog` is designed to be exportable to, and importable from.
-popular LLM-observability products. v0.1 does not ship these bridges;
-they are described here to inform v0.2 design.
+`.agentlog` is designed to be exportable to, and importable from,
+popular LLM-observability products. Shadow ships importers for
+Langfuse, Braintrust, LangSmith, OpenAI Evals, OTLP / OTel GenAI,
+MCP, Vercel AI SDK, and PydanticAI (`shadow import --format <fmt>`),
+plus an OTel exporter (`shadow export --format otel`). The mappings
+below describe how `.agentlog` records correspond to each tool's
+native model.
 
 ### §11.1 Langfuse
 
@@ -833,8 +840,11 @@ LangSmith has first-class tool-call support matching §4.3/§4.4.
 ### §11.4 OpenTelemetry
 
 Direct, see §7. Any OTel-compatible backend (Tempo, Jaeger, Honeycomb)
-can consume exported `.agentlog` traces once Shadow's OTel exporter
-lands in v0.2.
+can consume `.agentlog` traces exported by `shadow export --format otel`.
+The exporter emits both the v1.37+ structured-attribute path
+(`gen_ai.input.messages`, `gen_ai.output.messages`) and the legacy
+v1.28-v1.36 per-message events for compatibility with collectors on
+older minor versions of the GenAI semantic conventions.
 
 ## §12 Worked examples
 
@@ -929,6 +939,7 @@ safety filter.
 | Version | Date | Changes |
 |---|---|---|
 | 0.1 | 2026-04-21 | Initial draft. Released with Shadow v0.1.0. |
+| 0.1 + v0.2 record kinds | 2026-04-25 | Backwards-compatible additions inside the unchanged `version: "0.1"` envelope: `chunk` (§4.8), `harness_event` (§4.9), `blob_ref` (§4.10). v0.1-only parsers MAY skip records whose `kind` they don't recognise. |
 
 ---
 

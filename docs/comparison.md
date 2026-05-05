@@ -91,12 +91,12 @@ adjacent tool already nails one of the above, Shadow integrates with it
 
 ## Sources
 
-* [EvalView product page](https://evalview.ai/)
-* [Microsoft Agent Governance Toolkit announcement](https://learn.microsoft.com/en-us/azure/ai/agent-governance-toolkit/)
+* [EvalView](https://evalview.com/)
+* [Microsoft Agent Governance Toolkit](https://github.com/microsoft/agent-governance-toolkit)
 * [Preloop on GitHub](https://github.com/preloop/preloop)
 * [LangChain AgentEvals](https://github.com/langchain-ai/agentevals)
 * [Speedscale](https://speedscale.com/)
-* [AIUC-1 / Schellman certification](https://www.aiuc-1.org/)
+* [AIUC-1 / Schellman certification](https://aiuc.com/)
 
 This page is a living comparison; PRs welcome to update tool capabilities
 as they ship features. Shadow capabilities marked "✓" are pinned by

@@ -159,7 +159,7 @@ Rules default to `scope: trace` — evaluated once per whole trace. `scope: sess
 rules:
   - id: per-conversation-budget
     kind: max_total_tokens
-    params: { n: 4000 }
+    params: { limit: 4000 }
     scope: session
     severity: warning
 ```

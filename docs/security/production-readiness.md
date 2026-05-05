@@ -193,7 +193,7 @@ Common audit questions and where to point reviewers:
 
 | Question | Where |
 |---|---|
-| "What customer data does this tool see?" | "Whatever your agent processes; redacted by default for the patterns above; full pattern set in [`docs/security/production-readiness.md`](#redaction--what-the-sdk-sweeps-before-write)." |
+| "What customer data does this tool see?" | "Whatever your agent processes; redacted by default for the patterns above; full pattern set in [`docs/security/production-readiness.md`](#redaction-what-the-sdk-sweeps-before-write)." |
 | "Where is data stored, and for how long?" | "On your filesystem under paths *you* configure. Retention is governed by your repo's git-history policy. No external storage." |
 | "How do we audit a behavior change after merge?" | "Every `shadow gate-pr` run writes a `report.json` with a content-addressed hash; the same hash lands in the PR comment and (optionally) in a signed certificate. `shadow trail <trace-id>` walks the audit chain." |
 | "What happens on a key leak?" | "`shadow scan` detects, the Redactor blocks at write time. The fix is to add the missing pattern to the Redactor and re-record; `shadow scan` is the safety net." |

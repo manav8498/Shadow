@@ -66,8 +66,8 @@ Once steps 1 and 2 are done, every tag push runs the publish job:
 
 ```bash
 # Bump versions, commit, tag, push.
-git tag -a v1.2.4 -m "shadow v1.2.4"
-git push origin v1.2.4
+git tag -a v3.0.7 -m "shadow v3.0.7"
+git push origin v3.0.7
 ```
 
 Watch the **release** workflow run at
@@ -75,23 +75,25 @@ https://github.com/manav8498/Shadow/actions/workflows/release.yml.
 If a required reviewer is configured, the `publish-pypi` job waits
 for approval.
 
-On success: `pip install shadow-diff==0.2.2` works within ~60 s.
+On success: `pip install shadow-diff==3.0.7` works within ~60 s.
 
-## Backfilling v0.2.0
+## Backfilling a tag whose publish run pre-dated this workflow
 
-The v0.2.0 tag was pushed *before* this workflow step existed, so
-the v0.2.0 wheels aren't on PyPI yet. Once the trusted publisher is
-set up, re-run the release workflow for v0.2.0 from the Actions UI:
+If a release tag (`vX.Y.Z`) was pushed before the trusted-publisher
+workflow existed, the wheels for that tag won't be on PyPI even
+though the GitHub Release artifacts are. Once the publisher is
+configured, re-run the release workflow for that tag from the Actions
+UI:
 
-1. Go to **Actions → release → v0.2.0 run**.
+1. Go to **Actions → release → v\<X.Y.Z\> run**.
 2. Click **Re-run all jobs**.
 
-The `publish-pypi` step will upload the v0.2.0 wheels that were
-built and attached to the GitHub Release.
+The `publish-pypi` step uploads whatever wheels the matrix produced
+and were attached to the GitHub Release.
 
-Alternatively (if re-running the whole workflow is overkill), run
+If re-running the whole workflow is overkill, run
 `pypa/gh-action-pypi-publish` directly in a one-shot workflow
-targeting v0.2.0.
+targeting that tag.
 
 ## If the publish step fails
 

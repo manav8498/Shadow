@@ -1,8 +1,6 @@
 # Install and first diff
 
-This page walks you through the three commands that take you from
-"just heard about Shadow" to "looking at a real behavioural diff."
-No API keys, no agent code changes, no CI.
+Three commands take you from "just heard about Shadow" to "looking at a real nine-axis behavior diff against a known regression." No API keys, no agent code changes, no CI yet.
 
 ## 1. Install
 
@@ -21,8 +19,8 @@ pip install shadow-diff
 Verify:
 
 ```bash
-shadow version
-# → shadow 1.x.y (spec 0.1)
+shadow --version
+# → shadow 3.x.y
 ```
 
 ## 2. Scaffold a working scenario
@@ -64,6 +62,6 @@ You'll see:
 
 ## What's next
 
-- Run Shadow on your own agent: [Record your own agent](record.md)
-- Wire it into every PR: [Wire into CI](ci.md)
-- Understand each axis: [Nine-axis diff](../features/nine-axis.md)
+- **Get the wedge command on a real PR.** [Wire into CI](ci.md) — `shadow diagnose-pr` posting a verdict + dominant cause comment in 10 minutes.
+- Run Shadow on your own agent: [Record your own agent](record.md).
+- Understand the output: [Nine-axis diff](../features/nine-axis.md).

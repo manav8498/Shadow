@@ -15,13 +15,15 @@
 
 **Find the exact change that broke your AI agent.**
 
-`shadow diagnose-pr` answers, in one PR comment:
+A teammate edits a system prompt or swaps a model. Code review looks fine. Unit tests pass. You merge. A week later a customer reports the refund agent stopped asking for confirmation. Nobody saw it coming because the code looked harmless.
 
-1. Did agent behavior change?
-2. How many real or production-like traces are affected?
-3. **Which exact candidate change caused the regression?**
-4. With what confidence — `--backend live` reports ATE + bootstrap CI + E-value from real intervention; default `--backend recorded` reports affected traces and likely cause candidates from the deltas alone (no API spend, no causal CI).
-5. What fix should `verify-fix` confirm before merge?
+Shadow catches that bug class on the PR. `shadow diagnose-pr` answers, in one PR comment:
+
+1. **Did agent behavior change?** Yes / no, with severity.
+2. **How many traces are affected?** Out of N representative production-like cases.
+3. **Which exact candidate change caused it?** Prompt edit, model swap, tool-schema rename, config delta — named with a `file:line` citation.
+4. **With what confidence?** ATE + 95% bootstrap CI + E-value when run with `--backend live`; deterministic delta-attribution otherwise.
+5. **What fix should `verify-fix` confirm before merge?**
 
 ```bash
 shadow diagnose-pr \
@@ -33,8 +35,7 @@ shadow diagnose-pr \
   --pr-comment       comment.md
 ```
 
-→ See [`docs/features/causal-pr-diagnosis.md`](docs/features/causal-pr-diagnosis.md) for the full flow, or
-[`examples/refund-causal-diagnosis/`](examples/refund-causal-diagnosis/) for a one-line runnable demo.
+→ Try the [60-second runnable demo](examples/refund-causal-diagnosis/), or read [`docs/features/causal-pr-diagnosis.md`](docs/features/causal-pr-diagnosis.md) for the full flow.
 
 <p align="center">
   <img src=".github/assets/demo.gif" alt="Shadow workflow loop demo" width="900" />
@@ -52,19 +53,17 @@ shadow diagnose-pr \
   </sub>
 </p>
 
-## Why this exists
+## Why ordinary CI can't catch this
 
-Your teammate opens a PR that tweaks the system prompt, swaps GPT-4o for a cheaper model, or adjusts a tool schema. Code review looks fine. Unit tests pass. You merge.
+Unit tests assert what code returns, not how an agent *behaves*. The refund agent that drops "always confirm" is still parseable Python. The model swap from GPT-4o to a cheaper one still returns valid responses. The tool schema renamed `order_id` → `id` still typechecks both sides. Every guardrail your normal CI gives you is irrelevant — the regression is in the agent's decisions, not the code.
 
-A week later a customer reports that the refund agent started issuing refunds without confirming the amount. The prompt edit dropped the "ask before refunding" step. The PR that caused it was merged days ago. Nobody saw it coming because the code looked harmless.
-
-That's the bug class Shadow exists to catch. Agent behavior silently changed. Tests still pass. Code review can't see it. **Shadow turns "how should this agent behave?" into a YAML contract** — your CI tests every PR against it; your runtime enforces it against every tool call. Same rule, both places.
+**Shadow turns "how should this agent behave?" into a YAML contract** — your CI tests every PR against it; your runtime enforces it against every tool call. Same rule, both places. When the contract breaks, Shadow names the line in the PR that broke it.
 
 ## What Shadow does, in one screen
 
 Given a baseline `.agentlog` and a candidate change, Shadow answers three questions on the PR:
 
-1. **What behaviour changed?** A nine-axis diff scores response meaning, tool calls, refusals, length, latency, cost, output format, and more — with a plain-English summary on top.
+1. **What behavior changed?** A nine-axis diff scores response meaning, tool calls, refusals, length, latency, cost, output format, and more — with a plain-English summary on top.
 2. **Why did it change?** If the PR touched multiple things at once, regression attribution names the specific change that most likely explains each regression.
 3. **Is it safe to merge?** A YAML policy declares rules the agent must follow (tool ordering, output shape, forbidden outputs). The same policy enforces at runtime.
 
@@ -269,9 +268,9 @@ pip install shadow-diff
 
 ```python
 # scripts/record_traces.py
-import shadow
+from shadow.sdk import Session
 
-with shadow.Session(output="baseline.agentlog"):
+with Session(output_path="baseline.agentlog"):
     run_my_agent()   # whatever your existing entry-point is
 ```
 
@@ -400,7 +399,7 @@ The wrapper probes the enforcer with a synthesised candidate `tool_call` record.
 
 Everything above is the load-bearing pitch — install, the 10-minute walkthrough, writing a YAML rule, and runtime enforcement. **That's the whole product for most users.** What's below are the deeper features each backed by its own doc page; skip whichever isn't relevant to you.
 
-- **[Recording real agent traces](docs/quickstart/record.md)** — `shadow record -- python your_agent.py` auto-instruments Anthropic and OpenAI SDKs, redacts secrets by default, writes content-addressed `.agentlog` files. No code changes.
+- **[Recording real agent traces](docs/quickstart/record.md)** — `shadow record -- python your_agent.py` (or `node` / `bun`) auto-instruments OpenAI, Anthropic, LiteLLM, LangChain `ChatOpenAI`, and Vercel AI SDK calls. Redacts secrets by default, writes content-addressed `.agentlog` files. No code changes.
 - **[Framework adapters](docs/features/adapters.md)** — first-class hooks for LangGraph, CrewAI, and AG2. The chat client patches still cover everything; the adapter just pulls in the framework's structural metadata (graph nodes, crew kickoffs, agent boundaries).
 - **[Sandboxed deterministic replay](docs/features/sandboxed-replay.md)** — replay a candidate trace under a different config without touching production. Real tool functions run with network/subprocess/FS-write blocked; the output is an ordinary `.agentlog`.
 - **OpenTelemetry import** — `shadow import --format otel <export>` converts existing OTel GenAI semantic-convention spans to `.agentlog`. See [`docs/reference/cli.md`](docs/reference/cli.md) for the full flag set.
@@ -466,7 +465,7 @@ The TypeScript SDK covers the recording side of this same workflow plus a CI-gat
 
 The Python SDK and TypeScript SDK ship lockstep at the same version. The `.agentlog` format itself is the contract — TS-recorded traces feed into Python's `shadow diff`, `shadow certify`, and the MCP server without translation. The TS gate decisions are byte-identical to the Python equivalents on the same fixtures (cross-validated by `python/tests/test_typescript_parity.py`). For deeper analyses (multi-axis diff, bisect, certify), run those from the Python CLI against the TS-recorded trace.
 
-If your agent is built on LangGraph, CrewAI, or AG2, prefer the matching adapter (next section) over auto-instrumentation. Auto-instrument patches `.create` on the underlying provider SDK, which is a moving target across SDK majors. The framework adapters hook each framework's documented extension surface, which is the more stable contract.
+If your agent is built on LangGraph, CrewAI, or AG2, prefer the [matching framework adapter](docs/features/adapters.md) over auto-instrumentation. Auto-instrument patches `.create` on the underlying provider SDK, which is a moving target across SDK majors. The framework adapters hook each framework's documented extension surface, which is the more stable contract.
 
 ## CLI reference
 

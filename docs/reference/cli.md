@@ -118,17 +118,85 @@ Routes: `/` (HTML), `/report.json` (raw JSON), `/healthz` (liveness
 probe). User-controlled fields are HTML-escaped. Requires the
 `serve` extra: `pip install 'shadow-diff[serve]'`.
 
+## `shadow demo`
+
+Run a nine-axis diff against bundled fixtures. Single command, no
+API key, no files written. The fastest "does Shadow work on my box?"
+check.
+
 ## `shadow quickstart [PATH]`
 
 Scaffold a working Shadow scenario in `PATH` (default
 `shadow-quickstart`). No API keys required. See
 [Install and first diff](../quickstart/install.md).
 
+## `shadow inspect <trace.agentlog> [<candidate>]`
+
+One-screen terminal view of a trace — turn / role / tokens / latency
+/ cost / redactions / first divergence. The daily-debug surface;
+what `pytest -v` is to test runs, this is to recorded agent traces.
+
+Flags:
+
+- `--full`, expand truncated summaries to the full text.
+- Two positional args = comparison mode: the first divergent turn is
+  highlighted in red.
+
+## `shadow scan <paths...>`
+
+Scan committed `.agentlog` files for credentials / PII / custom
+patterns. Exits non-zero on any hit, so it composes into CI before
+`shadow gate-pr`.
+
+Flags:
+
+- `--patterns FILE`, load extra `name=regex` rules per line (`#`
+  comments allowed; the loader names the offending line on syntax
+  errors).
+- `--only NAMES`, restrict to a comma-separated subset of pattern
+  names (e.g. `--only email,credit_card`).
+- `--redact-snippets`, replace the literal match with the pattern
+  marker in stdout/stderr — safe for CI logs without leaking the
+  credential to the build's log archive.
+- `--json`, emit a single JSON object on stdout for piping into
+  `jq` or annotating PR comments.
+
+Built-in patterns: `private_key`, `jwt`, `anthropic_api_key`,
+`openai_api_key`, `aws_access_key_id`, `github_token`, `email`,
+`phone`, `credit_card` (Luhn-validated). Same set used by the
+`Redactor` so the scanner is the second line of defence behind the
+SDK's write-time redaction.
+
+## `shadow baseline create / update / approve / verify`
+
+Frozen-baseline workflow modeled on Insta + Jest snapshots — the
+hash of the baseline trace corpus is pinned into `shadow.yaml`, and
+PRs that change the baseline show up in `git diff` as a single line.
+
+| Subcommand | Effect |
+|---|---|
+| `baseline create <dir>` | Hash the directory and pin it into `shadow.yaml`. Errors if a pin already exists. |
+| `baseline update --force` | Re-pin the existing baseline directory after a deliberate regeneration. The `--force` is the friction flag — without it, a typo can't approve a regression silently. |
+| `baseline approve <candidate-dir> --force` | Copy `.agentlog` files from the candidate directory into the baseline directory and re-pin. The end state: this trace set is now the gold standard. |
+| `baseline verify` | Re-hash the baseline directory and compare against the pin. Exits non-zero on drift; the message names both digests so a reviewer can decide quickly whether the change is intentional. |
+
+The hash is invariant under filename rename — same record bytes,
+different filenames, same digest. Mutating any record flips the
+digest.
+
 ## `shadow init [PATH]`
 
-Scaffold `.shadow/` in `PATH`. `--github-action` also drops
-`.github/workflows/shadow-diff.yml`. Path-traversal hardened -
-refuses system directories (`/etc`, `/usr`, etc.).
+Scaffold `.shadow/` and `shadow.yaml` in `PATH`. Auto-detects the
+project type (Python / Node / Rust). With `--github-action`, also
+drops a CI workflow:
+
+- default: `.github/workflows/shadow-diagnose-pr.yml` (runs
+  `shadow diagnose-pr` on every PR; the recommended path)
+- `--legacy-diff`: `.github/workflows/shadow-diff.yml` (runs the
+  older `shadow diff` flow without causal attribution)
+
+Path-traversal hardened — refuses system directories (`/etc`,
+`/usr`, etc.).
 
 ## `shadow record -- <cmd>`
 
@@ -162,7 +230,7 @@ stayed on the baseline path through turn 2?" experiments.
 
 ## `shadow diff <baseline> <candidate>`
 
-Nine-axis behavioural diff. Key flags:
+Nine-axis behavior diff. Key flags:
 
 - `--judge {none,auto,sanity,pairwise,llm,procedure,schema,factuality,refusal,tone}`
 - `--judge-config <file.yaml>` for rubric-based judges
