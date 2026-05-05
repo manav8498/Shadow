@@ -4,6 +4,43 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.1.1] — 2026-05-05
+
+Patch release. Pre-launch UX fix and a small handful of doc-cleanup
+items.
+
+### Added
+
+* **`shadow --version` / `-V`** (root callback). Standard CLI
+  convention. Pre-3.1.1 only `shadow version` (the subcommand)
+  worked; users typing the conventional `--version` flag — what
+  nearly every developer tries first on a freshly-installed tool —
+  got an unhelpful "No such command '--version'" error from
+  typer's no_args_is_help fallback. The new typer root callback
+  wires `--version` / `-V` (eager) so both invocations now produce
+  identical `shadow X.Y.Z (spec X.Y)` output. Existing `shadow
+  version` subcommand kept for backwards compatibility.
+
+### Documentation
+
+* **CHANGELOG** — five legacy `## [unreleased]` H2 headers from
+  prior incomplete v3.0.x release cycles demoted to `### Phase N`
+  H3 subsections under [3.1.0] so the file reads as a single
+  chronological tree instead of five stacked unreleased sections.
+* **`docs/PYPI-PUBLISHING.md`** — example tag/install commands
+  bumped from v3.0.7 → v3.1.0/v3.1.1 to match the published
+  release.
+* **`docs/SUPPLY-CHAIN.md`** — example wheel filename in the
+  cosign verify-blob block bumped from `shadow_diff-3.0.7-...`
+  → `shadow_diff-3.1.1-...` so the snippet maps to a wheel that
+  actually exists on the GitHub release artifacts page.
+
+### Tests
+
+* +4 regression tests for `--version` / `-V` / `version`
+  subcommand / "subcommands still work after root callback".
+* Python suite: 1970 → 1974 passing; 0 regressions.
+
 ## [3.1.0] — 2026-05-05
 
 Auto-instrumentation breadth + loud-failure diagnostics. Customer
