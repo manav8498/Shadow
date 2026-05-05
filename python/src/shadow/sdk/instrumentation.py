@@ -40,6 +40,8 @@ class Instrumentor:
     def install(self) -> None:
         self._patch_anthropic()
         self._patch_openai()
+        self._patch_litellm()
+        self._patch_langchain_openai()
 
     def uninstall(self) -> None:
         for cls, attr, original in self._patches:
@@ -89,6 +91,91 @@ class Instrumentor:
             AsyncResponses, "create", _openai_responses_req_from_kwargs, _openai_responses_resp
         )
 
+    # ---- litellm ---------------------------------------------------------
+
+    def _patch_litellm(self) -> None:
+        """Patch litellm.completion / acompletion / text_completion / atext_completion.
+
+        LiteLLM is a module-level routing layer used by mini-SWE-agent,
+        OpenHands, Skyvern, and many other agent frameworks. It accepts
+        OpenAI-shape kwargs (`model`, `messages`, `tools`, `stream`, etc.)
+        and returns an OpenAI-shape `ModelResponse`, so the existing
+        OpenAI request/response translators apply directly.
+
+        We patch as MODULE attributes (not class methods) because that's
+        how the public surface is exposed. `litellm.completion(...)` is
+        called with the function looked up off the module each time, so
+        re-binding the module attribute catches every call site.
+        """
+        try:
+            import litellm  # type: ignore[import-not-found, unused-ignore]
+        except Exception:
+            return
+
+        for attr_name in ("completion", "text_completion"):
+            self._install_module_sync(
+                litellm,
+                attr_name,
+                _litellm_req_from_kwargs,
+                _openai_resp,
+            )
+        for attr_name in ("acompletion", "atext_completion"):
+            self._install_module_async(
+                litellm,
+                attr_name,
+                _litellm_req_from_kwargs,
+                _openai_resp,
+            )
+
+    # ---- langchain_openai ChatOpenAI -------------------------------------
+
+    def _patch_langchain_openai(self) -> None:
+        """Patch langchain_openai.ChatOpenAI._generate / _agenerate.
+
+        LangChain's ChatOpenAI internally constructs an `openai.OpenAI`
+        client at import time and stores a BOUND METHOD reference to
+        `client.chat.completions.create`. That bound method captures
+        the unpatched function before our `Session.__enter__` patches
+        the class — so monkey-patching `Completions.create` doesn't
+        catch LangChain calls that go through the captured reference.
+
+        Patching at the LangChain layer (the `_generate` / `_agenerate`
+        methods on `BaseChatOpenAI`) sidesteps that capture. The methods
+        accept `(self, messages, stop=None, run_manager=None, **kwargs)`
+        and return a `ChatResult`. We translate at this layer using a
+        LangChain-shaped translator pair.
+
+        Open SWE works because it uses the LangGraph adapter (via
+        callback handlers), which is a separate path. This patcher
+        catches the *direct* `ChatOpenAI(...).invoke / .ainvoke` path.
+        """
+        try:
+            from langchain_openai.chat_models.base import (  # type: ignore[import-not-found, unused-ignore]
+                BaseChatOpenAI,
+            )
+        except Exception:
+            return
+
+        # _generate (sync) and _agenerate (async) are the two convergence
+        # points every ChatOpenAI call funnels through (whether invoked
+        # via .invoke, .ainvoke, .batch, .abatch, .stream, .astream).
+        # Streaming paths re-enter via _generate too; they buffer chunks
+        # internally and produce a final ChatResult.
+        self._install_sync(
+            BaseChatOpenAI,
+            "_generate",
+            _langchain_chat_req_from_args,
+            _langchain_chat_resp,
+            arg_passthrough=True,
+        )
+        self._install_async(
+            BaseChatOpenAI,
+            "_agenerate",
+            _langchain_chat_req_from_args,
+            _langchain_chat_resp,
+            arg_passthrough=True,
+        )
+
     # ---- core patch machinery -------------------------------------------
 
     def _install_sync(
@@ -97,7 +184,17 @@ class Instrumentor:
         attr: str,
         req_translator: Any,
         resp_translator: Any,
+        *,
+        arg_passthrough: bool = False,
     ) -> None:
+        """Wrap a class-level sync method.
+
+        ``arg_passthrough`` controls how the request translator is
+        called: by default it expects only ``kwargs``; when True the
+        wrapper passes ``(args, kwargs)`` so translators can read
+        positional arguments (e.g. LangChain's ``_generate(messages,
+        stop, run_manager, **kwargs)`` signature).
+        """
         original = getattr(cls, attr, None)
         if original is None:
             return
@@ -107,18 +204,21 @@ class Instrumentor:
             is_stream = kwargs.get("stream") is True
             start = time.perf_counter()
             result = original(client_self, *args, **kwargs)
+            translator_input = (args, kwargs) if arg_passthrough else kwargs
             if is_stream:
                 return _wrap_sync_stream(
-                    result, session, req_translator, resp_translator, kwargs, start
+                    result, session, req_translator, resp_translator, translator_input, start
                 )
             latency_ms = int((time.perf_counter() - start) * 1000)
             # Pre-dispatch enforcement: probe the enforcer with the
             # response's tool_use blocks BEFORE recording. May raise
             # PolicyViolationError; the caller's handler sees it.
             _enforce_pre_dispatch(
-                session, req_translator, resp_translator, kwargs, result, latency_ms
+                session, req_translator, resp_translator, translator_input, result, latency_ms
             )
-            _record_safely(session, req_translator, resp_translator, kwargs, result, latency_ms)
+            _record_safely(
+                session, req_translator, resp_translator, translator_input, result, latency_ms
+            )
             return result
 
         self._patches.append((cls, attr, original))
@@ -130,6 +230,8 @@ class Instrumentor:
         attr: str,
         req_translator: Any,
         resp_translator: Any,
+        *,
+        arg_passthrough: bool = False,
     ) -> None:
         original = getattr(cls, attr, None)
         if original is None:
@@ -140,6 +242,77 @@ class Instrumentor:
             is_stream = kwargs.get("stream") is True
             start = time.perf_counter()
             result = await original(client_self, *args, **kwargs)
+            translator_input = (args, kwargs) if arg_passthrough else kwargs
+            if is_stream:
+                return _wrap_async_stream(
+                    result, session, req_translator, resp_translator, translator_input, start
+                )
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            _enforce_pre_dispatch(
+                session, req_translator, resp_translator, translator_input, result, latency_ms
+            )
+            _record_safely(
+                session, req_translator, resp_translator, translator_input, result, latency_ms
+            )
+            return result
+
+        self._patches.append((cls, attr, original))
+        setattr(cls, attr, wrapper)
+
+    def _install_module_sync(
+        self,
+        module: Any,
+        attr: str,
+        req_translator: Any,
+        resp_translator: Any,
+    ) -> None:
+        """Wrap a module-level sync function (e.g. ``litellm.completion``).
+
+        Module-level functions don't have an implicit ``self`` argument
+        — the wrapper signature is ``(*args, **kwargs)`` directly. The
+        patch is installed on the module attribute and removed by
+        restoring it on uninstall, same as class-level patches.
+        """
+        original = getattr(module, attr, None)
+        if original is None or not callable(original):
+            return
+        session = self._session
+
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            is_stream = kwargs.get("stream") is True
+            start = time.perf_counter()
+            result = original(*args, **kwargs)
+            if is_stream:
+                return _wrap_sync_stream(
+                    result, session, req_translator, resp_translator, kwargs, start
+                )
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            _enforce_pre_dispatch(
+                session, req_translator, resp_translator, kwargs, result, latency_ms
+            )
+            _record_safely(session, req_translator, resp_translator, kwargs, result, latency_ms)
+            return result
+
+        self._patches.append((module, attr, original))
+        setattr(module, attr, wrapper)
+
+    def _install_module_async(
+        self,
+        module: Any,
+        attr: str,
+        req_translator: Any,
+        resp_translator: Any,
+    ) -> None:
+        """Wrap a module-level async function (e.g. ``litellm.acompletion``)."""
+        original = getattr(module, attr, None)
+        if original is None or not callable(original):
+            return
+        session = self._session
+
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            is_stream = kwargs.get("stream") is True
+            start = time.perf_counter()
+            result = await original(*args, **kwargs)
             if is_stream:
                 return _wrap_async_stream(
                     result, session, req_translator, resp_translator, kwargs, start
@@ -151,21 +324,26 @@ class Instrumentor:
             _record_safely(session, req_translator, resp_translator, kwargs, result, latency_ms)
             return result
 
-        self._patches.append((cls, attr, original))
-        setattr(cls, attr, wrapper)
+        self._patches.append((module, attr, original))
+        setattr(module, attr, wrapper)
 
 
 def _record_safely(
     session: Session,
     req_translator: Any,
     resp_translator: Any,
-    kwargs: dict[str, Any],
+    translator_input: Any,
     result: Any,
     latency_ms: int,
 ) -> None:
-    """Never let the recording layer break the caller's LLM call."""
+    """Never let the recording layer break the caller's LLM call.
+
+    ``translator_input`` is either a kwargs dict (default for
+    OpenAI / Anthropic / LiteLLM) or an ``(args, kwargs)`` tuple
+    (for LangChain whose translator needs positional ``messages``).
+    """
     try:
-        shadow_req = req_translator(kwargs)
+        shadow_req = req_translator(translator_input)
         shadow_resp = resp_translator(result, latency_ms)
         session.record_chat(shadow_req, shadow_resp)
     except Exception:
@@ -177,7 +355,7 @@ def _enforce_pre_dispatch(
     session: Session,
     req_translator: Any,
     resp_translator: Any,
-    kwargs: dict[str, Any],
+    translator_input: Any,
     result: Any,
     latency_ms: int,
 ) -> None:
@@ -395,10 +573,221 @@ def _openai_req_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
 
 
 def _openai_resp(response: Any, latency_ms: int) -> dict[str, Any]:
-    """openai ChatCompletion → Shadow chat_response payload."""
+    """openai ChatCompletion → Shadow chat_response payload.
+
+    LiteLLM's ``ModelResponse`` is intentionally shape-compatible with
+    ``openai.ChatCompletion`` (same ``.choices[0].message.content``
+    layout, same ``.usage.prompt_tokens`` etc.), so this translator
+    serves both backends.
+    """
     from shadow.llm.openai_backend import OpenAILLM
 
     return OpenAILLM._from_provider(response, latency_ms)
+
+
+# ---------------------------------------------------------------------------
+# LiteLLM translators.
+#
+# LiteLLM presents the OpenAI-shape kwargs/response, so the existing
+# `_openai_resp` translator works for the response side. For the request
+# side we use a thin wrapper that strips LiteLLM-specific kwargs that
+# would surface as canonical-JSON garbage downstream (api_base, api_key,
+# custom_llm_provider, fallbacks, model_list, …) before delegating to
+# the OpenAI translator.
+# ---------------------------------------------------------------------------
+
+_LITELLM_KWARG_DENYLIST: frozenset[str] = frozenset(
+    {
+        # Routing / config — not behaviour-relevant for diff/replay.
+        "api_base",
+        "api_key",
+        "api_version",
+        "custom_llm_provider",
+        "fallbacks",
+        "model_list",
+        "router",
+        "metadata",
+        "extra_headers",
+        "request_timeout",
+        "timeout",
+        "litellm_call_id",
+        "litellm_logging_obj",
+        "litellm_session_id",
+        "user",
+        # Caching layer config — also not behaviour-relevant.
+        "caching",
+        "cache",
+        # Logging / callback hooks.
+        "logger_fn",
+        "logger",
+    }
+)
+
+
+def _litellm_req_from_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """litellm.completion(**kwargs) → Shadow chat_request payload."""
+    cleaned = {k: v for k, v in kwargs.items() if k not in _LITELLM_KWARG_DENYLIST}
+    return _openai_req_from_kwargs(cleaned)
+
+
+# ---------------------------------------------------------------------------
+# LangChain ChatOpenAI translators.
+#
+# LangChain's BaseChatOpenAI._generate(messages, stop=None,
+# run_manager=None, **kwargs) takes positional `messages` (a list of
+# langchain_core.messages.BaseMessage instances) and returns a
+# ChatResult containing one or more ChatGenerations whose .message is
+# an AIMessage. We translate at this layer (rather than at the
+# underlying OpenAI client) because LangChain captures bound-method
+# references at import time, bypassing class-level monkey-patches on
+# `Completions.create`.
+# ---------------------------------------------------------------------------
+
+
+def _langchain_chat_req_from_args(translator_input: Any) -> dict[str, Any]:
+    """LangChain BaseChatOpenAI._generate args → Shadow chat_request payload.
+
+    ``translator_input`` is the ``(args, kwargs)`` tuple captured by the
+    ``arg_passthrough`` wrapper. ``args[0]`` is the BaseMessage list,
+    ``args[1]`` is optional ``stop``. Model + sampling params live on
+    the bound ``self`` instance, but our wrapper doesn't have access
+    to ``self`` from the translator boundary; we read what we can from
+    ``kwargs`` (which carries any per-call overrides) and pull the rest
+    from any ``invocation_params``-shaped fallback.
+    """
+    args, kwargs = (
+        translator_input if isinstance(translator_input, tuple) else ((), translator_input)
+    )
+    messages_in = args[0] if args else kwargs.get("messages") or []
+    messages: list[dict[str, Any]] = []
+    for msg in messages_in:
+        role = _langchain_role_for(msg)
+        content = _langchain_content_for(msg)
+        if role:
+            messages.append({"role": role, "content": content})
+    params: dict[str, Any] = {}
+    for src, dst in (
+        ("max_tokens", "max_tokens"),
+        ("max_completion_tokens", "max_tokens"),
+        ("temperature", "temperature"),
+        ("top_p", "top_p"),
+        ("stop", "stop"),
+    ):
+        if src in kwargs and kwargs[src] is not None:
+            params[dst] = kwargs[src]
+    # When LangChain invokes _generate, the model id is on the bound
+    # instance (self.model_name / self.model). The wrapper doesn't pass
+    # `self` through to the translator (translator gets only args/kwargs),
+    # so `model` is best-effort: use the kwargs override if present, else
+    # leave empty so the canonical-JSON path emits "" rather than crashing.
+    out: dict[str, Any] = {
+        "model": kwargs.get("model") or "",
+        "messages": messages,
+        "params": params,
+    }
+    return out
+
+
+def _langchain_chat_resp(result: Any, latency_ms: int) -> dict[str, Any]:
+    """LangChain ChatResult → Shadow chat_response payload."""
+    # ChatResult.generations is list[ChatGeneration]; .message is AIMessage.
+    content: list[dict[str, Any]] = []
+    model = ""
+    stop_reason = "end_turn"
+    input_tokens = 0
+    output_tokens = 0
+    thinking_tokens = 0
+
+    generations = getattr(result, "generations", None) or []
+    if generations:
+        gen0 = generations[0]
+        msg = getattr(gen0, "message", None)
+        if msg is not None:
+            text = getattr(msg, "content", "") or ""
+            if isinstance(text, str) and text:
+                content.append({"type": "text", "text": text})
+            elif isinstance(text, list):
+                # Newer LangChain emits multimodal content as list of parts.
+                for part in text:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        content.append({"type": "text", "text": part.get("text", "")})
+            tool_calls = getattr(msg, "tool_calls", None) or []
+            for tc in tool_calls:
+                content.append(
+                    {
+                        "type": "tool_use",
+                        "id": tc.get("id", "") if isinstance(tc, dict) else getattr(tc, "id", ""),
+                        "name": tc.get("name", "")
+                        if isinstance(tc, dict)
+                        else getattr(tc, "name", ""),
+                        "input": tc.get("args", {})
+                        if isinstance(tc, dict)
+                        else getattr(tc, "args", {}),
+                    }
+                )
+            usage_md = getattr(msg, "usage_metadata", None) or {}
+            if isinstance(usage_md, dict):
+                input_tokens = int(usage_md.get("input_tokens") or 0)
+                output_tokens = int(usage_md.get("output_tokens") or 0)
+                thinking_tokens = int(
+                    usage_md.get("output_token_details", {}).get("reasoning", 0) or 0
+                )
+        gen_info = getattr(gen0, "generation_info", None) or {}
+        if isinstance(gen_info, dict):
+            model = gen_info.get("model_name") or gen_info.get("model") or ""
+            fr = gen_info.get("finish_reason") or ""
+            if fr:
+                stop_reason = {
+                    "stop": "end_turn",
+                    "length": "max_tokens",
+                    "tool_calls": "tool_use",
+                    "function_call": "tool_use",
+                    "content_filter": "content_filter",
+                }.get(fr, fr)
+
+    # llm_output (older LangChain layout) carries token usage at the
+    # ChatResult level — fall back to it when usage_metadata is absent.
+    if input_tokens == 0 and output_tokens == 0:
+        llm_out = getattr(result, "llm_output", None) or {}
+        token_usage = (llm_out.get("token_usage") if isinstance(llm_out, dict) else None) or {}
+        input_tokens = int(token_usage.get("prompt_tokens") or 0)
+        output_tokens = int(token_usage.get("completion_tokens") or 0)
+        if isinstance(llm_out, dict) and not model:
+            model = llm_out.get("model_name") or llm_out.get("model") or ""
+
+    return {
+        "model": model,
+        "content": content,
+        "stop_reason": stop_reason,
+        "latency_ms": latency_ms,
+        "usage": {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "thinking_tokens": thinking_tokens,
+        },
+    }
+
+
+def _langchain_role_for(msg: Any) -> str:
+    """Map a langchain_core.messages.BaseMessage to a Shadow role string."""
+    cls_name = type(msg).__name__
+    return {
+        "SystemMessage": "system",
+        "HumanMessage": "user",
+        "AIMessage": "assistant",
+        "AIMessageChunk": "assistant",
+        "ToolMessage": "tool",
+        "FunctionMessage": "tool",
+        "ChatMessage": getattr(msg, "role", "user") or "user",
+    }.get(cls_name, "user")
+
+
+def _langchain_content_for(msg: Any) -> Any:
+    """Extract content from a langchain BaseMessage; preserve list shape if multimodal."""
+    content = getattr(msg, "content", "")
+    # Tool messages carry a tool_call_id; preserve it inline so policy
+    # rules that match on tool-result text still see it.
+    return content if content is not None else ""
 
 
 # ---------------------------------------------------------------------------
@@ -550,24 +939,25 @@ def _wrap_sync_stream(
     session: Session,
     req_translator: Any,
     resp_translator: Any,
-    kwargs: dict[str, Any],
+    translator_input: Any,
     start: float,
 ) -> Any:
-    """Wrap a sync stream iterator; emit a chat_response once exhausted."""
-    chunks: list[Any] = []
+    """Wrap a sync stream; preserve the underlying object's full surface.
 
-    def gen() -> Any:
-        try:
-            for chunk in stream:
-                chunks.append(chunk)
-                yield chunk
-        finally:
-            latency_ms = int((time.perf_counter() - start) * 1000)
-            _record_stream_safely(
-                session, req_translator, resp_translator, kwargs, chunks, latency_ms
-            )
+    The OpenAI SDK's ``Stream`` is BOTH iterable AND a context manager
+    (``with stream: ...`` closes the underlying httpx connection).
+    Returning a plain generator from this wrapper drops the context-
+    manager methods, which breaks LangChain (and any caller using
+    ``with client.chat.completions.create(stream=True): ...``).
 
-    return gen()
+    The :class:`_SyncStreamProxy` proxies every attribute access to the
+    original stream and adds chunk capture on iteration. Identity
+    (``isinstance``, ``type()``) checks are not preserved, but the
+    ``async/sync iterator + context manager`` duck-typed surface is.
+    """
+    return _SyncStreamProxy(
+        stream, session, req_translator, resp_translator, translator_input, start
+    )
 
 
 def _wrap_async_stream(
@@ -575,31 +965,213 @@ def _wrap_async_stream(
     session: Session,
     req_translator: Any,
     resp_translator: Any,
-    kwargs: dict[str, Any],
+    translator_input: Any,
     start: float,
 ) -> Any:
-    """Wrap an async stream; emit a chat_response once exhausted."""
-    chunks: list[Any] = []
+    """Wrap an async stream; preserve full surface (iterator + context mgr).
 
-    async def gen() -> Any:
+    See :func:`_wrap_sync_stream`. LangChain's ``ChatOpenAI(streaming=True)
+    .astream(...)`` does ``async with ...`` on the streaming response.
+    Before this fix, the wrapper returned an async generator which has
+    no ``__aenter__``/``__aexit__`` and surfaced as
+    ``TypeError: 'async_generator' object does not support the
+    asynchronous context manager protocol`` — now-fixed.
+    """
+    return _AsyncStreamProxy(
+        stream, session, req_translator, resp_translator, translator_input, start
+    )
+
+
+class _SyncStreamProxy:
+    """Capturing proxy around a sync streaming response.
+
+    Preserves: iteration (``for x in stream``), context-manager
+    (``with stream``), and arbitrary attribute access on the
+    underlying object. Iteration accumulates chunks; on close /
+    iterator exhaustion / context-manager exit, the aggregated
+    chat_response record is written to the active session.
+    """
+
+    def __init__(
+        self,
+        stream: Any,
+        session: Session,
+        req_translator: Any,
+        resp_translator: Any,
+        translator_input: Any,
+        start: float,
+    ) -> None:
+        # Use object.__setattr__ to avoid triggering our own
+        # __setattr__ proxy below before _stream is set.
+        object.__setattr__(self, "_stream", stream)
+        object.__setattr__(self, "_session", session)
+        object.__setattr__(self, "_req_translator", req_translator)
+        object.__setattr__(self, "_resp_translator", resp_translator)
+        object.__setattr__(self, "_translator_input", translator_input)
+        object.__setattr__(self, "_start", start)
+        object.__setattr__(self, "_chunks", [])
+        object.__setattr__(self, "_recorded", False)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._stream, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(self._stream, name, value)
+
+    def __iter__(self) -> Any:
+        return self
+
+    def __next__(self) -> Any:
         try:
-            async for chunk in stream:
-                chunks.append(chunk)
-                yield chunk
-        finally:
-            latency_ms = int((time.perf_counter() - start) * 1000)
-            _record_stream_safely(
-                session, req_translator, resp_translator, kwargs, chunks, latency_ms
-            )
+            chunk = next(self._stream)
+        except StopIteration:
+            self._record_once()
+            raise
+        self._chunks.append(chunk)
+        return chunk
 
-    return gen()
+    def __enter__(self) -> Any:
+        # Delegate to the underlying object's context-manager methods
+        # if it has them (OpenAI Stream does); otherwise return self
+        # so `with stream:` still works on plain iterators.
+        enter = getattr(self._stream, "__enter__", None)
+        if enter is not None:
+            enter()
+        return self
+
+    def __exit__(self, *exc: Any) -> Any:
+        # Record first (best-effort, never raises into the user's
+        # `with` block). Then delegate to the underlying object's
+        # __exit__ if present, returning whatever it returns so
+        # exception suppression semantics are preserved.
+        with contextlib.suppress(Exception):
+            self._record_once()
+        exit_fn = getattr(self._stream, "__exit__", None)
+        if exit_fn is not None:
+            return exit_fn(*exc)
+        return False
+
+    def close(self) -> Any:
+        with contextlib.suppress(Exception):
+            self._record_once()
+        close_fn = getattr(self._stream, "close", None)
+        if close_fn is not None:
+            return close_fn()
+        return None
+
+    def _record_once(self) -> None:
+        if self._recorded:
+            return
+        object.__setattr__(self, "_recorded", True)
+        latency_ms = int((time.perf_counter() - self._start) * 1000)
+        _record_stream_safely(
+            self._session,
+            self._req_translator,
+            self._resp_translator,
+            self._translator_input,
+            self._chunks,
+            latency_ms,
+        )
+
+
+class _AsyncStreamProxy:
+    """Capturing proxy around an async streaming response.
+
+    Async equivalent of :class:`_SyncStreamProxy`. Preserves iteration
+    (``async for``), async context-manager (``async with``), and
+    arbitrary attribute access on the underlying object.
+    """
+
+    def __init__(
+        self,
+        stream: Any,
+        session: Session,
+        req_translator: Any,
+        resp_translator: Any,
+        translator_input: Any,
+        start: float,
+    ) -> None:
+        object.__setattr__(self, "_stream", stream)
+        object.__setattr__(self, "_session", session)
+        object.__setattr__(self, "_req_translator", req_translator)
+        object.__setattr__(self, "_resp_translator", resp_translator)
+        object.__setattr__(self, "_translator_input", translator_input)
+        object.__setattr__(self, "_start", start)
+        object.__setattr__(self, "_chunks", [])
+        object.__setattr__(self, "_recorded", False)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._stream, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(self._stream, name, value)
+
+    def __aiter__(self) -> Any:
+        return self
+
+    async def __anext__(self) -> Any:
+        try:
+            chunk = await self._stream.__anext__()
+        except StopAsyncIteration:
+            await self._record_once()
+            raise
+        self._chunks.append(chunk)
+        return chunk
+
+    async def __aenter__(self) -> Any:
+        enter = getattr(self._stream, "__aenter__", None)
+        if enter is not None:
+            await enter()
+        return self
+
+    async def __aexit__(self, *exc: Any) -> Any:
+        # Best-effort recording first; suppress recording-layer failures
+        # so they never break the caller's `async with` block. Then
+        # delegate to the wrapped stream's __aexit__ to preserve its
+        # close behaviour and exception-suppression semantics.
+        await self._record_once_safe()
+        exit_fn = getattr(self._stream, "__aexit__", None)
+        if exit_fn is not None:
+            return await exit_fn(*exc)
+        return False
+
+    async def aclose(self) -> Any:
+        await self._record_once_safe()
+        close_fn = getattr(self._stream, "aclose", None)
+        if close_fn is not None:
+            return await close_fn()
+        return None
+
+    async def _record_once_safe(self) -> None:
+        """``_record_once`` wrapped to never propagate exceptions.
+
+        Recording must never break the caller's `async with` block —
+        a recording-layer failure is silenced and the user's stream
+        keeps working.
+        """
+        with contextlib.suppress(Exception):
+            await self._record_once()
+
+    async def _record_once(self) -> None:
+        if self._recorded:
+            return
+        object.__setattr__(self, "_recorded", True)
+        latency_ms = int((time.perf_counter() - self._start) * 1000)
+        _record_stream_safely(
+            self._session,
+            self._req_translator,
+            self._resp_translator,
+            self._translator_input,
+            self._chunks,
+            latency_ms,
+        )
 
 
 def _record_stream_safely(
     session: Session,
     req_translator: Any,
     resp_translator: Any,
-    kwargs: dict[str, Any],
+    translator_input: Any,
     chunks: list[Any],
     latency_ms: int,
 ) -> None:
@@ -609,7 +1181,7 @@ def _record_stream_safely(
         # Message-shaped object from the chunks. We detect shape from the chunk
         # attributes; fall back to stringifying if we can't.
         aggregated = _aggregate_chunks(chunks)
-        shadow_req = req_translator(kwargs)
+        shadow_req = req_translator(translator_input)
         if aggregated is None:
             # Couldn't shape it — record as a raw text response.
             shadow_resp = _raw_text_response(chunks, latency_ms)

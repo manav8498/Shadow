@@ -86,6 +86,7 @@ export async function autoInstrument(session: Session): Promise<InstrumentorHand
   await tryPatchOpenAI(session, handle);
   await tryPatchOpenAIResponses(session, handle);
   await tryPatchAnthropic(session, handle);
+  await tryPatchVercelAi(session, handle);
   return handle;
 }
 
@@ -124,6 +125,101 @@ async function tryPatchOpenAIResponses(
   for (const mod of candidates) {
     const Responses = (mod as { Responses?: { prototype?: object } }).Responses;
     patchCreate(session, Responses?.prototype, handle, openaiResponsesTranslators);
+  }
+}
+
+/**
+ * Patch the Vercel AI SDK's top-level functions: `generateText`,
+ * `streamText`, `generateObject`, `streamObject`.
+ *
+ * Vercel AI is a higher-level wrapper that abstracts over OpenAI /
+ * Anthropic / Bedrock / xAI and several others — used by BrowserOS
+ * and many Next.js / serverless agents. Direct OpenAI patching
+ * doesn't catch it because the calls go through `@ai-sdk/openai`'s
+ * internal HTTP client, not through the `openai` package.
+ *
+ * We patch each function as a module export. Since the Vercel AI SDK
+ * exports these as `const`, we can re-bind them on the module
+ * namespace object (live binding for ESM, plain assignment for CJS).
+ *
+ * Result shape (from `await generateText({...})`):
+ *   { text, usage: { promptTokens, completionTokens, totalTokens },
+ *     finishReason, toolCalls, response: { messages, modelId, ... } }
+ */
+async function tryPatchVercelAi(
+  session: Session,
+  handle: InstrumentorHandle,
+): Promise<void> {
+  const candidates = await loadModuleBothWays('ai');
+  for (const mod of candidates) {
+    if (mod === null || mod === undefined || typeof mod !== 'object') continue;
+    for (const fnName of ['generateText', 'streamText', 'generateObject', 'streamObject']) {
+      patchModuleFn(session, mod, fnName, handle, vercelAiTranslators);
+    }
+  }
+}
+
+/**
+ * Re-bind a top-level module function (ESM live binding or CJS export)
+ * to a wrapped variant that records the underlying call. Skips when
+ * the module entry isn't a function or has already been wrapped.
+ */
+function patchModuleFn(
+  session: Session,
+  mod: object,
+  attr: string,
+  handle: InstrumentorHandle,
+  translators: Translators,
+): void {
+  const target = mod as Record<string, unknown>;
+  const original = target[attr] as ShadowWrapped | undefined;
+  if (typeof original !== 'function') return;
+  if (original[_SHADOW_WRAPPED]) return;
+  if (handle.patches.some((p) => p.target === mod && p.attr === attr)) return;
+
+  handle.patches.push({ target: mod, attr, original: original as AnyFn });
+
+  const wrapped: ShadowWrapped = async function (
+    this: unknown,
+    ...args: unknown[]
+  ): Promise<unknown> {
+    const kwargs = (args[0] as Record<string, unknown> | undefined) ?? {};
+    const start = Date.now();
+    const result = await (original as AnyFn).apply(this, args);
+    const latencyMs = Date.now() - start;
+    try {
+      const req = translators.req(kwargs);
+      const resp = translators.resp(result, latencyMs);
+      session.recordChat(req, resp);
+    } catch {
+      /* never break the caller */
+    }
+    return result;
+  };
+  Object.defineProperty(wrapped, _SHADOW_WRAPPED, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+
+  // ESM live bindings are typically read-only via `Object.defineProperty`
+  // with `writable: false`. Try plain assignment first; on failure (ESM
+  // namespace is sealed), fall back to redefining the property
+  // descriptor with `configurable: true`.
+  try {
+    target[attr] = wrapped;
+  } catch {
+    try {
+      Object.defineProperty(target, attr, {
+        value: wrapped,
+        writable: true,
+        configurable: true,
+        enumerable: true,
+      });
+    } catch {
+      /* the binding is genuinely sealed; can't patch this module */
+    }
   }
 }
 
@@ -1028,3 +1124,130 @@ class AnthropicStreamAggregator implements StreamAggregator {
     };
   }
 }
+
+
+// ---------------------------------------------------------------------------
+// Vercel AI SDK translators (`ai` package: generateText / streamText / etc.)
+//
+// The Vercel AI SDK abstracts over OpenAI / Anthropic / Bedrock / xAI etc.
+// It accepts:
+//   { model: <provider model object>, messages: [...], prompt: "...",
+//     system: "...", tools: { name: { description, parameters } }, ... }
+// and returns:
+//   { text: "...", usage: { promptTokens, completionTokens, totalTokens },
+//     finishReason: "stop"|"tool-calls"|..., toolCalls: [...],
+//     response: { messages, modelId, ... } }
+//
+// streamText returns an object with `.textStream`, `.toUIMessageStream()`,
+// `.finishReason`, `.usage`, etc. — accessed AFTER the consumer has
+// awaited those promises. The simplest robust capture is post-hoc on
+// the returned object's `.text` (a Promise) + `.usage` (a Promise),
+// which we wait for in the wrapper before recording. For non-streaming
+// generateText / generateObject we read the resolved fields directly.
+// ---------------------------------------------------------------------------
+
+export const vercelAiTranslators: Translators = {
+  req: (kwargs) => {
+    const messages: Array<Record<string, unknown>> = [];
+    if (typeof kwargs.system === 'string' && kwargs.system) {
+      messages.push({ role: 'system', content: kwargs.system });
+    }
+    if (Array.isArray(kwargs.messages)) {
+      for (const m of kwargs.messages as Array<Record<string, unknown>>) {
+        messages.push({ ...m });
+      }
+    } else if (typeof kwargs.prompt === 'string' && kwargs.prompt) {
+      messages.push({ role: 'user', content: kwargs.prompt });
+    }
+    const params: Record<string, unknown> = {};
+    const copy = [
+      ['maxTokens', 'max_tokens'],
+      ['maxCompletionTokens', 'max_tokens'],
+      ['temperature', 'temperature'],
+      ['topP', 'top_p'],
+      ['stopSequences', 'stop'],
+    ] as const;
+    for (const [src, dst] of copy) {
+      if (src in kwargs && kwargs[src] !== undefined) params[dst] = kwargs[src];
+    }
+    // Model is a provider object — extract its id when present, else
+    // fall back to a string repr; never serialise the whole provider
+    // object (it carries client state and would blow up canonical-JSON).
+    let modelId = '';
+    const modelArg = kwargs.model;
+    if (typeof modelArg === 'string') {
+      modelId = modelArg;
+    } else if (modelArg && typeof modelArg === 'object') {
+      const candidate = (modelArg as Record<string, unknown>).modelId
+        ?? (modelArg as Record<string, unknown>).model
+        ?? (modelArg as Record<string, unknown>).id;
+      if (typeof candidate === 'string') modelId = candidate;
+    }
+    const out: Record<string, unknown> = {
+      model: modelId,
+      messages,
+      params,
+    };
+    // Vercel AI exposes tools as a record { name: { description, parameters } }.
+    // Translate to the OpenAI-style `[{ name, description, input_schema }]`
+    // shape for downstream uniformity.
+    const tools = kwargs.tools;
+    if (tools && typeof tools === 'object' && !Array.isArray(tools)) {
+      const shadowTools: Array<Record<string, unknown>> = [];
+      for (const [name, def] of Object.entries(tools as Record<string, Record<string, unknown>>)) {
+        shadowTools.push({
+          name,
+          description: def.description ?? '',
+          input_schema: def.parameters ?? def.inputSchema ?? {},
+        });
+      }
+      if (shadowTools.length > 0) out.tools = shadowTools;
+    }
+    return out;
+  },
+
+  resp: (result, latencyMs) => {
+    const r = (result ?? {}) as Record<string, unknown>;
+    const text = (r.text as string | undefined) ?? '';
+    const content: Array<Record<string, unknown>> = [];
+    if (text) content.push({ type: 'text', text });
+    const toolCalls = r.toolCalls as
+      | Array<{ toolCallId?: string; toolName?: string; args?: unknown; input?: unknown }>
+      | undefined;
+    if (Array.isArray(toolCalls)) {
+      for (const tc of toolCalls) {
+        content.push({
+          type: 'tool_use',
+          id: tc.toolCallId ?? '',
+          name: tc.toolName ?? '',
+          input: tc.args ?? tc.input ?? {},
+        });
+      }
+    }
+    const usage = (r.usage ?? {}) as Record<string, unknown>;
+    const stopReasonMap: Record<string, string> = {
+      stop: 'end_turn',
+      length: 'max_tokens',
+      'tool-calls': 'tool_use',
+      'content-filter': 'content_filter',
+      error: 'error',
+    };
+    const finish = (r.finishReason as string | undefined) ?? 'stop';
+    const stop_reason = stopReasonMap[finish] ?? finish;
+    const response = (r.response as Record<string, unknown> | undefined) ?? {};
+    const modelId = (response.modelId as string | undefined)
+      ?? (r.model as string | undefined)
+      ?? '';
+    return {
+      model: modelId,
+      content,
+      stop_reason,
+      latency_ms: latencyMs,
+      usage: {
+        input_tokens: Number(usage.promptTokens ?? usage.inputTokens ?? 0),
+        output_tokens: Number(usage.completionTokens ?? usage.outputTokens ?? 0),
+        thinking_tokens: Number(usage.reasoningTokens ?? 0),
+      },
+    };
+  },
+};
