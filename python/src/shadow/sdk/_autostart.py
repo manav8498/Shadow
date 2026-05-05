@@ -40,6 +40,7 @@ Session's instrumentor is a no-op and this still works.
 from __future__ import annotations
 
 import atexit
+import contextlib
 import os
 import sys
 
@@ -107,8 +108,59 @@ def _start_session_from_env() -> None:
                 file=sys.stderr,
             )
 
+        # LOUD-FAILURE check: under zero-config `shadow record`, if the
+        # session captured zero chat_request records, the user is in
+        # the silent-uninstrument trap that bit BrowserOS / Skyvern /
+        # OpenHands etc. — the agent ran successfully but no LLM calls
+        # were observed by the patcher. Surface this loudly to stderr
+        # so a CI run can't pass with a misleading "trace is empty
+        # but no error" result.
+        # Diagnostics never block — if introspection fails, the trace
+        # file itself remains the canonical surface.
+        with contextlib.suppress(Exception):
+            chat_requests = sum(1 for r in session._records if r.get("kind") == "chat_request")
+            if chat_requests == 0:
+                _emit_empty_capture_warning(out_path)
+
     atexit.register(_flush)
     _BOOTSTRAP_DONE = True
+
+
+def _emit_empty_capture_warning(out_path: str) -> None:
+    """Loud stderr warning when zero chat calls were captured.
+
+    Most likely causes (named explicitly so users can diagnose without
+    reading source):
+
+    1. The agent uses an SDK Shadow doesn't yet patch (e.g. a custom
+       HTTP client). Tell the user which SDKs we DO patch and where to
+       file a request.
+    2. The SDK is installed in a different venv than the one Shadow
+       hooked. The sitecustomize warning surfaces this case earlier
+       and is the more usual cause.
+    3. The agent imported and stored a bound-method reference to the
+       SDK call before our session entered. Recommend opening an
+       explicit ``Session`` around the call site (or filing a patch
+       request).
+    4. The agent didn't actually make any LLM calls. Possible — but
+       worth surfacing anyway.
+    """
+    with contextlib.suppress(Exception):  # pragma: no cover — stderr-write should never fail
+        sys.stderr.write(
+            "shadow: WARNING — zero LLM calls were captured.\n"
+            f"  Session output: {out_path}\n"
+            "  The agent ran to completion but no `chat_request` records\n"
+            "  were intercepted. Most common causes:\n"
+            "    * Agent uses an SDK Shadow doesn't yet auto-instrument.\n"
+            "      Currently patched: openai, anthropic, litellm, langchain_openai.\n"
+            "      File a request: https://github.com/manav8498/Shadow/issues\n"
+            "    * Agent SDK is installed in a different venv than Shadow.\n"
+            "      Fix:    `pip install shadow-diff` in the agent's venv.\n"
+            "    * Agent stored a bound-method reference before Session entered.\n"
+            "      Fix:    open an explicit `Session` around the call site\n"
+            "              instead of relying on `shadow record` zero-config.\n"
+            "    * Agent didn't actually make any LLM calls (rare).\n"
+        )
 
 
 def _tags_from_env() -> dict[str, str]:
