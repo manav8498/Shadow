@@ -141,14 +141,14 @@ def build_intro_card() -> Path:
     _centred_text(
         draw,
         xy=(960, 600),
-        text="Behavior testing for LLM agents,",
+        text="Find the exact change",
         font=sub_font,
         fill=SUBTITLE_RGB,
     )
     _centred_text(
         draw,
         xy=(960, 656),
-        text="in the pull request.",
+        text="that broke your AI agent.",
         font=sub_font,
         fill=SUBTITLE_RGB,
     )

@@ -1,12 +1,16 @@
-# Shadow launch video — vhs script (terminal-only portion)
+# Shadow launch video — vhs script (terminal-only portion, v3.1.1)
 # ─────────────────────────────────────────────────────────────────
 # Renders just the terminal content for the launch video. The
 # build script (`scripts/build_launch_video.py`) wraps this output
 # with intro / outro cards + ambient music + crossfades.
 #
-# Tighter than `demo-full.tape`: targets ~60-70s of terminal time
-# so the final composited video lands at ~75-85s — within the
-# X / LinkedIn sweet spot.
+# Story arc (~70-80s of terminal time):
+#   Beat 1 — shadow demo (free, no API key, the wow moment)
+#   Beat 2 — shadow diagnose-pr (the wedge — verdict + dominant cause + fix)
+#   Beat 3 — shadow verify-fix (closes the diagnose → fix → verify loop)
+#   Beat 4 — shadow inspect (terminal trace viewer — daily-debug surface)
+#   Beat 5 — shadow scan (secret leak gate — production hygiene)
+#   Beat 6 — shadow certify (signed release certificate)
 
 Output .github/assets/launch-raw.mp4
 Output .github/assets/launch-raw.gif
@@ -28,9 +32,11 @@ Set BorderRadius 14
 Hide
 Type "cd $(mktemp -d)"
 Enter
-Type "export PS1='\$ '"
+Type "cp -R /Users/manavpatel/Downloads/Shadow/examples/refund-causal-diagnosis/* ."
 Enter
-Type "shadow quickstart . > /dev/null 2>&1"
+Type "shadow quickstart qs > /dev/null 2>&1 || true"
+Enter
+Type "export PS1='\$ '"
 Enter
 Type "clear"
 Enter
@@ -38,8 +44,8 @@ Sleep 200ms
 Show
 
 # ─── Beat 1: shadow demo ────────────────────────────────────────
-Type@40ms "# 1. shadow demo — one command, no setup"
-Sleep 700ms
+Type@40ms "# 1. shadow demo — find the exact change that broke your AI agent"
+Sleep 800ms
 Enter
 Sleep 400ms
 Type "shadow demo"
@@ -47,73 +53,77 @@ Sleep 350ms
 Enter
 Sleep 6500ms
 
-# ─── Beat 2: shadow call ────────────────────────────────────────
+# ─── Beat 2: shadow diagnose-pr — THE wedge command ────────────
 Type "clear"
 Enter
-Type@40ms "# 2. shadow call — ship / hold / probe / stop in one panel"
-Sleep 700ms
+Type@40ms "# 2. shadow diagnose-pr — name the exact change that broke the refund agent"
+Sleep 800ms
 Enter
 Sleep 400ms
-Type "shadow call fixtures/baseline.agentlog fixtures/candidate.agentlog"
-Sleep 350ms
-Enter
-Sleep 6500ms
-
-# ─── Beat 3: shadow autopr ──────────────────────────────────────
-Type "clear"
-Enter
-Type@40ms "# 3. shadow autopr — pin the regression as a policy"
-Sleep 700ms
-Enter
-Sleep 400ms
-Type "shadow autopr fixtures/baseline.agentlog fixtures/candidate.agentlog -o policy.yaml"
+Type "shadow diagnose-pr --traces baseline_traces/ --candidate-traces candidate_traces/ --baseline-config baseline.yaml --candidate-config candidate.yaml --policy policy.yaml --backend mock --pr-comment comment.md --out report.json"
 Sleep 350ms
 Enter
 Sleep 4500ms
 
-# ─── Beat 4: shadow ledger ──────────────────────────────────────
+# Show the rendered PR comment — this is what lands on the developer's PR.
 Type "clear"
 Enter
-Type@40ms "# 4. shadow ledger — daily glance over recent artifacts"
-Sleep 700ms
-Enter
-Hide
-Type "shadow call fixtures/baseline.agentlog fixtures/candidate.agentlog --log > /dev/null 2>&1"
-Enter
-Sleep 600ms
-Show
-Type "shadow ledger"
+Type "cat comment.md"
 Sleep 350ms
 Enter
-Sleep 5500ms
+Sleep 8500ms
 
-# ─── Beat 5: shadow trail ──────────────────────────────────────
+# ─── Beat 3: shadow verify-fix — closes the loop ───────────────
 Type "clear"
 Enter
-Type@40ms "# 5. shadow trail — walk back through the artifact graph"
-Sleep 700ms
+Type@40ms "# 3. shadow verify-fix — confirm the fix without collateral damage"
+Sleep 800ms
 Enter
 Sleep 400ms
-Type "shadow trail a6569f69"
+Type "shadow verify-fix --report report.json --traces baseline_traces --fixed-traces baseline_traces --policy policy.yaml --out verify.json"
+Sleep 350ms
+Enter
+Sleep 5000ms
+
+# ─── Beat 4: shadow inspect — daily-debug surface ──────────────
+Type "clear"
+Enter
+Type@40ms "# 4. shadow inspect — terminal trace viewer (pytest -v for agents)"
+Sleep 800ms
+Enter
+Sleep 400ms
+Type "shadow inspect qs/fixtures/baseline.agentlog qs/fixtures/candidate.agentlog"
+Sleep 350ms
+Enter
+Sleep 6500ms
+
+# ─── Beat 5: shadow scan — production hygiene ──────────────────
+Type "clear"
+Enter
+Type@40ms "# 5. shadow scan — block secret leaks before they hit your repo"
+Sleep 800ms
+Enter
+Sleep 400ms
+Type "shadow scan baseline_traces/ candidate_traces/"
 Sleep 350ms
 Enter
 Sleep 5500ms
 
-# ─── Beat 6: shadow certify ────────────────────────────────────
+# ─── Beat 6: shadow certify — signed release certificate ──────
 Type "clear"
 Enter
 Type@40ms "# 6. shadow certify — signed release certificate"
-Sleep 700ms
+Sleep 800ms
 Enter
 Sleep 400ms
-Type "shadow certify fixtures/candidate.agentlog --agent-id refund-agent@2.3.0 -o release.cert.json"
+Type "shadow certify baseline_traces/s1.agentlog --agent-id refund-agent@3.1.1 --output release.cert.json"
 Sleep 350ms
 Enter
 Sleep 4000ms
 Type "shadow verify-cert release.cert.json"
 Sleep 350ms
 Enter
-Sleep 3500ms
+Sleep 4000ms
 
 # ─── Hold final frame for transition ───────────────────────────
-Sleep 1000ms
+Sleep 1500ms
