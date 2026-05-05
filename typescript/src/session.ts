@@ -209,6 +209,20 @@ export class Session {
       : null;
   }
 
+  /**
+   * Counts of captured records by kind. Used by the auto entrypoint
+   * to emit a loud zero-capture warning at session exit.
+   */
+  recordStats(): { total: number; chatRequests: number; chatResponses: number } {
+    let chatRequests = 0;
+    let chatResponses = 0;
+    for (const r of this.records) {
+      if (r.kind === 'chat_request') chatRequests++;
+      else if (r.kind === 'chat_response') chatResponses++;
+    }
+    return { total: this.records.length, chatRequests, chatResponses };
+  }
+
   private redact<T>(value: T): T {
     if (this.redactor === null) return value;
     return this.redactor.redactValue(value);

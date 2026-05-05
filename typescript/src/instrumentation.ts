@@ -129,70 +129,223 @@ async function tryPatchOpenAIResponses(
 }
 
 /**
- * Patch the Vercel AI SDK's top-level functions: `generateText`,
- * `streamText`, `generateObject`, `streamObject`.
+ * Patch the Vercel AI SDK at the LanguageModelV3 prototype layer.
  *
- * Vercel AI is a higher-level wrapper that abstracts over OpenAI /
- * Anthropic / Bedrock / xAI and several others — used by BrowserOS
- * and many Next.js / serverless agents. Direct OpenAI patching
- * doesn't catch it because the calls go through `@ai-sdk/openai`'s
- * internal HTTP client, not through the `openai` package.
+ * v3.1 — earlier (broken) approach:
+ *   The pre-v3.1 implementation tried to rebind `generateText` /
+ *   `streamText` / `generateObject` / `streamObject` on the `ai`
+ *   module namespace. That fails on real `ai` v6: the package ships
+ *   ESM with read-only export bindings, so the assignment silently
+ *   no-ops. User code that imported `generateText` before our patch
+ *   ran (which is every consumer, since auto-instrument runs at Node
+ *   startup before user imports) keeps a reference to the original
+ *   function, and the wrap never takes effect. Customer evidence:
+ *   `wrapped: false` on the module's `generateText` after auto-
+ *   instrument; metadata-only traces from BrowserOS + direct
+ *   `ai.generateText({ model: openai(...), prompt })` calls.
  *
- * We patch each function as a module export. Since the Vercel AI SDK
- * exports these as `const`, we can re-bind them on the module
- * namespace object (live binding for ESM, plain assignment for CJS).
+ * v3.1 — current (working) approach:
+ *   `generateText` and `streamText` ALWAYS internally call
+ *   `model.doGenerate(...)` / `model.doStream(...)` on the
+ *   LanguageModelV3 instance the user passed as `model`. So the
+ *   robust interception point is the prototype's `doGenerate` /
+ *   `doStream` methods, NOT the module export.
  *
- * Result shape (from `await generateText({...})`):
- *   { text, usage: { promptTokens, completionTokens, totalTokens },
- *     finishReason, toolCalls, response: { messages, modelId, ... } }
+ *   For each known `@ai-sdk/<provider>` package, we sentinel-
+ *   instantiate ONE model from each sub-factory (`.chat()`,
+ *   `.responses()`, `.completion()`, `.languageModel()`, plus the
+ *   provider's bare callable form). The first instance gives us the
+ *   prototype object via `Object.getPrototypeOf(model)`; we then
+ *   patch `doGenerate` / `doStream` on that prototype. All
+ *   subsequent user-created instances of the same class share the
+ *   same prototype, so they're auto-wrapped the moment the user
+ *   calls `openai('gpt-4o')`.
+ *
+ *   Sentinel instantiation never makes a network call (model
+ *   construction in v6 is purely synthetic — it reads a model id
+ *   string and stores config). doGenerate is what would call the
+ *   API; we never trigger it.
  */
 async function tryPatchVercelAi(
   session: Session,
   handle: InstrumentorHandle,
 ): Promise<void> {
-  const candidates = await loadModuleBothWays('ai');
-  for (const mod of candidates) {
-    if (mod === null || mod === undefined || typeof mod !== 'object') continue;
-    for (const fnName of ['generateText', 'streamText', 'generateObject', 'streamObject']) {
-      patchModuleFn(session, mod, fnName, handle, vercelAiTranslators);
+  // Track patched prototypes so we never double-wrap when multiple
+  // provider packages share a common base class.
+  const patchedProtos = new WeakSet<object>();
+
+  // Known provider packages that ship a LanguageModelV3 implementation.
+  // Adding a new provider is a one-line append here — the prototype
+  // patching is per-provider but provider-agnostic in shape.
+  const providerPkgs = [
+    '@ai-sdk/openai',
+    '@ai-sdk/anthropic',
+    '@ai-sdk/google',
+    '@ai-sdk/google-vertex',
+    '@ai-sdk/bedrock',
+    '@ai-sdk/groq',
+    '@ai-sdk/mistral',
+    '@ai-sdk/cohere',
+    '@ai-sdk/xai',
+    '@ai-sdk/togetherai',
+    '@ai-sdk/perplexity',
+    '@ai-sdk/fireworks',
+    '@ai-sdk/deepinfra',
+    '@ai-sdk/cerebras',
+    '@ai-sdk/replicate',
+    '@ai-sdk/openai-compatible',
+  ];
+
+  for (const pkg of providerPkgs) {
+    const candidates = await loadModuleBothWays(pkg);
+    for (const mod of candidates) {
+      if (mod === null || mod === undefined) continue;
+      patchProviderPrototypes(mod, session, handle, patchedProtos);
     }
   }
 }
 
 /**
- * Re-bind a top-level module function (ESM live binding or CJS export)
- * to a wrapped variant that records the underlying call. Skips when
- * the module entry isn't a function or has already been wrapped.
+ * Walk the provider module's exports, sentinel-instantiate model
+ * objects from every recognised factory, and patch the prototypes'
+ * `doGenerate` / `doStream` methods.
+ *
+ * Each provider exports a callable factory (e.g. `openai`) that's
+ * also an object with sub-properties `.chat()`, `.responses()`, etc.
+ * The bare call and the sub-factories may return different concrete
+ * model classes (chat vs completion vs responses), so each gets its
+ * own sentinel + prototype patch.
  */
-function patchModuleFn(
+function patchProviderPrototypes(
+  mod: unknown,
   session: Session,
-  mod: object,
-  attr: string,
   handle: InstrumentorHandle,
-  translators: Translators,
+  patchedProtos: WeakSet<object>,
 ): void {
-  const target = mod as Record<string, unknown>;
-  const original = target[attr] as ShadowWrapped | undefined;
+  // The provider object is found at one of: a default export, a named
+  // export matching the provider name, or the module itself (when the
+  // module's namespace IS the provider).
+  const seen = new Set<unknown>();
+  const candidates: unknown[] = [];
+  const namespaceObj = mod as Record<string, unknown>;
+  for (const v of Object.values(namespaceObj)) {
+    if (v && (typeof v === 'function' || typeof v === 'object')) candidates.push(v);
+  }
+  // The module itself can BE callable (CJS shim).
+  if (typeof mod === 'function') candidates.push(mod);
+
+  for (const provider of candidates) {
+    if (!provider || seen.has(provider)) continue;
+    seen.add(provider);
+
+    // The bare callable form: `openai('gpt-4o')` returns a chat model.
+    if (typeof provider === 'function') {
+      sentinelPatch(provider as AnyFn, undefined, session, handle, patchedProtos);
+    }
+
+    // Sub-factories that v6 providers consistently expose.
+    const subFactories = [
+      'chat',
+      'responses',
+      'completion',
+      'languageModel',
+      // Image / embedding / speech / transcription factories also exist
+      // but they don't implement doGenerate/doStream, so skipping.
+    ];
+    if (typeof provider === 'object' || typeof provider === 'function') {
+      for (const sub of subFactories) {
+        const fn = (provider as Record<string, unknown>)[sub];
+        if (typeof fn === 'function') {
+          sentinelPatch(fn as AnyFn, provider, session, handle, patchedProtos);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Call ``factory(sentinelId)`` to materialise one model instance,
+ * extract its prototype, and patch ``doGenerate`` / ``doStream`` on
+ * that prototype. Subsequent user-created instances of the same
+ * class share the prototype, so they're caught automatically.
+ *
+ * Sentinel construction never makes a network call — model
+ * constructors only stash config; the API call happens inside
+ * ``doGenerate``. Failures are silently skipped so an exotic
+ * factory shape doesn't break the whole instrumentor.
+ */
+function sentinelPatch(
+  factory: AnyFn,
+  thisArg: unknown,
+  session: Session,
+  handle: InstrumentorHandle,
+  patchedProtos: WeakSet<object>,
+): void {
+  const sentinelArgs = [['__shadow_sentinel__']];
+  // Some factories accept (modelId, settings); some accept (modelId).
+  // Try the simplest form first; if it throws we silently skip.
+  for (const args of sentinelArgs) {
+    let model: unknown;
+    try {
+      model = factory.apply(thisArg, args);
+    } catch {
+      continue;
+    }
+    if (!model || typeof model !== 'object') continue;
+    const proto = Object.getPrototypeOf(model);
+    if (!proto || patchedProtos.has(proto)) return;
+    patchedProtos.add(proto);
+    patchProtoMethod(proto, 'doGenerate', session, handle);
+    patchProtoMethod(proto, 'doStream', session, handle);
+    return;
+  }
+}
+
+/**
+ * Wrap ``proto[methodName]`` so that every call records a chat pair
+ * via the active session. The original method is preserved on the
+ * patches list for clean uninstall.
+ *
+ * The wrapper translates the LanguageModelV3 input (``options``)
+ * + result to Shadow ``chat_request`` / ``chat_response`` records.
+ * Streaming results return an object with ``stream`` + various
+ * promises (``finishReason``, ``usage``, ``text``); we await those
+ * AFTER the user has consumed them by introducing a tap over the
+ * stream — see ``wrapVercelStreamResult``.
+ */
+function patchProtoMethod(
+  proto: object,
+  methodName: 'doGenerate' | 'doStream',
+  session: Session,
+  handle: InstrumentorHandle,
+): void {
+  const target = proto as Record<string, unknown>;
+  const original = target[methodName] as ShadowWrapped | undefined;
   if (typeof original !== 'function') return;
   if (original[_SHADOW_WRAPPED]) return;
-  if (handle.patches.some((p) => p.target === mod && p.attr === attr)) return;
 
-  handle.patches.push({ target: mod, attr, original: original as AnyFn });
+  handle.patches.push({ target: proto, attr: methodName, original: original as AnyFn });
 
   const wrapped: ShadowWrapped = async function (
-    this: unknown,
-    ...args: unknown[]
+    this: any,
+    options: any,
   ): Promise<unknown> {
-    const kwargs = (args[0] as Record<string, unknown> | undefined) ?? {};
     const start = Date.now();
-    const result = await (original as AnyFn).apply(this, args);
+    const result = await (original as AnyFn).call(this, options);
     const latencyMs = Date.now() - start;
     try {
-      const req = translators.req(kwargs);
-      const resp = translators.resp(result, latencyMs);
-      session.recordChat(req, resp);
+      if (methodName === 'doGenerate') {
+        const req = vercelDoGenerateOptionsToReq(options, this);
+        const resp = vercelDoGenerateResultToResp(result, latencyMs, this);
+        session.recordChat(req, resp);
+      } else {
+        // doStream: result has { stream, ... }. Wrap the stream so we
+        // can record after the consumer has drained it. The
+        // recording happens once on stream end via a tap.
+        return wrapVercelStreamResult(result, options, this, session, latencyMs, start);
+      }
     } catch {
-      /* never break the caller */
+      /* recording must never break the caller */
     }
     return result;
   };
@@ -203,24 +356,7 @@ function patchModuleFn(
     writable: false,
   });
 
-  // ESM live bindings are typically read-only via `Object.defineProperty`
-  // with `writable: false`. Try plain assignment first; on failure (ESM
-  // namespace is sealed), fall back to redefining the property
-  // descriptor with `configurable: true`.
-  try {
-    target[attr] = wrapped;
-  } catch {
-    try {
-      Object.defineProperty(target, attr, {
-        value: wrapped,
-        writable: true,
-        configurable: true,
-        enumerable: true,
-      });
-    } catch {
-      /* the binding is genuinely sealed; can't patch this module */
-    }
-  }
+  target[methodName] = wrapped;
 }
 
 async function tryPatchAnthropic(
@@ -1251,3 +1387,268 @@ export const vercelAiTranslators: Translators = {
     };
   },
 };
+
+
+// ---------------------------------------------------------------------------
+// Vercel AI LanguageModelV3 protocol translators (the prototype-level path).
+//
+// `doGenerate(options)` → result shape — different from the user-facing
+// `generateText` shape that `vercelAiTranslators` above handles.
+//
+// `options` (LanguageModelV3CallOptions):
+//   { prompt: [{ role, content }],          // role-tagged messages
+//     maxOutputTokens, temperature, topP, topK,
+//     frequencyPenalty, presencePenalty, stopSequences, responseFormat,
+//     seed, tools: [{ type: 'function', name, parameters, ... }],
+//     toolChoice, providerOptions, abortSignal, headers }
+//
+// `result` (LanguageModelV3CallResult):
+//   { content: [{ type: 'text', text }
+//             | { type: 'tool-call', toolCallId, toolName, input }
+//             | { type: 'reasoning', text }],
+//     finishReason: { unified, raw },        // unified ∈ stop|tool-calls|...
+//     usage: { inputTokens: { total, ... }, outputTokens: { total, text, reasoning } },
+//     request: { body },
+//     response: { id, modelId, timestamp, headers, body },
+//     warnings, providerMetadata }
+//
+// The `this` instance carries `modelId` and `provider` (a string label).
+// ---------------------------------------------------------------------------
+
+export function vercelDoGenerateOptionsToReq(
+  options: any,
+  model: any,
+): Record<string, unknown> {
+  const messages: Array<Record<string, unknown>> = [];
+  const prompt = options?.prompt;
+  if (Array.isArray(prompt)) {
+    // Each entry is { role: 'system'|'user'|'assistant'|'tool', content: string|Array }
+    for (const m of prompt) {
+      if (!m || typeof m !== 'object') continue;
+      const role = (m as Record<string, unknown>).role;
+      const content = (m as Record<string, unknown>).content;
+      if (typeof role === 'string') {
+        messages.push({ role, content: content ?? '' });
+      }
+    }
+  }
+  const params: Record<string, unknown> = {};
+  const map = [
+    ['maxOutputTokens', 'max_tokens'],
+    ['temperature', 'temperature'],
+    ['topP', 'top_p'],
+    ['topK', 'top_k'],
+    ['frequencyPenalty', 'frequency_penalty'],
+    ['presencePenalty', 'presence_penalty'],
+    ['stopSequences', 'stop'],
+    ['seed', 'seed'],
+  ] as const;
+  for (const [src, dst] of map) {
+    const v = options?.[src];
+    if (v !== undefined && v !== null) params[dst] = v;
+  }
+
+  const out: Record<string, unknown> = {
+    model: typeof model?.modelId === 'string' ? model.modelId : '',
+    messages,
+    params,
+  };
+
+  // LanguageModelV3 tools are an array of {type: 'function', name, parameters, ...}.
+  const tools = options?.tools;
+  if (Array.isArray(tools) && tools.length > 0) {
+    const shadowTools: Array<Record<string, unknown>> = [];
+    for (const t of tools) {
+      if (!t || typeof t !== 'object') continue;
+      const tt = t as Record<string, unknown>;
+      shadowTools.push({
+        name: typeof tt.name === 'string' ? tt.name : '',
+        description: typeof tt.description === 'string' ? tt.description : '',
+        input_schema: tt.parameters ?? tt.inputSchema ?? {},
+      });
+    }
+    if (shadowTools.length > 0) out.tools = shadowTools;
+  }
+  return out;
+}
+
+export function vercelDoGenerateResultToResp(
+  result: any,
+  latencyMs: number,
+  model: any,
+): Record<string, unknown> {
+  const content: Array<Record<string, unknown>> = [];
+  const items = result?.content;
+  if (Array.isArray(items)) {
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const it = item as Record<string, unknown>;
+      const ttype = it.type;
+      if (ttype === 'text') {
+        content.push({ type: 'text', text: typeof it.text === 'string' ? it.text : '' });
+      } else if (ttype === 'tool-call') {
+        // Vercel emits `input` as a JSON string in v6; downstream
+        // policy rules expect a parsed dict.
+        let parsedInput: unknown = it.input ?? it.args ?? {};
+        if (typeof parsedInput === 'string') {
+          try {
+            parsedInput = JSON.parse(parsedInput);
+          } catch {
+            parsedInput = { _raw: parsedInput };
+          }
+        }
+        content.push({
+          type: 'tool_use',
+          id: typeof it.toolCallId === 'string' ? it.toolCallId : '',
+          name: typeof it.toolName === 'string' ? it.toolName : '',
+          input: parsedInput,
+        });
+      } else if (ttype === 'reasoning') {
+        content.push({
+          type: 'thinking',
+          text: typeof it.text === 'string' ? it.text : '',
+        });
+      }
+      // Other types (source, file, etc.) drop silently — they aren't
+      // first-class chat-response parts in the Shadow envelope.
+    }
+  }
+
+  // Finish reason: v6 wraps it as { unified, raw }.
+  const finish = result?.finishReason;
+  let unified: string;
+  if (typeof finish === 'string') {
+    unified = finish;
+  } else if (finish && typeof finish === 'object') {
+    unified = (finish as Record<string, unknown>).unified as string ?? 'stop';
+  } else {
+    unified = 'stop';
+  }
+  const stopReasonMap: Record<string, string> = {
+    stop: 'end_turn',
+    length: 'max_tokens',
+    'tool-calls': 'tool_use',
+    'content-filter': 'content_filter',
+    error: 'error',
+  };
+  const stop_reason = stopReasonMap[unified] ?? unified;
+
+  // Usage: v6 nests as { inputTokens: { total }, outputTokens: { total, reasoning } }.
+  const usage = result?.usage ?? {};
+  const inputTokens = Number(
+    (usage.inputTokens?.total ?? usage.inputTokens ?? usage.promptTokens ?? 0) || 0,
+  );
+  const outputTokens = Number(
+    (usage.outputTokens?.total ?? usage.outputTokens ?? usage.completionTokens ?? 0) || 0,
+  );
+  const reasoningTokens = Number(
+    (usage.outputTokens?.reasoning ?? usage.reasoningTokens ?? 0) || 0,
+  );
+
+  // Response model id may be on the result.response or on the model.
+  const responseModelId =
+    (result?.response?.modelId as string | undefined) ??
+    (typeof model?.modelId === 'string' ? model.modelId : '');
+
+  return {
+    model: responseModelId,
+    content,
+    stop_reason,
+    latency_ms: latencyMs,
+    usage: {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      thinking_tokens: reasoningTokens,
+    },
+  };
+}
+
+/**
+ * Wrap the result of `doStream(options)` so we record after the
+ * caller has finished consuming the stream.
+ *
+ * v6 doStream returns { stream: ReadableStream<...>, request, response, ... }.
+ * The stream emits chunks of various types and a final 'finish' chunk
+ * carrying finishReason + usage. We tap the stream by replacing it
+ * with a teeed copy that accumulates chunks and emits a single
+ * chat_response record once the stream ends.
+ */
+function wrapVercelStreamResult(
+  result: any,
+  options: any,
+  model: any,
+  session: Session,
+  latencyMs: number,
+  start: number,
+): unknown {
+  const original = result?.stream;
+  // If the result doesn't look like a doStream result, return unchanged.
+  if (!original || typeof original.tee !== 'function') return result;
+  const [forwarded, captured] = (original as ReadableStream).tee();
+
+  // Accumulate captured chunks asynchronously without blocking the
+  // caller. Emit the chat_response once the stream ends.
+  void (async () => {
+    try {
+      const reader = (captured as ReadableStream).getReader();
+      const buffered: any[] = [];
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffered.push(value);
+      }
+      const finishChunk = buffered.find(
+        (c) => c && typeof c === 'object' && c.type === 'finish',
+      );
+      const textParts: string[] = [];
+      const toolUses: Array<Record<string, unknown>> = [];
+      let thinking = '';
+      for (const c of buffered) {
+        if (!c || typeof c !== 'object') continue;
+        if (c.type === 'text-delta' && typeof c.delta === 'string') {
+          textParts.push(c.delta);
+        } else if (c.type === 'reasoning-delta' && typeof c.delta === 'string') {
+          thinking += c.delta;
+        } else if (c.type === 'tool-call') {
+          let parsedInput: unknown = c.input ?? {};
+          if (typeof parsedInput === 'string') {
+            try {
+              parsedInput = JSON.parse(parsedInput);
+            } catch {
+              parsedInput = { _raw: parsedInput };
+            }
+          }
+          toolUses.push({
+            type: 'tool_use',
+            id: c.toolCallId ?? '',
+            name: c.toolName ?? '',
+            input: parsedInput,
+          });
+        }
+      }
+      const synthetic: any = {
+        content: [
+          ...(textParts.length > 0 ? [{ type: 'text', text: textParts.join('') }] : []),
+          ...(thinking ? [{ type: 'reasoning', text: thinking }] : []),
+          ...toolUses.map((tu) => ({
+            type: 'tool-call',
+            toolCallId: tu.id,
+            toolName: tu.name,
+            input: tu.input,
+          })),
+        ],
+        finishReason: finishChunk?.finishReason ?? 'stop',
+        usage: finishChunk?.usage ?? {},
+        response: { modelId: model?.modelId ?? '' },
+      };
+      const totalLatency = Date.now() - start;
+      const req = vercelDoGenerateOptionsToReq(options, model);
+      const resp = vercelDoGenerateResultToResp(synthetic, totalLatency, model);
+      session.recordChat(req, resp);
+    } catch {
+      /* recording failures must never propagate */
+    }
+  })();
+
+  return { ...result, stream: forwarded };
+}
