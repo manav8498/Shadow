@@ -318,7 +318,7 @@ def test_empty_capture_warning_silent_when_calls_were_captured(tmp_path: Path) -
     # request/response payload literals don't trigger E501. The script
     # is launched as a subprocess by the test below.
     script.write_text(
-        '''
+        """
 from shadow.sdk import Session
 from shadow.sdk._autostart import _BOOTSTRAP_DONE
 import tempfile
@@ -347,7 +347,7 @@ with tempfile.NamedTemporaryFile(suffix=".agentlog") as t:
     )
     s.__exit__(None, None, None)
 print("done")
-'''
+"""
     )
     out = tmp_path / "trace.agentlog"
     proc = subprocess.run(
