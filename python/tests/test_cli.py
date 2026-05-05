@@ -615,3 +615,75 @@ def test_init_github_action_pins_to_current_major(tmp_path: Path) -> None:
     # And the placeholder substitution must not have leaked.
     assert "{MAJOR}" not in workflow
     assert "{NEXT_MAJOR}" not in workflow
+
+
+# ---- --version / -V flags (root callback, v3.1.1) -------------------------
+
+
+def test_root_version_flag_long_form() -> None:
+    """`shadow --version` prints the SemVer + spec version and exits 0.
+
+    Standard CLI convention. Pre-v3.1.1 only `shadow version` (the
+    subcommand) worked; users who typed the conventional `--version`
+    flag got a "No such command" error from typer's
+    no_args_is_help-style fallback. The root callback now wires
+    the flag explicitly with `is_eager=True`."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "shadow.cli.app", "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "shadow" in result.stdout.lower()
+    assert "3." in result.stdout  # major version present
+
+
+def test_root_version_flag_short_form() -> None:
+    """`shadow -V` is the short alias and produces the same output."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "shadow.cli.app", "-V"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "shadow" in result.stdout.lower()
+
+
+def test_version_subcommand_still_works() -> None:
+    """`shadow version` (the existing subcommand) keeps working —
+    this is what `docs/reference/cli.md` documents."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "shadow.cli.app", "version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert "shadow" in result.stdout.lower()
+
+
+def test_root_version_does_not_break_subcommands() -> None:
+    """A regular subcommand (no --version flag) must still resolve."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "shadow.cli.app", "demo"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    # demo should produce some output and exit 0.
+    assert result.returncode == 0, result.stderr
+    assert "shadow" in result.stdout.lower() or "diff" in result.stdout.lower()
