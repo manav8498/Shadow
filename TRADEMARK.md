@@ -1,9 +1,9 @@
 # Trademark policy
 
 The name **"Shadow"** and any associated logos are **not** covered by
-the MIT or Apache-2.0 licenses that govern the source code. The licenses
-grant you freedom to use, modify, and redistribute the *code*, they do
-not grant you permission to use the *name* in a way that could confuse
+the Apache-2.0 license that governs the source code. The license grants
+you freedom to use, modify, and redistribute the *code*; it does not
+grant you permission to use the *name* in a way that could confuse
 users about origin or endorsement.
 
 ## You can

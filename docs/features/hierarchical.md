@@ -124,7 +124,7 @@ Policy diff, 0 baseline violation(s), 2 candidate violation(s)
     ✗ [critical] backup-before-migrate @ turn #0: `backup_database` must be called before `run_migration`
 ```
 
-### All 8 supported rule kinds
+### All 12 supported rule kinds
 
 | Kind | Params | Checks |
 |---|---|---|
@@ -136,5 +136,11 @@ Policy diff, 0 baseline violation(s), 2 candidate violation(s)
 | `max_total_tokens` | `limit` (int) | total input+output+thinking tokens ≤ `limit` |
 | `must_include_text` | `text` | at least one response body contains `text` |
 | `forbidden_text` | `text` | no response body contains `text` |
+| `must_match_json_schema` | `schema` (inline) or `schema_path` | every response's text content parses as JSON and validates against the schema |
+| `must_remain_consistent` | `path` (dotted) | once a value is observed at `path`, every later pair must equal it |
+| `must_followup` | `trigger` (conditions), `must` (`tool_call` or `text_includes`) | when `trigger` holds in pair N, pair N+1 must satisfy `must` |
+| `must_be_grounded` | `retrieval_path`, `min_unigram_precision` | response must overlap meaningfully with retrieved chunks at `retrieval_path` |
+
+See [Behavior policy](policy.md) for the full reference, including conditional `when:` gating, scope (`trace` / `session`), and severity → `--fail-on` mapping.
 
 Programmatic: `shadow.hierarchical.policy_diff(baseline, candidate, rules)`.

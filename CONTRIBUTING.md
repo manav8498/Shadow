@@ -215,12 +215,18 @@ Touching `SPEC.md` is a bigger deal than touching code. Rules:
 ### API stability: SemVer commitment
 
 Shadow follows [Semantic Versioning 2.0.0](https://semver.org/) starting
-at v2.5.0. The public API in v2.x is stable: **no breaking changes
-within a major version**. A future v3.0.0 may rework public API; until
-then, anything documented in the public surface (CLI commands listed
-in `shadow --help`, importable symbols in `shadow.<module>`,
-`.agentlog` format §3-§4 of `SPEC.md`, ABOM certificate fields)
-remains backward-compatible.
+at v2.5.0. The public API within a major version is stable: **no
+breaking changes within a major version**. Anything documented in the
+public surface (CLI commands listed in `shadow --help`, importable
+symbols in `shadow.<module>`, `.agentlog` format §3-§4 of `SPEC.md`,
+ABOM certificate fields) remains backward-compatible across minor and
+patch releases.
+
+Shadow is currently on the v3.x line — see `SECURITY.md` and the
+v3.0.0 entry in `CHANGELOG.md` for the breaking changes that landed
+when the major bumped (chiefly `causal_attribution` requiring explicit
+`confounder_weights`). Subsequent v3.x.y releases preserve that
+contract.
 
 What "breaking" means in practice:
 

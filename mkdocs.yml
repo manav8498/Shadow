@@ -1,5 +1,5 @@
 site_name: Shadow
-site_description: Behavior testing for LLM agents, in the pull request
+site_description: Find the exact change that broke your AI agent. CI-native regression forensics with causal attribution, bootstrap CI, and a verified-fix loop.
 site_url: https://manav8498.github.io/Shadow/
 repo_url: https://github.com/manav8498/Shadow
 repo_name: manav8498/Shadow
@@ -58,28 +58,40 @@ nav:
       - Record your own agent: quickstart/record.md
       - Wire into CI: quickstart/ci.md
   - Features:
+      - Causal PR diagnosis: features/causal-pr-diagnosis.md
       - Nine-axis diff: features/nine-axis.md
+      - Causal bisection: features/bisect.md
       - Hierarchical diff: features/hierarchical.md
       - Behavior policy: features/policy.md
       - Runtime enforcement: features/runtime-enforcement.md
       - Release certificate: features/certificate.md
-      - Causal bisection: features/bisect.md
       - Judges: features/judges.md
       - Schema watch: features/schema-watch.md
       - Cost attribution: features/cost-attribution.md
       - Framework adapters: features/adapters.md
       - Sandboxed replay: features/sandboxed-replay.md
+      - Streaming replay: features/streaming-replay.md
+      - Multimodal diff: features/multimodal-diff.md
+      - Harness events: features/harness-events.md
+      - Trace alignment library: features/align-library.md
+      - OpenTelemetry bridge: features/otel-bridge.md
       - MCP importer: features/mcp.md
       - MCP server: features/mcp-server.md
       - MCP-native replay: features/mcp-replay.md
-      - Streaming replay: features/streaming-replay.md
-      - Harness events: features/harness-events.md
-      - Multimodal diff: features/multimodal-diff.md
+  - Theory:
+      - Overview: theory/README.md
+      - Causal attribution: theory/causal.md
+      - Conformal prediction: theory/conformal.md
+      - Hotelling T²: theory/hotelling.md
+      - LTLf model checking: theory/ltl.md
+      - SPRT and mSPRT: theory/sprt.md
   - Reference:
       - CLI: reference/cli.md
       - agentlog format: reference/agentlog.md
       - Pricing table: reference/pricing.md
       - Sample PR comment: sample-pr-comment.md
+      - Lexicon: lexicon.md
+      - Comparison vs other tools: comparison.md
   - Security and supply chain:
       - Production-readiness brief: security/production-readiness.md
       - Security policy: security.md

@@ -57,7 +57,7 @@ These features live only in the Python distribution:
 
    ```yaml
    # .github/workflows/shadow.yml
-   - run: pip install shadow-diff==3.0.4
+   - run: pip install --upgrade shadow-diff
    - run: shadow diff fixtures/baseline.agentlog new.agentlog
    ```
 

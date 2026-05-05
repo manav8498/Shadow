@@ -10,6 +10,69 @@ End of the strategic-pivot 8-phase roadmap. Phases 1–8 are landed
 + stress-tested + cross-language paired. Final v0.2 wrap-up adds
 the remaining deferred items.
 
+### Added (auto-instrumentation gap fixes)
+
+Customer report: `shadow record` worked for direct `openai` /
+`anthropic` SDK callers but produced metadata-only or empty traces
+against six real agent frameworks (mini-SWE, OpenHands, Skyvern,
+GPT Researcher, BrowserOS, direct LangChain `ChatOpenAI`). Closed
+the seven gaps that bit them.
+
+* **LiteLLM auto-instrumentation.** Patch `litellm.completion` /
+  `acompletion` / `text_completion` / `atext_completion` as module
+  attributes. Used by mini-SWE-agent, OpenHands, Skyvern, and many
+  other agent frameworks. LiteLLM's `ModelResponse` is OpenAI-shape
+  compatible so the existing response translator applies; the
+  request-side strips routing kwargs (`api_key`, `api_base`,
+  `custom_llm_provider`, `metadata`, etc.) so they don't leak into
+  the trace payload.
+* **LangChain `ChatOpenAI` auto-instrumentation.** Patch
+  `langchain_openai.chat_models.base.BaseChatOpenAI._generate` /
+  `_agenerate`. Direct OpenAI patching missed LangChain because it
+  captures bound-method references at import time, before the
+  Session enters; patching at the LangChain layer sidesteps that.
+* **LangChain async streaming compatibility.** Stream wrappers now
+  return a proxy class that preserves both `async for` (iteration)
+  and `async with` (context manager) interfaces of the underlying
+  stream — fixes the
+  `TypeError: 'async_generator' object does not support the
+  asynchronous context manager protocol` regression that broke
+  GPT Researcher under `shadow record`.
+* **Vercel AI SDK auto-instrumentation (TypeScript).** Patch the
+  `ai` package's `generateText`, `streamText`, `generateObject`,
+  `streamObject` exports. The wrapper extracts the model id from
+  the provider-model object (so secrets in the model object don't
+  leak into traces) and translates the Vercel `tools: { name: ... }`
+  shape to the OpenAI-style `[{ name, description, input_schema }]`
+  array. Used by BrowserOS-style agents.
+* **Bun auto-instrumentation.** `shadow record -- bun ...` now
+  inserts `--preload shadow-diff/auto` into argv (Bun's equivalent
+  of Node's `--import`). `bunx` is also detected. The TS auto
+  entrypoint reads the same `SHADOW_SESSION_OUTPUT` env so the
+  same Session machinery handles both runtimes.
+* **Loud failure when target venv lacks `shadow-diff`.**
+  `sitecustomize.py` previously suppressed `ImportError` silently
+  when the agent's venv didn't have `shadow-diff` installed — agents
+  ran completely uninstrumented and the user thought they had
+  recording. Now: emit a loud stderr warning naming the cause + fix,
+  and write a metadata-only stub trace at the output path so the
+  artifact isn't missing. Works on Python 3.9+ target venvs (uses
+  `timezone.utc`, not the 3.11+ `datetime.UTC` alias).
+* **Loud failure on zero-capture sessions.** When `shadow record`
+  exits and the session captured zero `chat_request` records, the
+  autostart now emits a loud stderr warning naming the four
+  canonical causes (unsupported SDK, venv mismatch, bound-method
+  capture, no LLM calls actually made). Prevents CI runs from
+  passing silently with metadata-only traces.
+
+Coverage check: shipping with `1970 passed, 15 skipped` (Python)
+and `122 passed, 2 skipped` (TS) — the prior baseline was 1915 / 111
+passing. New tests cover every fix end-to-end (LiteLLM module
+patching, LangChain `_generate` / `_agenerate`, sync + async stream
+proxy context-manager preservation, Vercel AI translators, bun argv
+injection, sitecustomize fallback against a real Python 3.9 venv,
+empty-capture warning shape).
+
 ### Added (DX/enterprise polish — pytest-for-agents)
 
 The five-plus-three list from the developer/enterprise-experience

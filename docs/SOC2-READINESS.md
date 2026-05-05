@@ -61,7 +61,11 @@ into `.agentlog`:
 | Class | Pattern | Behavior |
 |---|---|---|
 | OpenAI API key | `sk-(proj-\|svcacct-\|admin-)?…` (≥20 chars) | replaced with `[REDACTED:openai_api_key]` |
-| Anthropic API key | `sk-ant-…` (≥20 chars) | replaced with `[REDACTED:anthropic_api_key]` |
+| Anthropic API key | `sk-ant-…` (≥20 chars) | `[REDACTED:anthropic_api_key]` |
+| AWS access key id | `(AKIA\|ASIA\|AIDA\|AROA)…` (16 alnum) | `[REDACTED:aws_access_key_id]` |
+| GitHub token | `(ghp\|gho\|ghu\|ghs\|ghr)_…` (36-251 alnum) | `[REDACTED:github_token]` |
+| Private key | PEM-armoured RSA / EC / ED25519 / OpenSSH / encrypted / PGP | `[REDACTED:private_key]` |
+| JWT | Three-segment base64url (header.payload.signature) | `[REDACTED:jwt]` |
 | Email | RFC-5321-ish | `[REDACTED:email]` |
 | Phone (E.164) | `+<country><digits>` | `[REDACTED:phone]` |
 | Credit card | Luhn-valid, contiguous OR hyphen/space-separated | `[REDACTED:credit_card]` |
