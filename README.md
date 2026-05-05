@@ -264,7 +264,7 @@ The end-to-end setup, from a fresh repo to seeing your first Shadow comment land
 pip install shadow-diff
 ```
 
-**2. Record baseline + candidate traces.** Wrap the place where your agent runs in a `Session` block. Shadow auto-instruments OpenAI / Anthropic SDK calls and writes content-addressed `.agentlog` files:
+**2. Record baseline + candidate traces.** Wrap the place where your agent runs in a `Session` block. Shadow auto-instruments OpenAI, Anthropic, LiteLLM, LangChain `ChatOpenAI`, and Vercel AI SDK (the `ai` package) calls and writes content-addressed `.agentlog` files:
 
 ```python
 # scripts/record_traces.py
