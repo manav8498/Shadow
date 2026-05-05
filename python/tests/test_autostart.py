@@ -266,6 +266,40 @@ def test_shadow_record_rejects_empty_command_with_exit_2() -> None:
 # ---- Empty-capture warning (Issue 7) ----------------------------------
 
 
+def _run_record_for_warning(
+    script: Path,
+    out: Path,
+) -> subprocess.CompletedProcess[str]:
+    """Cross-platform subprocess.run for the warning-fires assertions.
+
+    Forces UTF-8 decoding on stdout/stderr so the em-dash / unicode in
+    the warning text survives Windows cp1252 codepages. `errors="replace"`
+    means a non-decodable byte yields `?` rather than `None`-ing the pipe.
+    """
+    import os as _os
+
+    env = dict(_os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "shadow.cli.app",
+            "record",
+            "-o",
+            str(out),
+            "--",
+            sys.executable,
+            str(script),
+        ],
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        check=False,
+    )
+
+
 def test_empty_capture_warning_fires_on_zero_chat_calls(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -279,22 +313,7 @@ def test_empty_capture_warning_fires_on_zero_chat_calls(
     script = tmp_path / "no_calls.py"
     script.write_text("print('agent ran successfully')\n")
     out = tmp_path / "trace.agentlog"
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "shadow.cli.app",
-            "record",
-            "-o",
-            str(out),
-            "--",
-            sys.executable,
-            str(script),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    proc = _run_record_for_warning(script, out)
     assert proc.returncode == 0
     assert "agent ran successfully" in proc.stdout
     # The loud stderr warning is the load-bearing assertion — without it
@@ -307,75 +326,56 @@ def test_empty_capture_warning_fires_on_zero_chat_calls(
 
 
 def test_empty_capture_warning_silent_when_calls_were_captured(tmp_path: Path) -> None:
-    """Warning must NOT fire on a session that actually captured calls.
+    """Sanity check that a script which uses an explicit Session inside
+    its own subprocess still exits cleanly under shadow record.
 
-    Records a chat pair via the explicit Session API while the
-    sitecustomize-bootstrapped Session is also active; the bootstrapped
-    session's _records will see the recorded chat pair and the warning
-    should stay silent."""
+    The parent autostart session covers the whole wrapped process, and
+    its `_records` don't see records pushed into a NESTED Session — so
+    this test fires the empty-capture warning by design (a separate
+    case from "warning silent"). The "warning silent" path is covered
+    in-process by the fake-SDK tests in test_instrumentation_extended.py.
+
+    We DO assert the wrapped script runs to completion; the inline
+    Session does its own write to a tmp_path-rooted file (Windows-safe;
+    `tempfile.NamedTemporaryFile` is exclusive on Windows so the inner
+    Session can't open it for writing)."""
+    inner_trace = tmp_path / "inner.agentlog"
     script = tmp_path / "with_calls.py"
-    # Use a normal Python script instead of an embedded string so long
-    # request/response payload literals don't trigger E501. The script
-    # is launched as a subprocess by the test below.
+    # Triple-quoted literal so long request/response dicts don't
+    # trigger E501. The inner Session writes into inner_trace, which
+    # is a normal tmp_path file — works on POSIX and Windows.
     script.write_text(
-        """
+        f"""
 from shadow.sdk import Session
 from shadow.sdk._autostart import _BOOTSTRAP_DONE
-import tempfile
 
 assert _BOOTSTRAP_DONE
-with tempfile.NamedTemporaryFile(suffix=".agentlog") as t:
-    s = Session(output_path=t.name)
-    s.__enter__()
-    s.record_chat(
-        request={
-            "model": "gpt",
-            "messages": [{"role": "user", "content": "hi"}],
-            "params": {},
-        },
-        response={
-            "model": "gpt",
-            "content": [{"type": "text", "text": "ok"}],
-            "stop_reason": "end_turn",
-            "latency_ms": 1,
-            "usage": {
-                "input_tokens": 1,
-                "output_tokens": 1,
-                "thinking_tokens": 0,
-            },
-        },
-    )
-    s.__exit__(None, None, None)
+s = Session(output_path={str(inner_trace)!r})
+s.__enter__()
+s.record_chat(
+    request={{
+        "model": "gpt",
+        "messages": [{{"role": "user", "content": "hi"}}],
+        "params": {{}},
+    }},
+    response={{
+        "model": "gpt",
+        "content": [{{"type": "text", "text": "ok"}}],
+        "stop_reason": "end_turn",
+        "latency_ms": 1,
+        "usage": {{
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "thinking_tokens": 0,
+        }},
+    }},
+)
+s.__exit__(None, None, None)
 print("done")
 """
     )
     out = tmp_path / "trace.agentlog"
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "shadow.cli.app",
-            "record",
-            "-o",
-            str(out),
-            "--",
-            sys.executable,
-            str(script),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    # The autostart's session covers the whole process — its _records
-    # don't see the nested session's records, so this test still
-    # triggers the empty-capture warning. That's expected: the
-    # check is per-session, and the parent session genuinely captured
-    # zero calls. The "warning silent" case is exercised via the
-    # in-process unit tests in test_instrumentation_extended.py
-    # against actual fake-SDK calls.
-    #
-    # Here we just sanity-check the script ran (non-zero exit would
-    # indicate a different bug in the autostart path).
+    proc = _run_record_for_warning(script, out)
     assert proc.returncode == 0, proc.stderr
 
 
@@ -386,22 +386,7 @@ def test_empty_capture_warning_includes_diagnostic_hints(tmp_path: Path) -> None
     script = tmp_path / "empty.py"
     script.write_text("pass\n")
     out = tmp_path / "trace.agentlog"
-    proc = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "shadow.cli.app",
-            "record",
-            "-o",
-            str(out),
-            "--",
-            sys.executable,
-            str(script),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    proc = _run_record_for_warning(script, out)
     err = proc.stderr
     # Each cause is named explicitly.
     assert "doesn't yet auto-instrument" in err
