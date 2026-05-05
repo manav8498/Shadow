@@ -38,13 +38,33 @@ the seven gaps that bit them.
   `TypeError: 'async_generator' object does not support the
   asynchronous context manager protocol` regression that broke
   GPT Researcher under `shadow record`.
-* **Vercel AI SDK auto-instrumentation (TypeScript).** Patch the
-  `ai` package's `generateText`, `streamText`, `generateObject`,
-  `streamObject` exports. The wrapper extracts the model id from
-  the provider-model object (so secrets in the model object don't
-  leak into traces) and translates the Vercel `tools: { name: ... }`
-  shape to the OpenAI-style `[{ name, description, input_schema }]`
-  array. Used by BrowserOS-style agents.
+* **Vercel AI SDK auto-instrumentation (TypeScript) — via
+  `LanguageModelV3` prototype patching.** The first attempt rebound
+  `generateText` / `streamText` / `generateObject` / `streamObject`
+  on the `ai` module namespace; that fails on real `ai` v6 because
+  the package ships ESM with read-only export bindings — assignment
+  silently no-ops, and user code that imported these functions
+  before our patch ran (which is every consumer, since
+  `shadow-diff/auto` runs at Node startup before user imports)
+  keeps a reference to the original. The customer retest of
+  v3.0.7-61-g0e9d497 confirmed this with `wrapped: false` evidence
+  and metadata-only traces from real `ai.generateText({ model: openai(...), prompt })`.
+  The fix: switch to LanguageModelV3 prototype patching.
+  `generateText` / `streamText` always internally call
+  `model.doGenerate(...)` / `model.doStream(...)` on the model
+  instance. We sentinel-instantiate one model from each known
+  `@ai-sdk/<provider>` package (16 packages: openai, anthropic,
+  google, bedrock, groq, mistral, cohere, xai, togetherai,
+  perplexity, fireworks, deepinfra, cerebras, replicate,
+  openai-compatible, google-vertex), grab the prototype, and patch
+  `doGenerate` / `doStream` on the prototype. Every user-created
+  model instance auto-inherits the wrap. New
+  `vercelDoGenerateOptionsToReq` / `vercelDoGenerateResultToResp`
+  translators handle the v3 protocol shape directly (nested
+  `usage.inputTokens.total`, wrapped `finishReason: { unified, raw }`,
+  content blocks `[{ type: 'text'|'tool-call'|'reasoning' }]`).
+  Streaming results are tapped via `ReadableStream.tee()` so the
+  consumer drains uninterrupted.
 * **Bun auto-instrumentation.** `shadow record -- bun ...` now
   inserts `--preload shadow-diff/auto` into argv (Bun's equivalent
   of Node's `--import`). `bunx` is also detected. The TS auto
@@ -58,20 +78,43 @@ the seven gaps that bit them.
   and write a metadata-only stub trace at the output path so the
   artifact isn't missing. Works on Python 3.9+ target venvs (uses
   `timezone.utc`, not the 3.11+ `datetime.UTC` alias).
-* **Loud failure on zero-capture sessions.** When `shadow record`
-  exits and the session captured zero `chat_request` records, the
-  autostart now emits a loud stderr warning naming the four
-  canonical causes (unsupported SDK, venv mismatch, bound-method
-  capture, no LLM calls actually made). Prevents CI runs from
-  passing silently with metadata-only traces.
+* **Loud failure on zero-capture sessions** (both Python and Node).
+  When `shadow record` exits and the session captured zero
+  `chat_request` records, the autostart now emits a loud stderr
+  warning naming the four canonical causes (unsupported SDK, venv /
+  npm-project mismatch, bound-method reference captured before
+  Session entered, no LLM calls actually made). Prevents CI runs
+  from passing silently with metadata-only traces. Python side
+  shipped first; the Node side (the customer-reported gap) was
+  added with the v3.1.1 Vercel AI fix via a new
+  `Session.recordStats()` accessor that the auto entrypoint reads
+  on session exit.
 
 Coverage check: shipping with `1970 passed, 15 skipped` (Python)
-and `122 passed, 2 skipped` (TS) — the prior baseline was 1915 / 111
-passing. New tests cover every fix end-to-end (LiteLLM module
-patching, LangChain `_generate` / `_agenerate`, sync + async stream
-proxy context-manager preservation, Vercel AI translators, bun argv
-injection, sitecustomize fallback against a real Python 3.9 venv,
-empty-capture warning shape).
+and `126 passed, 2 skipped` (TypeScript) — the prior baseline was
+1915 / 111 passing. New tests cover every fix end-to-end:
+
+* **LiteLLM** — module patching, async/sync, routing-kwarg-strip
+* **LangChain** — `_generate` / `_agenerate`, role/role-mapping
+* **Stream proxies** — `async with` + `async for` + arbitrary
+  attribute access on the underlying stream
+* **Vercel AI v6 (real package, not synthetic translator)** —
+  `generateText({ model: provider.chat('gpt-4o-mini'), prompt })`
+  end-to-end with a fetch-injection mock; uninstrument round-trip
+  test asserts the prototype's `doGenerate` is restored cleanly
+* **Bun** — argv-injection across path styles + Windows .exe +
+  `--no-auto-instrument` escape hatch
+* **Sitecustomize venv-mismatch fallback** — Python 3.9 system
+  venv triggers the loud warning + stub trace
+* **Empty-capture warning** — Python and Node both verified
+  end-to-end; the Node test asserts the warning lists supported
+  SDKs (`openai`, `@anthropic-ai/sdk`, `@ai-sdk/<provider>`)
+
+Customer retest of `v3.0.7-64-gdf97270` against six real-agent
+frameworks: Open SWE, mini-SWE-agent, OpenHands, Skyvern,
+GPT Researcher, BrowserOS — all six capture
+`metadata + chat_request + chat_response` correctly. Zero
+remaining Shadow-side issues.
 
 ### Added (DX/enterprise polish — pytest-for-agents)
 
