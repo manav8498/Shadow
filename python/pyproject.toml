@@ -150,9 +150,9 @@ all = [
 ]
 
 dev = [
-    "hypothesis==6.122.1",
-    "mypy==1.14.0",
-    "ruff==0.8.4",
+    "hypothesis==6.152.4",
+    "mypy==1.20.2",
+    "ruff==0.15.12",
     # pytest 8.4.2 has CVE-2025-71176; the fix is in 9.0.3. The
     # plugin chain has to bump alongside it: pytest-asyncio 0.25.x
     # caps at pytest<9, and pytest-cov 6.x is similarly old-bound.
