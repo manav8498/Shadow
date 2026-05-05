@@ -228,4 +228,31 @@ describe('shadow-diff/auto', () => {
     expect(result.stdout).toContain('would-be-npm');
     expect(existsSync(out)).toBe(false);
   });
+
+  it('emits a loud zero-capture warning when no chat calls were recorded', () => {
+    // Mirrors the Python autostart fix in c815e34: when the agent exits
+    // and the session captured zero chat_request records, stderr must
+    // carry a warning naming the canonical causes. Without this, CI runs
+    // pass silently with metadata-only traces (the BrowserOS / Vercel AI
+    // pre-v3.1.1 failure mode the customer reported).
+    const dir = mkdtempSync(join(tmpdir(), 'shadow-auto-'));
+    const out = join(dir, 'trace.agentlog');
+    const r = runChild(
+      { SHADOW_SESSION_OUTPUT: out },
+      'console.log("agent ran but made no LLM calls")',
+    );
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain('agent ran but made no LLM calls');
+    // The loud stderr warning is the load-bearing assertion.
+    expect(r.stderr).toContain('WARNING');
+    expect(r.stderr).toContain('zero LLM calls were captured');
+    // Names the four canonical causes so users can self-diagnose.
+    expect(r.stderr.toLowerCase()).toContain('shadow does not yet auto-instrument');
+    expect(r.stderr).toContain('npm install shadow-diff');
+    expect(r.stderr).toContain('bound-method reference');
+    // Names the supported SDK list so users know what to expect.
+    expect(r.stderr).toContain('openai');
+    expect(r.stderr).toContain('@anthropic-ai/sdk');
+    expect(r.stderr).toContain('@ai-sdk');
+  });
 });

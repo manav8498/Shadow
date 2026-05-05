@@ -62,6 +62,31 @@ function _parseTagsEnv(raw: string | undefined): Record<string, string> {
   return out;
 }
 
+function _emitEmptyCaptureWarning(outPath: string): void {
+  // Stderr-only loud warning. Names the four canonical causes so users
+  // can self-diagnose without reading source. Mirrors the Python
+  // _emit_empty_capture_warning in shadow.sdk._autostart.
+  const lines = [
+    'shadow: WARNING — zero LLM calls were captured.',
+    `  Session output: ${outPath}`,
+    '  The agent ran to completion but no `chat_request` records',
+    '  were intercepted. Most common causes:',
+    '    * Agent uses an SDK Shadow does not yet auto-instrument.',
+    '      Currently patched: openai, @anthropic-ai/sdk, ai (Vercel AI SDK',
+    '      v6 via @ai-sdk/<provider> — openai/anthropic/google/bedrock',
+    '      and a dozen others).',
+    '      File a request: https://github.com/manav8498/Shadow/issues',
+    '    * shadow-diff isn\'t installed in the agent\'s project.',
+    '      Fix:    npm install shadow-diff   (or `bun add shadow-diff`)',
+    '    * Agent stored a bound-method reference to the SDK call before',
+    '      Session entered. Open an explicit `Session` around the call',
+    '      site instead of relying on shadow record\'s zero-config.',
+    '    * Agent didn\'t actually make any LLM calls (rare).',
+  ];
+  // eslint-disable-next-line no-console
+  console.error(lines.join('\n'));
+}
+
 function _warnNoCrash(message: string, error?: unknown): void {
   // Stderr only — never throw. The agent must keep running.
   // eslint-disable-next-line no-console
@@ -149,6 +174,20 @@ async function _start(): Promise<Session | null> {
       await session.exit();
     } catch (e) {
       _warnNoCrash('failed to flush Session on exit', e);
+    }
+    // LOUD-FAILURE check: under zero-config shadow record, if the
+    // session captured zero chat_request records, the user is in the
+    // silent-uninstrument trap that bit BrowserOS / Vercel-AI agents
+    // before the LanguageModelV3 prototype patcher landed. Surface
+    // the warning to stderr so a CI run can't pass with a misleading
+    // metadata-only result. Mirrors the Python autostart fix.
+    try {
+      const stats = session.recordStats();
+      if (stats.chatRequests === 0) {
+        _emitEmptyCaptureWarning(output);
+      }
+    } catch {
+      /* diagnostics never block — file is still on disk */
     }
   };
 
