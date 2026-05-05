@@ -141,15 +141,18 @@ jobs:
         run: |
           cd typescript
           npm ci
+      - name: Build (must run before tests — auto.test.ts spawns dist/auto.js)
+        run: |
+          cd typescript
+          npm run build
       - name: Typecheck + test
         run: |
           cd typescript
           npm run typecheck
           npm test
-      - name: Build + pack
+      - name: Pack
         run: |
           cd typescript
-          npm run build
           npm pack
 
       # Publish to npm registry. Gated on NPM_TOKEN being set, so this
