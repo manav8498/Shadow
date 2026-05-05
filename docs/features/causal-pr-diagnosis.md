@@ -199,5 +199,5 @@ ThreadPoolExecutor (Rust differ + regex policy both release the GIL).
 ## See also
 
 - The runnable demo: [`examples/refund-causal-diagnosis/`](https://github.com/manav8498/Shadow/tree/main/examples/refund-causal-diagnosis)
-- The design spec: [`docs/superpowers/specs/2026-05-03-causal-regression-forensics-design.md`](../superpowers/specs/2026-05-03-causal-regression-forensics-design.md)
-- Implementation plans (Weeks 1–4): [`docs/superpowers/plans/`](https://github.com/manav8498/Shadow/tree/main/docs/superpowers/plans)
+- [Causal bisection](bisect.md) — the LASSO-based attribution path that ships alongside the causal `--backend live` mode.
+- [Theory: causal attribution](../theory/causal.md) — Pearl-style ATE, back-door adjustment, and E-value sensitivity in formal terms.

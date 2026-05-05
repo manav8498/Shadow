@@ -4344,11 +4344,10 @@ def version() -> None:
 # ---------------------------------------------------------------------------
 # diagnose-pr: Causal Regression Forensics for AI Agents
 #
-# The headline command for the strategic pivot landed in
-# docs/superpowers/specs/2026-05-03-causal-regression-forensics-design.md.
-# v0.1 skeleton ships in Week 1 (this PR). 9-axis affected-trace
-# classification arrives in Week 2; causal attribution + dominant-cause
-# in Week 3.
+# The headline command. Composes the parser, mining, the nine-axis
+# differ, the policy checker, and the causal-attribution module into
+# one PR-time surface. See `docs/features/causal-pr-diagnosis.md` for
+# the user-facing contract.
 # ---------------------------------------------------------------------------
 
 

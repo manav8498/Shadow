@@ -85,7 +85,7 @@ This is pinned by `python/tests/test_otel_diagnose_pr_e2e.py`:
 
 ## See also
 
-* The design spec: [`docs/superpowers/specs/2026-05-03-causal-regression-forensics-design.md`](../superpowers/specs/2026-05-03-causal-regression-forensics-design.md)
-  §5 covers the OTel bridge phase.
+* [`shadow import` / `shadow export`](../reference/cli.md#shadow-import-source---format-fmt) — full flag set for both directions of the bridge.
+* The OTel divergence-semantics proposal: [`docs/proposals/otel-genai-divergence.md`](../proposals/otel-genai-divergence.md) — the WG draft for adding `gen_ai.compare` / `gen_ai.divergence` semantic conventions.
 * The existing `shadow.otel` module + `shadow.importers.otel` module hold
   the implementation; this page documents the user-facing contract.

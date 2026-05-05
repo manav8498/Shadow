@@ -99,7 +99,6 @@ otel-genai` command can be extended in v0.3 to emit a
 `gen_ai.compare` span tree alongside the existing chat/tool spans
 when Shadow is run in compare-two-traces mode. Reference:
 
-* [Shadow's design spec, §5 (OTel bridge)](../superpowers/specs/2026-05-03-causal-regression-forensics-design.md)
 * [`docs/features/otel-bridge.md`](../features/otel-bridge.md) for the existing import/export contract
 * [`docs/features/causal-pr-diagnosis.md`](../features/causal-pr-diagnosis.md) for the divergence + cause data model
 
