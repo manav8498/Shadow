@@ -4,6 +4,18 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.1.0] — 2026-05-05
+
+Auto-instrumentation breadth + loud-failure diagnostics. Customer
+report `v3.0.7-64-gdf97270` retest confirmed all six real-agent
+frameworks (Open SWE, mini-SWE-agent, OpenHands, Skyvern,
+GPT Researcher, BrowserOS) now capture
+`metadata + chat_request + chat_response` correctly under
+`shadow record`. CI 15/15 green.
+
+The earlier v0.2 strategic-pivot wrap-up (the "[unreleased]"
+section below) is rolled into this release.
+
 ## [unreleased] — Causal Regression Forensics (full v0.2 wrap-up)
 
 End of the strategic-pivot 8-phase roadmap. Phases 1–8 are landed
