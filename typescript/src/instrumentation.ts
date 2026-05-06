@@ -87,6 +87,7 @@ export async function autoInstrument(session: Session): Promise<InstrumentorHand
   await tryPatchOpenAIResponses(session, handle);
   await tryPatchAnthropic(session, handle);
   await tryPatchVercelAi(session, handle);
+  await tryPatchLangchainOpenai(session, handle);
   return handle;
 }
 
@@ -375,6 +376,51 @@ async function tryPatchAnthropic(
     for (const mod of candidates) {
       const Messages = (mod as { Messages?: { prototype?: object } }).Messages;
       patchCreate(session, Messages?.prototype, handle, anthropicTranslators);
+    }
+  }
+}
+
+/**
+ * Patch `@langchain/openai`'s `ChatOpenAI` family at the prototype layer.
+ *
+ * Why a dedicated patcher (instead of relying on `tryPatchOpenAI`):
+ *   `@langchain/openai` bundles its own copy of `openai` in its nested
+ *   `node_modules/openai`. That copy is a different file path and a
+ *   different module instance from the user's top-level `openai`, so
+ *   patching `Completions.prototype.create` on the user-anchored `openai`
+ *   resolution leaves LangChain's bundled copy untouched. Customer
+ *   evidence: `@langchain/openai` calls produced metadata-only traces
+ *   while direct `openai` SDK calls in the same project recorded
+ *   chat_request + chat_response correctly.
+ *
+ * The fix mirrors the Vercel AI approach (`doGenerate` / `doStream` on
+ * the LanguageModelV3 prototype): patch `_generate` and
+ * `_streamResponseChunks` on the documented public extension points of
+ * `ChatOpenAI`, `ChatOpenAICompletions`, and `ChatOpenAIResponses`. The
+ * Azure variants inherit from these without overriding the methods, so
+ * they pick up the patches automatically.
+ */
+async function tryPatchLangchainOpenai(
+  session: Session,
+  handle: InstrumentorHandle,
+): Promise<void> {
+  const candidates = await loadModuleBothWays('@langchain/openai');
+  // The three classes that own concrete `_generate` / `_streamResponseChunks`
+  // implementations. Azure variants inherit from these without overriding,
+  // so the parent-class patch covers them transparently.
+  const classNames = ['ChatOpenAI', 'ChatOpenAICompletions', 'ChatOpenAIResponses'];
+  const seenProtos = new WeakSet<object>();
+  for (const mod of candidates) {
+    if (!mod) continue;
+    for (const name of classNames) {
+      const cls = (mod as Record<string, unknown>)[name] as
+        | { prototype?: object }
+        | undefined;
+      const proto = cls?.prototype;
+      if (!proto || seenProtos.has(proto)) continue;
+      seenProtos.add(proto);
+      patchLangchainGenerate(session, proto, handle);
+      patchLangchainStream(session, proto, handle);
     }
   }
 }
@@ -1651,4 +1697,291 @@ function wrapVercelStreamResult(
   })();
 
   return { ...result, stream: forwarded };
+}
+
+// ===========================================================================
+// LangChain (`@langchain/openai`) — translators + per-method patchers.
+// ===========================================================================
+
+interface LangchainBaseMessage {
+  _getType?: () => string;
+  content?: unknown;
+  tool_calls?: Array<{ id?: string; name?: string; args?: unknown }>;
+  tool_call_id?: string;
+}
+
+/** Convert a LangChain `BaseMessage[]` into Shadow's chat_request shape. */
+function langchainMessagesToShadowReq(
+  messages: unknown,
+  modelId: string,
+): Record<string, unknown> {
+  const outMessages: Array<Record<string, unknown>> = [];
+  if (Array.isArray(messages)) {
+    for (const m of messages) {
+      if (!m || typeof m !== 'object') continue;
+      const msg = m as LangchainBaseMessage;
+      const lcType = typeof msg._getType === 'function' ? msg._getType() : '';
+      let role: string;
+      switch (lcType) {
+        case 'human':
+          role = 'user';
+          break;
+        case 'system':
+          role = 'system';
+          break;
+        case 'ai':
+          role = 'assistant';
+          break;
+        case 'tool':
+        case 'function':
+          role = 'tool';
+          break;
+        default:
+          role = lcType || 'user';
+      }
+      const entry: Record<string, unknown> = { role, content: msg.content ?? '' };
+      if (Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
+        entry.tool_calls = msg.tool_calls;
+      }
+      if (typeof msg.tool_call_id === 'string') {
+        entry.tool_call_id = msg.tool_call_id;
+      }
+      outMessages.push(entry);
+    }
+  }
+  return {
+    model: modelId,
+    messages: outMessages,
+    params: {},
+  };
+}
+
+interface LangchainChatResult {
+  generations?: Array<{
+    text?: string;
+    message?: {
+      content?: unknown;
+      tool_calls?: Array<{ id?: string; name?: string; args?: unknown }>;
+    };
+    generationInfo?: { finish_reason?: string };
+  }>;
+  llmOutput?: {
+    tokenUsage?: {
+      promptTokens?: number;
+      completionTokens?: number;
+      totalTokens?: number;
+    };
+  };
+}
+
+/** Convert a LangChain `ChatResult` into Shadow's chat_response shape. */
+function langchainResultToShadowResp(
+  result: unknown,
+  latencyMs: number,
+  modelId: string,
+): Record<string, unknown> {
+  const r = (result as LangchainChatResult) ?? {};
+  const gen = r.generations?.[0];
+  const message = gen?.message;
+  const content: Array<Record<string, unknown>> = [];
+  const rawContent = message?.content;
+  if (typeof rawContent === 'string' && rawContent.length > 0) {
+    content.push({ type: 'text', text: rawContent });
+  } else if (Array.isArray(rawContent)) {
+    for (const part of rawContent) {
+      if (part && typeof part === 'object') content.push({ ...(part as object) });
+    }
+  }
+  for (const tc of message?.tool_calls ?? []) {
+    content.push({
+      type: 'tool_use',
+      id: tc.id ?? '',
+      name: tc.name ?? '',
+      input: tc.args ?? {},
+    });
+  }
+  const finish = gen?.generationInfo?.finish_reason ?? 'stop';
+  const stopReason =
+    ({ stop: 'end_turn', length: 'max_tokens', tool_calls: 'tool_use' } as Record<
+      string,
+      string
+    >)[finish] ?? finish;
+  const usage = r.llmOutput?.tokenUsage;
+  return {
+    model: modelId,
+    content,
+    stop_reason: stopReason,
+    latency_ms: latencyMs,
+    usage: {
+      input_tokens: usage?.promptTokens ?? 0,
+      output_tokens: usage?.completionTokens ?? 0,
+      thinking_tokens: 0,
+    },
+  };
+}
+
+function patchLangchainGenerate(
+  session: Session,
+  proto: object,
+  handle: InstrumentorHandle,
+): void {
+  const existing = (proto as Record<string, unknown>)._generate as ShadowWrapped | undefined;
+  if (typeof existing !== 'function') return;
+  if (handle.patches.some((p) => p.target === proto && p.attr === '_generate')) return;
+  if (existing[_SHADOW_WRAPPED]) return;
+
+  const original = existing as AnyFn;
+  handle.patches.push({ target: proto, attr: '_generate', original });
+
+  const wrapped: ShadowWrapped = async function (
+    this: unknown,
+    ...args: unknown[]
+  ): Promise<unknown> {
+    const start = Date.now();
+    const result = await original.apply(this, args);
+    const latencyMs = Date.now() - start;
+    try {
+      const messages = args[0];
+      const modelId = ((this as { model?: string } | null)?.model ?? '') as string;
+      const req = langchainMessagesToShadowReq(messages, modelId);
+      const resp = langchainResultToShadowResp(result, latencyMs, modelId);
+      session.recordChat(req, resp);
+    } catch {
+      /* never break the caller */
+    }
+    return result;
+  };
+  Object.defineProperty(wrapped, _SHADOW_WRAPPED, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  (proto as Record<string, unknown>)._generate = wrapped;
+}
+
+interface LangchainStreamChunk {
+  text?: string;
+  message?: {
+    content?: unknown;
+    tool_call_chunks?: Array<{
+      index?: number;
+      id?: string;
+      name?: string;
+      args?: string;
+    }>;
+  };
+  generationInfo?: { finish_reason?: string };
+  usage_metadata?: {
+    input_tokens?: number;
+    output_tokens?: number;
+  };
+}
+
+function patchLangchainStream(
+  session: Session,
+  proto: object,
+  handle: InstrumentorHandle,
+): void {
+  const existing = (proto as Record<string, unknown>)._streamResponseChunks as
+    | ShadowWrapped
+    | undefined;
+  if (typeof existing !== 'function') return;
+  if (handle.patches.some((p) => p.target === proto && p.attr === '_streamResponseChunks'))
+    return;
+  if (existing[_SHADOW_WRAPPED]) return;
+
+  const original = existing as AnyFn;
+  handle.patches.push({ target: proto, attr: '_streamResponseChunks', original });
+
+  const wrapped: ShadowWrapped = async function* (
+    this: unknown,
+    ...args: unknown[]
+  ): AsyncGenerator<unknown> {
+    const start = Date.now();
+    const messages = args[0];
+    const modelId = ((this as { model?: string } | null)?.model ?? '') as string;
+    let aggregatedText = '';
+    const toolCalls = new Map<number, { id?: string; name?: string; argText: string }>();
+    let finishReason: string | undefined;
+    let usage: { input_tokens?: number; output_tokens?: number } | undefined;
+    let recorded = false;
+    const flush = () => {
+      if (recorded) return;
+      recorded = true;
+      const latencyMs = Date.now() - start;
+      try {
+        const req = langchainMessagesToShadowReq(messages, modelId);
+        const content: Array<Record<string, unknown>> = [];
+        if (aggregatedText.length > 0) content.push({ type: 'text', text: aggregatedText });
+        for (const [, tc] of toolCalls) {
+          let parsed: unknown = {};
+          if (tc.argText.length > 0) {
+            try {
+              parsed = JSON.parse(tc.argText);
+            } catch {
+              parsed = { _raw: tc.argText };
+            }
+          }
+          content.push({
+            type: 'tool_use',
+            id: tc.id ?? '',
+            name: tc.name ?? '',
+            input: parsed,
+          });
+        }
+        const stopReason =
+          ({ stop: 'end_turn', length: 'max_tokens', tool_calls: 'tool_use' } as Record<
+            string,
+            string
+          >)[finishReason ?? 'stop'] ?? (finishReason ?? 'end_turn');
+        session.recordChat(req, {
+          model: modelId,
+          content,
+          stop_reason: stopReason,
+          latency_ms: latencyMs,
+          usage: {
+            input_tokens: usage?.input_tokens ?? 0,
+            output_tokens: usage?.output_tokens ?? 0,
+            thinking_tokens: 0,
+          },
+        });
+      } catch {
+        /* swallow — never break the caller */
+      }
+    };
+    try {
+      const iter = original.apply(this, args) as AsyncGenerator<unknown>;
+      for await (const chunk of iter) {
+        const c = (chunk ?? {}) as LangchainStreamChunk;
+        if (typeof c.text === 'string') aggregatedText += c.text;
+        const fr = c.generationInfo?.finish_reason;
+        if (fr) finishReason = fr;
+        for (const tc of c.message?.tool_call_chunks ?? []) {
+          const idx = tc.index ?? 0;
+          const entry = toolCalls.get(idx) ?? { argText: '' };
+          if (tc.id) entry.id = tc.id;
+          if (tc.name) entry.name = tc.name;
+          if (tc.args) entry.argText += tc.args;
+          toolCalls.set(idx, entry);
+        }
+        if (c.usage_metadata) {
+          usage = {
+            input_tokens: c.usage_metadata.input_tokens,
+            output_tokens: c.usage_metadata.output_tokens,
+          };
+        }
+        yield chunk;
+      }
+    } finally {
+      flush();
+    }
+  };
+  Object.defineProperty(wrapped, _SHADOW_WRAPPED, {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+  (proto as Record<string, unknown>)._streamResponseChunks = wrapped;
 }

@@ -4,6 +4,33 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.1.2] — 2026-05-06
+
+Patch release. Two real-world adoption fixes surfaced during a
+15-agent integration sweep.
+
+### Fixed
+
+* **`@langchain/openai` capture gap (TypeScript SDK).** LangChain
+  bundles its own copy of `openai` in nested `node_modules/`, so
+  the existing `tryPatchOpenAI` patch — anchored to the user's
+  top-level `openai` resolution — never reached LangChain's bundled
+  copy. Calls through `ChatOpenAI` recorded only metadata, while
+  direct `openai` SDK calls in the same project recorded
+  `chat_request` + `chat_response` correctly. v3.1.2 adds
+  `tryPatchLangchainOpenai` which patches `_generate` and
+  `_streamResponseChunks` on `ChatOpenAI.prototype` (and the
+  Completions / Responses variants) directly. Azure variants
+  inherit the patches automatically. Real-package integration test
+  pinned at `typescript/test/instrumentation_langchain_openai.test.ts`.
+
+* **`numpy` lower bound.** v3.1.1 required `numpy>=2.2,<3`, which
+  blocked co-installation with older agent stacks (e.g. LangChain
+  pre-0.3 pins `numpy<2`). Lowered to `numpy>=1.24,<3`. Audit:
+  Shadow's internal numpy usage is restricted to widely-available
+  APIs (`np.percentile`, `np.column_stack`, `np.float64`, `np.int8`,
+  etc.) — no 2.x-only calls.
+
 ## [3.1.1] — 2026-05-05
 
 Patch release. Pre-launch UX fix and a small handful of doc-cleanup
