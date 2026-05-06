@@ -74,7 +74,7 @@ scenario demonstrates, what Shadow catches, and what it doesn't.
 ## Reading order for a new user
 
 1. **[refund-causal-diagnosis/](refund-causal-diagnosis/)** —
-   the wedge demo for `shadow diagnose-pr`. Run `./demo.sh`; see the
+   the main demo for `shadow diagnose-pr`. Run `./demo.sh`; see the
    full diagnose → fix → verify loop in under five seconds.
 2. **[demo/](demo/)** — same pipeline, smaller scenario; the `just
    demo` target.

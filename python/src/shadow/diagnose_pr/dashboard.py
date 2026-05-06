@@ -6,8 +6,8 @@ cause, blast radius, top causes, per-trace diagnoses, and the
 suggested fix.
 
 Spec §1.3 explicitly listed dashboards as a non-goal for the
-strategic-pivot wedge, but a thin local-server surface is useful
-for two real workflows:
+release, but a thin local-server surface is useful for two real
+workflows:
 
   1. Reviewing a CI-produced report.json without copy-pasting
      markdown into a chat tool.

@@ -4,7 +4,7 @@ Exit codes:
   0 = ship   (no behavior regression)
   1 = probe / hold (held; investigate before merge)
   2 = stop   (critical violation)
-  3 = internal/tooling error (fail-closed in CI)
+  3 = internal/tooling error (treat as failure in CI)
 """
 
 from __future__ import annotations
@@ -110,7 +110,7 @@ def test_gate_pr_stop_verdict_returns_exit_2(tmp_path: Path) -> None:
 
 def test_gate_pr_failure_summary_is_pytest_shaped(tmp_path: Path) -> None:
     """On non-ship verdicts, the 1-screen summary must carry the
-    five load-bearing pieces a developer needs to act:
+    five key pieces a developer needs to act:
       1. Verdict + exit + blast-radius
       2. Dominant cause id (file:line preferred when available)
       3. Numeric evidence (axis + ATE + CI + E-value)

@@ -4,7 +4,7 @@ Two assurances:
 1. Every YAML in `examples/policy-packs/` parses via
    `shadow.hierarchical.load_policy` — no broken packs ever ship.
 2. The PII pack actually flags PII in a synthesised candidate trace
-   (real load-bearing assertion, not just "yaml parses").
+   (real behavior assertion, not just "yaml parses").
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def test_policy_pack_parses_via_hierarchical_loader(pack_path: Path) -> None:
     data = yaml.safe_load(pack_path.read_text(encoding="utf-8"))
     rules = load_policy(data)
     assert rules, f"{pack_path.name}: loader returned an empty rule list"
-    # Each rule has the load-bearing fields populated.
+    # Each rule has the required fields populated.
     for r in rules:
         assert r.id, f"{pack_path.name}: a rule has an empty id"
         assert r.kind, f"{pack_path.name}: rule {r.id!r} has no kind"

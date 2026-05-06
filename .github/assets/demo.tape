@@ -8,7 +8,7 @@
 #   Beat 2 — `shadow diagnose-pr` against the refund-agent fixtures
 #            (the diagnose → verdict → dominant cause → fix loop)
 #   Beat 3 — `shadow verify-fix` (closes the diagnose → fix → verify
-#            loop, the wedge promise)
+#            loop)
 #
 # Render with:
 #   vhs .github/assets/demo.tape

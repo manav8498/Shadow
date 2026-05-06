@@ -125,7 +125,7 @@ def test_renderer_includes_hidden_marker_for_pr_comment_dedup() -> None:
 def test_dominant_cause_with_file_line_blame_shows_diff_block() -> None:
     """When the cause carries file_path / line_no / removed_text
     (P3 — line-level blame from --baseline-ref), the headline cites
-    `path:line` and a fenced ```diff``` block shows the load-bearing
+    `path:line` and a fenced ```diff``` block shows the removed
     instruction. This is the difference between
     `prompts/refund.md` and `prompts/refund.md:17 removed: \"Always
     confirm…\"`."""

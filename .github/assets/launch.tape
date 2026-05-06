@@ -6,7 +6,7 @@
 #
 # Story arc (~70-80s of terminal time):
 #   Beat 1 — shadow demo (free, no API key, the wow moment)
-#   Beat 2 — shadow diagnose-pr (the wedge — verdict + dominant cause + fix)
+#   Beat 2 — shadow diagnose-pr (verdict + dominant cause + fix)
 #   Beat 3 — shadow verify-fix (closes the diagnose → fix → verify loop)
 #   Beat 4 — shadow inspect (terminal trace viewer — daily-debug surface)
 #   Beat 5 — shadow scan (secret leak gate — production hygiene)
@@ -53,7 +53,7 @@ Sleep 350ms
 Enter
 Sleep 6500ms
 
-# ─── Beat 2: shadow diagnose-pr — THE wedge command ────────────
+# ─── Beat 2: shadow diagnose-pr ─────────────────────────────────
 Type "clear"
 Enter
 Type@40ms "# 2. shadow diagnose-pr — name the exact change that broke the refund agent"

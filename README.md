@@ -397,7 +397,7 @@ The wrapper probes the enforcer with a synthesised candidate `tool_call` record.
 
 ## Beyond the basics
 
-Everything above is the load-bearing pitch — install, the 10-minute walkthrough, writing a YAML rule, and runtime enforcement. **That's the whole product for most users.** What's below are the deeper features each backed by its own doc page; skip whichever isn't relevant to you.
+Everything above is the core pitch — install, the 10-minute walkthrough, writing a YAML rule, and runtime enforcement. **That's the whole product for most users.** What's below are the deeper features each backed by its own doc page; skip whichever isn't relevant to you.
 
 - **[Recording real agent traces](docs/quickstart/record.md)** — `shadow record -- python your_agent.py` (or `node` / `bun`) auto-instruments OpenAI, Anthropic, LiteLLM, LangChain `ChatOpenAI`, and Vercel AI SDK calls. Redacts secrets by default, writes content-addressed `.agentlog` files. No code changes.
 - **[Framework adapters](docs/features/adapters.md)** — first-class hooks for LangGraph, CrewAI, and AG2. The chat client patches still cover everything; the adapter just pulls in the framework's structural metadata (graph nodes, crew kickoffs, agent boundaries).
@@ -471,7 +471,7 @@ If your agent is built on LangGraph, CrewAI, or AG2, prefer the [matching framew
 
 | Command | Does |
 |---|---|
-| `shadow diagnose-pr` | **The wedge command.** Names the exact change that broke the agent — verdict + dominant cause + bootstrap CI + E-value + Markdown PR comment. `--backend recorded\|mock\|live`; `--max-cost USD` caps live spend. |
+| `shadow diagnose-pr` | Names the exact change that broke the agent — verdict + dominant cause + bootstrap CI + E-value + Markdown PR comment. `--backend recorded\|mock\|live`; `--max-cost USD` caps live spend. |
 | `shadow verify-fix` | Closes the diagnose -> fix -> verify loop. Reads a diagnose-pr `report.json`, re-diffs only the affected traces against a candidate-with-patch, asserts regression reversed without collateral damage. |
 | `shadow gate-pr` | CI-friendly wrapper around `diagnose-pr` with verdict-mapped exit codes (0 ship / 1 hold\|probe / 2 stop / 3 internal error). |
 | `shadow dashboard --report report.json` | Serve a `diagnose-pr` report as a browsable HTML page. Local-by-default (`127.0.0.1:8080`); `--open` launches the browser. Requires the `[serve]` extra. |

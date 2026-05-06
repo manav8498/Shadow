@@ -39,7 +39,7 @@ here.
 
 ## Customizing
 
-Each rule is a YAML object with three load-bearing fields:
+Each rule is a YAML object with three required fields:
 
 ```yaml
 - id: my-rule          # used in PR comments and reports

@@ -319,7 +319,7 @@ def test_schema_watch_symmetry_on_no_op(cfg: dict[str, Any]) -> None:
 @settings(deadline=None, max_examples=200, suppress_health_check=[HealthCheck.data_too_large])
 def test_canonical_bytes_is_deterministic(payload: Any) -> None:
     """Same payload must hash + serialise to identical bytes across
-    invocations. This property is load-bearing for the content-
+    invocations. This property is critical for the content-
     addressing scheme — a non-deterministic canonicalisation would
     poison every id in the store."""
     b1 = _core.canonical_bytes(payload)

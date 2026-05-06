@@ -2,10 +2,9 @@
 
 ## `shadow diagnose-pr`
 
-The wedge command. Names the exact change that broke the agent and
-emits a markdown PR comment. Composes the parser, mining, the
-nine-axis differ, the policy checker, and the causal-attribution
-module into one PR-time surface.
+Names the exact change that broke the agent and emits a markdown PR
+comment. Composes the parser, mining, the nine-axis differ, the policy
+checker, and the causal-attribution module into one PR-time surface.
 
 Required flags:
 
@@ -88,7 +87,7 @@ exit codes:
 | `ship` | 0 | No behavior regression — merge clear. |
 | `probe` / `hold` | 1 | Regression detected — merge held. |
 | `stop` | 2 | Critical violation — do not merge. |
-| (internal/tooling error) | 3 | Treat as fail-closed in CI. |
+| (internal/tooling error) | 3 | Treat as failure in CI. |
 
 Always writes the JSON report (to a tempfile if `--out` omitted) and
 the PR comment markdown so a follow-up CI step can post it. Flags

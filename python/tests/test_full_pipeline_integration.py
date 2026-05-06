@@ -1,13 +1,13 @@
-"""End-to-end integration test for the full strategic-pivot pipeline.
+"""End-to-end integration test for the full diagnose-pr pipeline.
 
-Exercises every phase in one test:
+Exercises every stage in one test:
 
-  * Phase 1: shadow diagnose-pr (recorded backend)
-  * Phase 3: shadow verify-fix
-  * Phase 4: shadow gate-pr (verdict-mapped exit codes)
-  * Phase 5: OTel export -> import -> diagnose-pr (round-trip identity)
-  * Phase 6: shadow.align primitives on the same fixtures
-  * Phase 7-8: cross-language parity (Python vs Rust crate via subprocess)
+  * shadow diagnose-pr (recorded backend)
+  * shadow verify-fix
+  * shadow gate-pr (verdict-mapped exit codes)
+  * OTel export -> import -> diagnose-pr (round-trip identity)
+  * shadow.align primitives on the same fixtures
+  * cross-language parity (Python vs Rust crate via subprocess)
 
 If anything regresses across phases, this test catches it before the
 per-phase suites do.

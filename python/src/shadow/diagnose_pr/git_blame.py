@@ -18,7 +18,7 @@ it returns a `dict[str, PromptHunk]` keyed by file path, where each
 `PromptHunk` carries the *first* removed line + its line number +
 the corresponding added line (best-effort one-to-one within the
 hunk). v1 surfaces only the first removed line per file — that's
-the load-bearing instruction in 90% of prompt-edit regressions
+the key instruction in 90% of prompt-edit regressions
 (the others tend to be additions, which surface via `added_text`
 when no removal exists).
 

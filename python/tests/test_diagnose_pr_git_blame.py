@@ -2,7 +2,7 @@
 
 Covers the parser (deterministic — no git invocation) and the
 end-to-end shape against a real `git init` workspace populated
-inside `tmp_path`. The parser tests are the load-bearing ones:
+inside `tmp_path`. The parser tests are the most important ones:
 they pin the hunk-header regex against weird-but-valid unified
 diff shapes (single-line hunks, additions before removals,
 context interleaving, pure-addition fallback).

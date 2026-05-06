@@ -42,7 +42,7 @@ Algorithms match the pure-TS path in `@shadow-diff/align` and
 `shadow.align` (Python) byte-for-byte on shared inputs. The full
 9-axis differ (which factors embedding similarity, latency CDFs,
 etc.) lives in `shadow-core`; depend on that crate when you need
-those axes. For the wedge use cases (regression detection,
+those axes. For the common use cases (regression detection,
 tool-trajectory drift, argument shape changes) the lightweight
 functions here are sufficient.
 

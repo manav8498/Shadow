@@ -116,7 +116,7 @@ def test_quickstart_prints_next_steps(tmp_path: Path) -> None:
 
 def test_init_github_action_writes_diagnose_pr_workflow_by_default(tmp_path: Path) -> None:
     """`shadow init --github-action` defaults to scaffolding the
-    diagnose-pr flow (the wedge), not the legacy raw `shadow diff`."""
+    diagnose-pr flow, not the legacy raw `shadow diff`."""
     result = _shadow(tmp_path, "init", str(tmp_path), "--github-action")
     assert result.returncode == 0, result.stderr
     wf = tmp_path / ".github" / "workflows" / "shadow-diagnose-pr.yml"

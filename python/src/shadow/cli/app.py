@@ -90,7 +90,7 @@ GITHUB_ACTION_DIAGNOSE_PR_WORKFLOW = """\
 #   probe  -> exit 1 (uncertain — investigate)
 #   hold   -> exit 1 (regression detected — held)
 #   stop   -> exit 2 (critical policy violation — must not merge)
-#   error  -> exit 3 (treated as fail-closed)
+#   error  -> exit 3 (treated as failure)
 #
 # Edit the BASELINE_TRACES / CANDIDATE_TRACES / *_CONFIG paths to
 # point at the .agentlog directories and YAML configs you commit
@@ -327,9 +327,9 @@ def init(
     Actions workflow:
 
       * default — `.github/workflows/shadow-diagnose-pr.yml` runs
-        `shadow diagnose-pr` (the wedge: causal regression forensics)
-        on every PR, posts a verdict + suggested fix as a comment, and
-        gates the merge with verdict-mapped exit codes.
+        `shadow diagnose-pr` (causal regression forensics) on every
+        PR, posts a verdict + suggested fix as a comment, and gates
+        the merge with verdict-mapped exit codes.
       * with `--legacy-diff` — `.github/workflows/shadow-diff.yml`
         runs the older raw nine-axis `shadow diff`. Kept for repos
         that prefer the older flow.
@@ -4596,7 +4596,7 @@ def gate_pr_cmd(
       0 = ship    (no behavior regression)
       1 = probe / hold  (regression detected; merge held)
       2 = stop    (critical violation; do not merge)
-      3 = internal/tooling error  (treat as fail-closed in CI)
+      3 = internal/tooling error  (treat as failure in CI)
 
     On non-ship verdicts, prints a pytest-style 1-screen summary —
     verdict, axis, ATE/CI, dominant cause file:line, and the
@@ -4651,8 +4651,8 @@ def gate_pr_cmd(
         return
 
     # Pytest-style 1-screen failure summary. The PR comment carries
-    # the full markdown; the local runner gets the load-bearing five
-    # lines that tell a developer what to do next.
+    # the full markdown; the local runner gets the five key lines
+    # that tell a developer what to do next.
     _render_gate_pr_failure_summary(result.report, cost_usd=result.cost_usd)
     if verbose:
         typer.echo("")

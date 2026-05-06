@@ -20,7 +20,7 @@
 //! These mirror the algorithms in `shadow.align` (Python) and the
 //! pure-TS path in `@shadow-diff/align`. The native shadow-core
 //! 9-axis differ is more thorough (it factors embedding similarity,
-//! latency CDFs, etc.); for the wedge use cases (regression
+//! latency CDFs, etc.); for the common use cases (regression
 //! detection, tool-trajectory drift, argument shape changes) the
 //! lightweight functions here produce useful results without taking
 //! a shadow-core dependency.

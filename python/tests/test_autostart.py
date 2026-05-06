@@ -316,7 +316,7 @@ def test_empty_capture_warning_fires_on_zero_chat_calls(
     proc = _run_record_for_warning(script, out)
     assert proc.returncode == 0
     assert "agent ran successfully" in proc.stdout
-    # The loud stderr warning is the load-bearing assertion — without it
+    # The loud stderr warning is the key assertion — without it
     # users in the customer-reported scenario silently passed CI.
     assert "WARNING" in proc.stderr, proc.stderr
     assert "zero LLM calls were captured" in proc.stderr, proc.stderr

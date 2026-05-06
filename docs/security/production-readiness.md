@@ -203,6 +203,6 @@ Common audit questions and where to point reviewers:
 
 When the on-disk artifact set changes, the threat model changes,
 or the network-touching commands change, update this page. The
-`Redaction` and `Network endpoints` tables are the load-bearing
-parts — keep them aligned with `shadow.redact.patterns` and the
-CLI's actual flags.
+`Redaction` and `Network endpoints` tables are the key parts —
+keep them aligned with `shadow.redact.patterns` and the CLI's
+actual flags.

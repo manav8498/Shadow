@@ -3,7 +3,7 @@
 > **Shadow tells you which prompt, model, tool schema, or config change broke
 > your AI agent — proven against production-like traces before merge.**
 
-`shadow diagnose-pr` is the headline product. Three commands close the loop
+`shadow diagnose-pr` is Shadow's main command. Three commands close the loop
 from regression detection through fix verification:
 
 | Step | Command | Output |

@@ -87,8 +87,8 @@ class FakeReplayer:
             )
 
         prompt = str(config.get("system_prompt", ""))
-        # Deterministic "this prompt removed the load-bearing
-        # instruction" detector. The refund-causal-diagnosis
+        # Deterministic "this prompt removed the key instruction"
+        # detector. The refund-causal-diagnosis
         # baseline prompt mentions `confirm_refund_amount` (the
         # tool name + the confirmation step); the candidate prompt
         # doesn't. Use that token as the discriminator.
@@ -166,8 +166,8 @@ def _write_yaml(path: Path, body: dict[str, Any]) -> None:
 
 
 def test_cost_tracker_aborts_when_max_cost_exceeded() -> None:
-    """`--max-cost` is the load-bearing safety on `--backend live`.
-    Verify the tracker raises before total spend exceeds the cap."""
+    """`--max-cost` is the key safety on `--backend live`. Verify
+    the tracker raises before total spend exceeds the cap."""
     tracker = CostTracker(max_usd=0.01)  # 1 cent ceiling
     # First call should fit (gpt-4o-mini @ ~$0.15/Mtok input → cents
     # per K tokens). 10K input + 10K output stays under 1 cent.

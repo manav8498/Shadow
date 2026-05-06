@@ -5,7 +5,7 @@
 > No vaporware claims; if a Shadow column says "✓" it's verified by a
 > committed test.
 
-Last updated: 2026-05-03 against the v0.1 strategic-pivot release.
+Last updated: 2026-05-03 against the v0.1 release.
 
 ---
 
@@ -83,7 +83,7 @@ truthful, not aspirational.)
 - Certification marketplace
 - Broad MCP firewall
 
-The strategic-pivot lane is **causal regression forensics**. If an
+Shadow's lane is **causal regression forensics**. If an
 adjacent tool already nails one of the above, Shadow integrates with it
 (`shadow import --format otel-genai`) rather than replicating it.
 

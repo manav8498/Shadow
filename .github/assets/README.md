@@ -9,7 +9,7 @@ Static images and videos embedded in `README.md`.
 | `demo.mp4` | rendered from `demo.tape` | Same content, H.264 video. ~600 KB, 1400 × 900, 25 fps, 59 s. |
 | `demo.webm` | rendered from `demo.tape` | Same content, VP9 video. ~700 KB, 1400 × 900, 59 s. |
 | `demo.tape` | hand-written | [vhs](https://github.com/charmbracelet/vhs) script. |
-| `launch.mp4` | built by `scripts/build_launch_video.py` | Launch-video cut for X / LinkedIn. ~4.3 MB, 1920 × 1080, 30 fps, 84 s, H.264 + AAC. Six-beat tour (`demo`, `call`, `autopr`, `ledger`, `trail`, `certify`) with intro / outro cards and ambient music bed. |
+| `launch.mp4` | built by `scripts/build_launch_video.py` | Product launch video. ~4.3 MB, 1920 × 1080, 30 fps, 84 s, H.264 + AAC. Six-beat tour (`demo`, `call`, `autopr`, `ledger`, `trail`, `certify`) with intro / outro cards and ambient music bed. |
 | `launch.webm` | built by `scripts/build_launch_video.py` | Same content, VP9 + Opus. ~3.0 MB, 1920 × 1080, 84 s. |
 | `launch.tape` | hand-written | vhs script — the terminal-only portion (~75 s). |
 

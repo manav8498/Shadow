@@ -243,7 +243,7 @@ describe('shadow-diff/auto', () => {
     );
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('agent ran but made no LLM calls');
-    // The loud stderr warning is the load-bearing assertion.
+    // The loud stderr warning is the key assertion.
     expect(r.stderr).toContain('WARNING');
     expect(r.stderr).toContain('zero LLM calls were captured');
     // Names the four canonical causes so users can self-diagnose.

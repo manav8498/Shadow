@@ -71,8 +71,8 @@ def _render_cause(c: CauseEstimate) -> list[str]:
     page.
     """
     confident = c.confidence >= 1.0
-    # Prefer file:line when available — that's the load-bearing
-    # detail for prompt regressions.
+    # Prefer file:line when available — that's the key detail for
+    # prompt regressions.
     headline_id = (
         f"{c.file_path}:{c.line_no}"
         if c.file_path is not None and c.line_no is not None

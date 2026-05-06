@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Refund-agent causal diagnosis demo.
 #
-# This is the wedge demo for `shadow diagnose-pr`. The candidate
+# This is the main demo for `shadow diagnose-pr`. The candidate
 # config drops the "always confirm before refunding" instruction
 # from the system prompt; against the policy
 # `confirm-before-refund`, every refund request now skips the

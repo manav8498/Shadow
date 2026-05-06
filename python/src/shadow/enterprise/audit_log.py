@@ -34,7 +34,7 @@ from shadow import _core
 
 @dataclass(frozen=True)
 class AuditEvent:
-    """One audit entry. Fields are load-bearing; don't reorder."""
+    """One audit entry. Field order is part of the contract; don't reorder."""
 
     ts: str  # RFC 3339 UTC
     actor: str  # e.g. "user:alice" | "service:shadow-cli" | "unknown"

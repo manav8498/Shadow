@@ -58,7 +58,7 @@ chronological tree.
 
 ### Phase 8 — full v0.2 wrap-up (Causal Regression Forensics)
 
-End of the strategic-pivot 8-phase roadmap. Phases 1–8 are landed
+End of the v0.2 8-phase roadmap. Phases 1–8 are landed
 + stress-tested + cross-language paired. Final v0.2 wrap-up adds
 the remaining deferred items.
 
@@ -413,7 +413,7 @@ Phase 6: `shadow.align` standalone alignment library.
 
 ### Phase 5 — OpenTelemetry GenAI bridge
 
-Adds Phase 5 of the strategic-pivot roadmap: any OTel-GenAI-instrumented
+Adds Phase 5 of the v0.2 roadmap: any OTel-GenAI-instrumented
 trace can now be imported into Shadow and run through `diagnose-pr`.
 
 ### Added
@@ -451,8 +451,8 @@ trace can now be imported into Shadow and run through `diagnose-pr`.
 
 ### Phase 4 — Causal Regression Forensics core
 
-Strategic-pivot work landed across four weeks of plan-driven development.
-The wedge product, `shadow diagnose-pr`, plus `verify-fix` and `gate-pr`,
+Causal-forensics work landed across four weeks of plan-driven
+development. `shadow diagnose-pr`, plus `verify-fix` and `gate-pr`,
 ship the three-command loop:
 
   diagnose -> fix -> verify

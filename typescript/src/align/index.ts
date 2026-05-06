@@ -282,7 +282,7 @@ function preciseType(v: unknown): string {
 // chat_request/chat_response pairs and detects divergences via the
 // existing trajectoryDistance + toolArgDelta primitives. It is NOT
 // byte-identical to Shadow's Rust 9-axis differ (which factors
-// embedding similarity, latency CDFs, etc.) — but for the wedge
+// embedding similarity, latency CDFs, etc.) — but for the common
 // use cases (regression detection, tool-trajectory drift,
 // argument shape changes) the TS implementation produces useful
 // results without requiring Python or native bindings.

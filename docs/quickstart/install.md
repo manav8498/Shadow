@@ -62,6 +62,6 @@ You'll see:
 
 ## What's next
 
-- **Get the wedge command on a real PR.** [Wire into CI](ci.md) — `shadow diagnose-pr` posting a verdict + dominant cause comment in 10 minutes.
+- **Run `shadow diagnose-pr` on a real PR.** [Wire into CI](ci.md) — verdict + dominant cause comment in 10 minutes.
 - Run Shadow on your own agent: [Record your own agent](record.md).
 - Understand the output: [Nine-axis diff](../features/nine-axis.md).

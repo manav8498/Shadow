@@ -683,7 +683,12 @@ def test_root_version_does_not_break_subcommands() -> None:
         capture_output=True,
         text=True,
         check=False,
+        encoding="utf-8",
+        errors="replace",
     )
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
     # demo should produce some output and exit 0.
-    assert result.returncode == 0, result.stderr
-    assert "shadow" in result.stdout.lower() or "diff" in result.stdout.lower()
+    assert result.returncode == 0, stderr
+    combined = (stdout + "\n" + stderr).lower()
+    assert "shadow" in combined or "diff" in combined

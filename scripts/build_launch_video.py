@@ -453,7 +453,7 @@ def main() -> None:
 
     print()
     print("Done.")
-    print(f"  {FINAL_MP4.relative_to(REPO)}  (H.264 + AAC, post to X / LinkedIn)")
+    print(f"  {FINAL_MP4.relative_to(REPO)}  (H.264 + AAC)")
     print(f"  {FINAL_WEBM.relative_to(REPO)}  (VP9 + Opus, for web embed)")
 
 
