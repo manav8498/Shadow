@@ -56,7 +56,7 @@
     "@ai-sdk/openai": "^3.0.60",
     "@langchain/core": "^1.1.44",
     "@langchain/openai": "^1.4.5",
-    "@types/node": "^22.0.0",
+    "@types/node": "^25.6.2",
     "ai": "^6.0.175",
     "typescript": "^5.4.0",
     "vitest": "^3.2.4"
