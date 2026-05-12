@@ -39,6 +39,15 @@ def render_markdown(report: dict[str, Any]) -> str:
         )
         lines.append("")
 
+    # Long-form TF-IDF hint — see terminal.py for the rationale.
+    if _should_hint_embeddings_md(report):
+        lines.append(
+            "> 💡 Long-form responses with default TF-IDF semantic distance "
+            "can over-alarm on legitimate paraphrase. Re-run with `--semantic` "
+            "(requires `shadow-diff[embeddings]`) for paraphrase-robust scoring."
+        )
+        lines.append("")
+
     rows_list = list(report.get("rows", []))
     # `low_power` fires on every row when n is small (typical in real
     # traces with under ten paired responses). Showing it on every row
@@ -225,6 +234,25 @@ def _render_divergence_markdown(dv: dict[str, Any], rank: int, total: int) -> st
 
 _RANK = {"none": 0, "minor": 1, "moderate": 2, "severe": 3}
 _EMOJI = {"none": "🟢", "minor": "🟡", "moderate": "🟠", "severe": "🔴"}
+_LONG_FORM_TOKEN_THRESHOLD = 200
+
+
+def _should_hint_embeddings_md(report: dict[str, Any]) -> bool:
+    """Markdown-side mirror of `terminal._should_hint_embeddings`. See
+    that function for the rationale.
+    """
+    if report.get("semantic_backend") == "embeddings":
+        return False
+    rows = report.get("rows") or []
+    semantic = next((r for r in rows if r.get("axis") == "semantic"), None)
+    if semantic is None or _sev_rank(str(semantic.get("severity", "none"))) < 2:
+        return False
+    length = next((r for r in rows if r.get("axis") == "response_length"), None)
+    if length is None:
+        return False
+    base_med = float(length.get("baseline_median", 0.0) or 0.0)
+    cand_med = float(length.get("candidate_median", 0.0) or 0.0)
+    return max(base_med, cand_med) >= _LONG_FORM_TOKEN_THRESHOLD
 
 
 def _sev_rank(sev: str) -> int:

@@ -69,3 +69,26 @@ We do NOT guarantee:
 - That upstream dependencies don't have vulnerabilities, run `cargo audit`,
   `pip-audit`, `npm audit` on each release before deploying.
 - That a determined attacker with admin GitHub access can't forge a release, this is inherent to any GitHub-hosted OSS project.
+
+## Accepted advisories
+
+`cargo audit` reads `.cargo/audit.toml` to suppress specific RustSec
+advisories. Suppressions require a documented justification (dep chain,
+build-time vs runtime, why we accept). Current ledger:
+
+| Advisory | Crate | Reason |
+|---|---|---|
+| [RUSTSEC-2024-0436](https://rustsec.org/advisories/RUSTSEC-2024-0436) | `paste` 1.0.15 (unmaintained) | Transitive proc-macro via `statrs → nalgebra → simba`. Build-time only; no runtime surface ships. Cleared when `nalgebra` drops `paste`. |
+
+GitHub Actions in `.github/workflows/` are SHA-pinned (not version-tag
+pinned) for the third-party action surface so a maintainer compromise
+of an action's `v4` tag can't silently rewrite our CI. Bumps go through
+Dependabot's `github-actions` ecosystem. The intended version is
+preserved in a comment next to each SHA for reviewer readability:
+
+```yaml
+- uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+```
+
+`dtolnay/rust-toolchain@1.95.0` is the documented exception — its
+publisher's point-release tags are immutable by convention.

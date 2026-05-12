@@ -1412,20 +1412,33 @@ def ledger_cmd(
     view = compute_view(entries, now=now, since=window)
 
     if json_output:
+        # Strict JSON per RFC 8259 — coerce non-finite floats (NaN /
+        # +Inf / -Inf) to `null`. The in-memory PassRate carries NaN
+        # when total == 0 (load-bearing for the display renderer), but
+        # piping NaN through `json.dumps` produces non-strict output
+        # that breaks enterprise parsers (Java jackson, Go encoding/json,
+        # the JSON parser shipped with most languages refuse it).
+        import math
+
+        def _finite(value: float) -> float | None:
+            return value if math.isfinite(value) else None
+
         payload = {
             "since": since,
             "now": now.isoformat(),
             "pass_rate": {
                 "successes": view.pass_rate.successes,
                 "total": view.pass_rate.total,
-                "rate": view.pass_rate.rate,
-                "ci_low": view.pass_rate.ci_low,
-                "ci_high": view.pass_rate.ci_high,
+                "rate": _finite(view.pass_rate.rate),
+                "ci_low": _finite(view.pass_rate.ci_low) if view.pass_rate.total > 0 else None,
+                "ci_high": _finite(view.pass_rate.ci_high) if view.pass_rate.total > 0 else None,
             },
             "most_concerning": (view.most_concerning.to_dict() if view.most_concerning else None),
             "entries": [e.to_dict() for e in view.entries],
         }
-        sys.stdout.write(_json.dumps(payload, indent=2, default=str) + "\n")
+        # `allow_nan=False` makes a future regression crash loudly
+        # instead of silently emitting non-strict JSON again.
+        sys.stdout.write(_json.dumps(payload, indent=2, default=str, allow_nan=False) + "\n")
         return
 
     render_ledger(view, console=console)
@@ -2670,7 +2683,7 @@ def _apply_embeddings_semantic(
         return report
     new_row = recompute_semantic_axis(baseline, candidate, embedder, seed=seed)
     new_rows = [new_row if r.get("axis") == "semantic" else r for r in report.get("rows", [])]
-    report = {**report, "rows": new_rows}
+    report = {**report, "rows": new_rows, "semantic_backend": "embeddings"}
     return _refresh_after_axis_swap(report, "semantic", new_row)
 
 

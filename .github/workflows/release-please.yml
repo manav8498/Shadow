@@ -43,11 +43,14 @@ permissions:
   contents: write
   pull-requests: write
 
+# All third-party actions are SHA-pinned for supply-chain integrity.
+# Update via Dependabot's github-actions ecosystem; do not edit by hand.
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071  # v4.4.1
         id: release
         with:
           # Pinned to v4 (manifest mode). v3 is single-package only.

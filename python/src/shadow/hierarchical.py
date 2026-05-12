@@ -780,6 +780,7 @@ _POLICY_KINDS = {
     "required_stop_reason",
     "max_total_tokens",
     "must_include_text",
+    "must_include_text_each",
     "forbidden_text",
     "must_match_json_schema",
     # v2.0 — stateful + RAG grounding rules
@@ -914,6 +915,7 @@ _REQUIRED_PARAMS: dict[str, tuple[tuple[str, type | tuple[type, ...]], ...]] = {
     "max_turns": (("limit", (int, float)),),
     "max_total_tokens": (("limit", (int, float)),),
     "must_include_text": (("text", str),),
+    "must_include_text_each": (("text", str),),
     "forbidden_text": (("text", str),),
     "required_stop_reason": (("allowed", (list, str)),),
     "must_remain_consistent": (("path", str),),
@@ -1524,6 +1526,31 @@ def _check_single_rule(
                 _whole_trace_violation(rule, f"required text {needle!r} not found in any response")
             ]
         return []
+
+    if rule.kind == "must_include_text_each":
+        # Per-response variant of ``must_include_text``. Every assistant
+        # response must include ``text``, not just one of them. Use this
+        # for citation-footer / source-attribution / disclaimer rules
+        # where each turn the agent speaks must carry the required text.
+        needle = ps.get("text")
+        if not isinstance(needle, str):
+            return [_whole_trace_violation(rule, "missing `text` param")]
+        if not responses:
+            return []
+        out: list[PolicyViolation] = []
+        for i, resp in enumerate(responses):
+            text = _gather_response_text([resp])
+            if needle not in text:
+                out.append(
+                    PolicyViolation(
+                        rule_id=rule.id,
+                        kind=rule.kind,
+                        severity=rule.severity,
+                        pair_index=i,
+                        detail=f"required text {needle!r} not found in response",
+                    )
+                )
+        return out
 
     if rule.kind == "forbidden_text":
         needle = ps.get("text")

@@ -31,6 +31,9 @@ permissions:
   id-token: write
   attestations: write
 
+# All third-party actions are SHA-pinned for supply-chain integrity.
+# Update via Dependabot's github-actions ecosystem; do not edit by hand.
+
 jobs:
   # ----------------------------------------------------------------------
   # Python wheel (maturin → Linux/macOS/Windows via release artifacts)
@@ -43,7 +46,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       # On macos-latest the pre-installed Xcode toolchain ships its own
       # `cargo-clippy` binary; when dtolnay/rust-toolchain reads our
@@ -64,7 +67,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.95.0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.11"
 
@@ -89,7 +92,7 @@ jobs:
           cyclonedx-py environment -o python/dist/sbom-python.cdx.json
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: python-wheel-${{ matrix.os }}
           path: |
@@ -109,9 +112,9 @@ jobs:
     name: build python sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
       - uses: dtolnay/rust-toolchain@1.95.0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
         with:
           python-version: "3.11"
       - name: Install maturin
@@ -121,7 +124,7 @@ jobs:
           cd python
           maturin sdist --out dist/
           ls -la dist/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: python-sdist
           path: python/dist/*.tar.gz
@@ -133,8 +136,8 @@ jobs:
     name: build typescript package
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: "20"
       - name: Install deps
@@ -189,7 +192,7 @@ jobs:
           cd typescript
           npx -y @cyclonedx/cyclonedx-npm --output-file sbom-typescript.cdx.json
       - name: Upload TS artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: ts-package
           path: |
@@ -203,7 +206,7 @@ jobs:
     name: build rust source tarball
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
       - uses: dtolnay/rust-toolchain@1.95.0
       - name: Package
         run: |
@@ -225,7 +228,7 @@ jobs:
           cp crates/shadow-core/shadow-diff.cdx.json sbom-rust.cdx.json || \
             printf '%s' '{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[],"metadata":{"component":{"type":"library","name":"shadow-diff"}}}' \
               > sbom-rust.cdx.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: rust-crate
           path: |
@@ -240,13 +243,13 @@ jobs:
     needs: [python-wheel, python-sdist, ts-package, rust-crate]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: release-artifacts
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5  # v3.10.1
 
       - name: Sign every artifact (keyless via OIDC)
         run: |
@@ -255,7 +258,7 @@ jobs:
           done
 
       - name: Attach SLSA build provenance
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018  # v1.4.4
         with:
           subject-path: |
             release-artifacts/**/*.whl
@@ -265,7 +268,7 @@ jobs:
 
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda  # v3.0.0
         with:
           files: |
             release-artifacts/**/*
@@ -298,14 +301,14 @@ jobs:
       id-token: write
     steps:
       - name: Download all per-OS wheel artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           pattern: python-wheel-*
           path: wheels
           merge-multiple: true
 
       - name: Download sdist
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: python-sdist
           path: sdist
@@ -323,7 +326,7 @@ jobs:
           ls -la dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # release/v1
         with:
           packages-dir: dist/
           # Don't fail a re-run if the version is already on PyPI
@@ -341,7 +344,7 @@ jobs:
     # conditional guard means maintainers can enable crates.io
     # publishing by adding the secret — no workflow change needed.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.95.0

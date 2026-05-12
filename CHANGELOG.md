@@ -4,6 +4,59 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.2.1] — 2026-05-12
+
+Patch release. Five hardening items from a second external review pass.
+No breaking API changes.
+
+### Fixed
+
+* **`shadow ledger --json` emitted non-strict JSON.** Empty ledgers
+  serialised `"rate": NaN` (and `NaN` for the confidence-interval
+  bounds), which is invalid per RFC 8259 and breaks Java/Go JSON
+  parsers and the strict Python `json.loads(..., parse_constant=...)`
+  path. The serializer now coerces non-finite floats to `null` and
+  passes `allow_nan=False` so a future regression crashes loudly
+  instead of silently emitting malformed JSON. Regression test:
+  `test_cli_ledger_json_emits_strict_json_when_empty`.
+
+### Added
+
+* **`must_include_text_each` policy kind.** Per-response variant of
+  the existing trace-level `must_include_text`. Use this for
+  citation-footer / source-attribution / disclaimer rules where
+  *every* assistant response must carry the required text, not just
+  any one of them. Existing `must_include_text` semantics unchanged.
+  Regression test:
+  `test_must_include_text_each_per_response_enforcement`.
+
+* **Long-form TF-IDF hint.** `shadow diff` now surfaces an actionable
+  hint when the default TF-IDF semantic backend flagged
+  moderate/severe drift on long-form responses (≥ 200 token median).
+  The hint recommends re-running with `--semantic` (embeddings
+  backend) for paraphrase-robust scoring. Mirrored in the markdown
+  PR-comment renderer so the same guidance lands in CI. Test:
+  `python/tests/test_semantic_hint_render.py` (5 cases).
+
+### Changed
+
+* **All third-party GitHub Actions SHA-pinned.** Workflows under
+  `.github/workflows/` previously used mutable version tags
+  (`actions/checkout@v4`). Every third-party action is now pinned to
+  an immutable commit SHA with the intended version preserved in a
+  comment for reviewer readability. `dtolnay/rust-toolchain@1.95.0`
+  remains the documented exception (publisher uses immutable
+  point-release tags). Dependabot's `github-actions` ecosystem is
+  already configured; future bumps are automatic. Affected workflows:
+  ci, dco, docs, live-tests, lockfile, release-please, release.
+
+* **`cargo audit` configured to accept `paste 1.0.15`.** The crate is
+  declared unmaintained (RUSTSEC-2024-0436) but reaches us only as a
+  build-time proc-macro via `statrs → nalgebra → simba`. No runtime
+  surface ships. Suppression is documented with full dep chain and
+  rationale in `.cargo/audit.toml` and `docs/SUPPLY-CHAIN.md`. Clears
+  when `nalgebra` drops `paste`.
+
 ## [3.2.0] — 2026-05-06
 
 Minor release. Framework + dependency hardening pass surfaced by an

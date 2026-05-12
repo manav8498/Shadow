@@ -26,6 +26,19 @@ def render_terminal(report: dict[str, Any], console: Console | None = None) -> N
             "below are directional, not definitive. Record 10+ turns for "
             "stable confidence intervals.[/]"
         )
+    # Long-form TF-IDF hint: BM25/TF-IDF semantic distance over-alarms
+    # on long-form outputs where vocabularies legitimately diverge
+    # (e.g. GPT-4.1 vs GPT-5 deep-research reports, multi-paragraph
+    # summarisations). When the default semantic backend is in use AND
+    # the response_meaning axis flagged moderate/severe AND the median
+    # response length suggests long-form, recommend embeddings.
+    if _should_hint_embeddings(report):
+        con.print(
+            "[yellow]hint[/]: long-form responses with default TF-IDF "
+            "semantic distance can over-alarm on legitimate paraphrase. "
+            "Re-run with `--semantic` (requires `shadow-diff[embeddings]`) "
+            "for paraphrase-robust scoring."
+        )
     con.print()
     rows_list = list(report.get("rows", []))
     # Suppress the universal `low_power` flag (already covered by the
@@ -176,6 +189,33 @@ def _print_divergence_terminal(con: Console, dv: dict[str, Any], rank: int, tota
 
 
 _RANK = {"none": 0, "minor": 1, "moderate": 2, "severe": 3}
+
+# Median response length above which TF-IDF semantic distance starts
+# over-alarming on legitimate paraphrase (a GPT-4.1 vs GPT-5 deep-research
+# report is the canonical example). Picked empirically from the external
+# reviewer's reproduction. Embeddings stay accurate above this threshold.
+_LONG_FORM_TOKEN_THRESHOLD = 200
+
+
+def _should_hint_embeddings(report: dict[str, Any]) -> bool:
+    """True when the default TF-IDF semantic backend is in use AND the
+    semantic axis flagged moderate/severe AND median response length
+    suggests long-form output. In that combination, TF-IDF vocabulary
+    divergence is a known false-positive driver and embeddings give a
+    materially better answer.
+    """
+    if report.get("semantic_backend") == "embeddings":
+        return False
+    rows = report.get("rows") or []
+    semantic = next((r for r in rows if r.get("axis") == "semantic"), None)
+    if semantic is None or _sev_rank(str(semantic.get("severity", "none"))) < 2:
+        return False
+    length = next((r for r in rows if r.get("axis") == "response_length"), None)
+    if length is None:
+        return False
+    base_med = float(length.get("baseline_median", 0.0) or 0.0)
+    cand_med = float(length.get("candidate_median", 0.0) or 0.0)
+    return max(base_med, cand_med) >= _LONG_FORM_TOKEN_THRESHOLD
 
 
 def _sev_rank(sev: str) -> int:

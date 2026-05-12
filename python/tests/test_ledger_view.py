@@ -377,6 +377,36 @@ def test_cli_ledger_json_mode_emits_payload(tmp_path: Path) -> None:
     assert payload["entries"][0]["anchor_id"] == "ba5e1a92"
 
 
+def test_cli_ledger_json_emits_strict_json_when_empty(tmp_path: Path) -> None:
+    """Regression test for an external review finding: empty ledger
+    used to emit ``"rate": NaN`` in --json output, which is not strict
+    JSON per RFC 8259 and breaks enterprise parsers (Java, Go, the
+    standard library JSON parser in many other languages refuse it).
+
+    Empty ledger must emit ``null`` for the rate / ci_low / ci_high
+    fields, and the full payload must round-trip through a strict
+    JSON parser (no ``allow_nan`` fudges).
+    """
+    base = tmp_path / "ledger"
+    # No entries written — empty ledger.
+    result = runner.invoke(app, ["ledger", "--base", str(base), "--json"])
+    assert result.exit_code == 0, result.output
+    # Strict parse — refuses NaN / Infinity by default.
+    payload = json.loads(result.output.strip(), parse_constant=lambda x: _fail(x))
+    assert payload["pass_rate"]["successes"] == 0
+    assert payload["pass_rate"]["total"] == 0
+    assert payload["pass_rate"]["rate"] is None
+    assert payload["pass_rate"]["ci_low"] is None
+    assert payload["pass_rate"]["ci_high"] is None
+
+
+def _fail(constant: str) -> object:
+    raise AssertionError(
+        f"ledger --json emitted non-strict JSON constant {constant!r}; "
+        "must be null, not NaN/Infinity"
+    )
+
+
 def test_cli_ledger_rejects_garbled_since(tmp_path: Path) -> None:
     """A bad ``--since`` value must surface a clear error."""
     result = runner.invoke(app, ["ledger", "--since", "yesterday", "--base", str(tmp_path / "x")])

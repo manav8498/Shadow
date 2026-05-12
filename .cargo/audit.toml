@@ -1,0 +1,31 @@
+# cargo-audit configuration.
+#
+# Used by `cargo audit` (https://github.com/rustsec/rustsec/tree/main/cargo-audit)
+# in CI to gate the Rust dependency tree against the RustSec Advisory DB.
+#
+# Suppressing an advisory requires explicit justification in the comment
+# above the entry, citing the dep chain that forces it and the reason
+# we accept it. Anyone adding a new suppression must also document it
+# in docs/SUPPLY-CHAIN.md so reviewers can see the full ledger.
+
+[advisories]
+ignore = [
+    # `paste` 1.0.15 — declared unmaintained 2024-10-07.
+    #
+    # Dep chain (Shadow → paste, build-time only):
+    #   shadow-diff (us) → statrs 0.18.0 → nalgebra 0.33.3 → simba 0.9.1 → paste 1.0.15
+    #
+    # Why we accept it:
+    #   * `paste` is a proc-macro crate. It runs at build time only — no
+    #     runtime surface ships in the Shadow wheels/sdists/npm package.
+    #   * The advisory is "unmaintained," not a CVE. No known security
+    #     impact; the crate is feature-complete for the macro shape
+    #     nalgebra uses.
+    #   * The upstream chain (simba → nalgebra → statrs) is healthy and
+    #     widely used; statrs is load-bearing for Shadow's bootstrap CI
+    #     and Hotelling T² primitives. Ripping it out for this would be
+    #     out of proportion to the risk.
+    #   * Tracked: https://github.com/dimforge/nalgebra/issues — when
+    #     nalgebra drops `paste`, this entry comes out.
+    "RUSTSEC-2024-0436",
+]

@@ -332,6 +332,48 @@ def test_must_include_text_and_forbidden_text() -> None:
     assert check_policy(records_pii, forbid_rules)
 
 
+def test_must_include_text_each_per_response_enforcement() -> None:
+    """``must_include_text_each`` is the per-response variant of
+    ``must_include_text``: every assistant response must include the
+    required text, not just one of them. Use this for citation-footer
+    / disclaimer / source-attribution rules where each turn must carry
+    the required text.
+
+    Regression test for an external review finding: the existing
+    ``must_include_text`` rule is trace-level (any response is enough
+    to satisfy it), which is the wrong shape for citation enforcement
+    on multi-turn agent traces.
+    """
+    rules = load_policy(
+        [{"id": "cite-each", "kind": "must_include_text_each", "params": {"text": "SOURCE:"}}]
+    )
+    # All-good: every response cites a source.
+    all_cited = [
+        _response(content=[{"type": "text", "text": "answer one. SOURCE: wiki"}]),
+        _response(content=[{"type": "text", "text": "answer two. SOURCE: docs"}]),
+        _response(content=[{"type": "text", "text": "answer three. SOURCE: paper"}]),
+    ]
+    assert check_policy(all_cited, rules) == []
+
+    # Mixed: response #1 missing the required text.
+    mixed = [
+        _response(content=[{"type": "text", "text": "answer one. SOURCE: wiki"}]),
+        _response(content=[{"type": "text", "text": "answer two without citation"}]),
+        _response(content=[{"type": "text", "text": "answer three. SOURCE: paper"}]),
+    ]
+    violations = check_policy(mixed, rules)
+    assert len(violations) == 1
+    assert violations[0].pair_index == 1
+    assert "SOURCE:" in violations[0].detail
+
+    # Contrast with the trace-level variant: same mixed trace passes
+    # because at least one response carries the text.
+    trace_level_rules = load_policy(
+        [{"id": "cite-any", "kind": "must_include_text", "params": {"text": "SOURCE:"}}]
+    )
+    assert check_policy(mixed, trace_level_rules) == []
+
+
 def test_policy_diff_classifies_regressions_and_fixes() -> None:
     rules = load_policy([{"id": "no-rm", "kind": "no_call", "params": {"tool": "rm_rf"}}])
     # baseline: clean. candidate: calls rm_rf → regression.

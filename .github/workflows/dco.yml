@@ -10,13 +10,16 @@ on:
 # See CONTRIBUTING.md §Developer Certificate of Origin for how contributors
 # sign their commits.
 
+# All third-party actions are SHA-pinned for supply-chain integrity.
+# Update via Dependabot's github-actions ecosystem; do not edit by hand.
+
 jobs:
   dco-check:
     name: DCO sign-off
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR commits
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
