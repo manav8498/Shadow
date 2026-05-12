@@ -8,7 +8,7 @@
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
 [![spec](https://img.shields.io/badge/.agentlog-v0.1%20%2B%20v0.2%20kinds-6f4cff.svg)](SPEC.md)
 <!-- x-release-please-start-version -->
-[![version](https://img.shields.io/static/v1?label=version&message=3.1.3&color=brightgreen)](CHANGELOG.md)
+[![version](https://img.shields.io/static/v1?label=version&message=3.2.0&color=brightgreen)](CHANGELOG.md)
 <!-- x-release-please-end -->
 [![rust](https://img.shields.io/badge/rust-1.95+-orange.svg)](rust-toolchain.toml)
 [![python](https://img.shields.io/badge/python-3.11+-3776ab.svg)](python/pyproject.toml)
@@ -91,6 +91,8 @@ That's it. `shadow --help` should now work, and `shadow quickstart` runs the dem
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 pip install shadow-diff
 ```
+
+For byte-identical installs (CI repro, enterprise audit), see [docs/quickstart/locked-install.md](docs/quickstart/locked-install.md).
 
 ### Optional extras
 
@@ -466,6 +468,26 @@ The TypeScript SDK covers the recording side of this same workflow plus a CI-gat
 The Python SDK and TypeScript SDK ship lockstep at the same version. The `.agentlog` format itself is the contract — TS-recorded traces feed into Python's `shadow diff`, `shadow certify`, and the MCP server without translation. The TS gate decisions are byte-identical to the Python equivalents on the same fixtures (cross-validated by `python/tests/test_typescript_parity.py`). For deeper analyses (multi-axis diff, bisect, certify), run those from the Python CLI against the TS-recorded trace.
 
 If your agent is built on LangGraph, CrewAI, or AG2, prefer the [matching framework adapter](docs/features/adapters.md) over auto-instrumentation. Auto-instrument patches `.create` on the underlying provider SDK, which is a moving target across SDK majors. The framework adapters hook each framework's documented extension surface, which is the more stable contract.
+
+### Where Shadow fits in your safety / compliance stack
+
+Shadow is **regression-detection evidence and a PR-time / runtime guardrail**, not a standalone compliance boundary. The honest framing for procurement, audit, and security reviewers:
+
+| Layer | What it catches | Where it lives | Examples |
+|---|---|---|---|
+| **Human-in-the-loop** | High-impact writes (refunds, deletes, account changes) | The action itself | Manual approval queue, dual-key gates |
+| **Runtime policy enforcement** | The agent attempting a forbidden tool call or producing a forbidden output | Wraps every LLM / tool call in prod | OPA / Rego / Cedar; **Shadow `policy_runtime`** |
+| **Behavior regression detection** | An agent's *decisions* drifting after a "harmless" prompt edit or model swap | CI on every PR | **Shadow `diagnose-pr`** |
+| **Observability** | What actually happened, after the fact | Production trace log + dashboard | Langfuse, Helicone, Braintrust |
+| **Eval / benchmark suites** | Whether the agent meets target accuracy on a fixed dataset | CI or batch | Promptfoo, LangSmith evals, custom |
+
+Shadow specifically covers the middle two rows: catching behavior drift before merge AND enforcing the same rules at runtime so a deploy can't ship something CI rejected. It is **not** a substitute for human approval on high-stakes actions, and it is **not** a substitute for a runtime policy engine on the wider attack surface (data exfiltration, prompt injection at the input layer, IAM). Use Shadow alongside those, not instead of them.
+
+Concretely:
+
+- **Use Shadow when** you need PR-time evidence that an agent's behavior changed (with named cause + statistical confidence), and a runtime guardrail that enforces the same YAML contract Shadow's CI gate uses.
+- **Do not use Shadow as** the sole safety boundary on actions like issuing refunds, deleting data, or sending external messages — those need HIL gates and/or an authorization layer.
+- **Audit-chain note:** Shadow's baseline pin (`shadow.yaml`'s `baseline.hash`) is content-addressed over canonical payload bytes (SHA-256). `shadow baseline verify` re-derives every record's id from its payload and fails on any mismatch (v3.1.3+). For supply-chain signing of release artifacts, use `shadow certify --sign` (sigstore keyless) on top.
 
 ## CLI reference
 

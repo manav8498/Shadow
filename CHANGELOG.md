@@ -4,6 +4,60 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.2.0] — 2026-05-06
+
+Minor release. Framework + dependency hardening pass surfaced by an
+external 15-agent integration review. Bundles five concrete deltas
+the reviewer asked for; no breaking API changes.
+
+### Added
+
+* **LlamaIndex importer.** `shadow.importers.llamaindex` converts
+  LlamaIndex `Event` JSON exports (`LLMChatStartEvent`,
+  `LLMChatEndEvent`, `ToolCallStartEvent`, `ToolCallEndEvent`,
+  `AgentToolCallEvent`, etc.) to `.agentlog` records. No
+  `llama-index` runtime dependency; the importer reads dict-shaped
+  events. Public API: `llamaindex_to_agentlog(data)` and
+  `import_llamaindex_events(events)`. 14 tests pin the conversion
+  shape.
+
+* **Live-provider test scaffold.** New `python/tests/live/` directory
+  with 7 invariant tests covering OpenAI Chat / Responses /
+  streaming aggregation / token-count drift bands and Anthropic
+  Messages / streaming / tool-use round-trip. Gated on both
+  `SHADOW_RUN_NETWORK_TESTS=1` AND the relevant API key env var.
+  Wired into a nightly `.github/workflows/live-tests.yml` cron
+  (not on PR CI; `continue-on-error: true`).
+
+* **Dependency lockfile.** `uv.lock` (211 packages, all extras)
+  and `requirements-locked.txt` (210 packages, pip-tools
+  compatible) committed at the repo root. Opt-in only via
+  `uv sync --frozen` or `pip install -r requirements-locked.txt`;
+  the default `pip install shadow-diff` still resolves permissive
+  ranges so coexistence with older agent stacks (LangChain
+  pre-0.3 pinning `numpy<2`, etc.) keeps working. Docs at
+  `docs/quickstart/locked-install.md`. New
+  `.github/workflows/lockfile.yml` fails the build if pyproject
+  drifts from the committed lockfile.
+
+* **README positioning section.** "Where Shadow fits in your safety /
+  compliance stack" makes the layered framing explicit: HIL on
+  high-stakes writes, OPA/Cedar/`policy_runtime` on the runtime
+  boundary, Shadow `diagnose-pr` on the PR behavior-regression
+  layer, observability platforms on the after-the-fact layer.
+  Shadow is regression-detection evidence + a runtime guardrail,
+  not a standalone compliance boundary.
+
+### Changed
+
+* **AG2 adapter documentation.** `python/src/shadow/adapters/ag2.py`
+  docstring + `ImportError` message now disambiguate the AG2 fork
+  (which the adapter targets, via `register_hook`) from Microsoft's
+  AutoGen v0.4+ (separate package with no hook surface; v0.4 users
+  route through `shadow.importers.otel` instead). New regression
+  test locks in the AG2 hook contract so a future rename trips
+  before users do.
+
 ## [3.1.3] — 2026-05-06
 
 Patch release. Audit-chain integrity fix for `shadow baseline` surfaced

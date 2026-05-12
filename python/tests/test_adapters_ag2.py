@@ -142,6 +142,36 @@ def test_install_all_wires_multiple_agents(tmp_path: Path) -> None:
     assert agent_names == {"a", "b"}
 
 
+def test_hook_surface_matches_ag2_contract() -> None:
+    """Regression lock: AG2 still exposes the hook names the adapter binds to.
+
+    AG2 (the community fork; ``pip install ag2``, imported as ``autogen``)
+    is a separate package from Microsoft's AutoGen v0.4+
+    (``autogen-agentchat`` + ``autogen-core``). The v0.4 stack has no
+    hook surface — instrumentation there is OpenTelemetry only and goes
+    through ``shadow.importers.otel``. This test pins the AG2 contract:
+    if AG2 ever renames or removes ``safeguard_llm_inputs`` /
+    ``safeguard_llm_outputs``, we want to know before users do.
+    """
+    agent = ConversableAgent(
+        name="probe",
+        llm_config=False,
+        human_input_mode="NEVER",
+    )
+    # The two hook names the adapter binds to must exist on a fresh agent.
+    assert "safeguard_llm_inputs" in agent.hook_lists
+    assert "safeguard_llm_outputs" in agent.hook_lists
+    # And register_hook must accept (name, callable) — the adapter's call shape.
+    sentinel: list[str] = []
+    agent.register_hook("safeguard_llm_inputs", lambda m: sentinel.append("in") or m)
+    agent.register_hook("safeguard_llm_outputs", lambda r: sentinel.append("out") or r)
+    for h in agent.hook_lists["safeguard_llm_inputs"]:
+        h([])
+    for h in agent.hook_lists["safeguard_llm_outputs"]:
+        h(None)
+    assert sentinel == ["in", "out"]
+
+
 def test_adapter_does_not_swallow_unexpected_response(tmp_path: Path) -> None:
     """Non-OpenAI-shaped responses (raw string, raw dict) still produce a record."""
     out = tmp_path / "trace.agentlog"

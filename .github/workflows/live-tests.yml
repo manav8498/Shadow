@@ -1,0 +1,75 @@
+name: live-provider-tests
+
+# Nightly run against real OpenAI + Anthropic APIs. NOT a PR blocker —
+# this surfaces provider shape-drift early (token-count changes, model
+# alias rotation, streaming aggregation regressions, tool-use round-trip
+# breakage) so issues are caught before users hit them.
+#
+# Default PR CI never sets SHADOW_RUN_NETWORK_TESTS, so the live tests
+# stay skipped there. This workflow opts in explicitly and reads keys
+# from repo secrets. Cost per run: ~$0.01.
+
+on:
+  schedule:
+    # 04:00 UTC nightly — off-peak for both providers.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  live-provider-tests:
+    name: live-provider-tests
+    runs-on: ubuntu-latest
+    # Provider hiccups should not fail the whole workflow. Test output
+    # is uploaded as an artifact for inspection.
+    continue-on-error: true
+    env:
+      SHADOW_RUN_NETWORK_TESTS: "1"
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          toolchain: "1.95.0"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Create venv and install shadow with provider extras
+        run: |
+          uv venv --python 3.12 .venv
+          uv pip install --python .venv/bin/python -e "python[dev,anthropic,openai]"
+
+      - name: Build PyO3 extension
+        env:
+          VIRTUAL_ENV: ${{ github.workspace }}/.venv
+        run: |
+          cd python
+          ../.venv/bin/maturin develop --features extension --release
+
+      - name: Run live-provider tests
+        id: pytest
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          .venv/bin/python -m pytest python/tests/live/ -v \
+            --tb=short 2>&1 | tee live-tests.log
+
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-tests-log
+          path: live-tests.log
+          if-no-files-found: warn

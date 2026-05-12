@@ -1,0 +1,41 @@
+name: lockfile
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "python/pyproject.toml"
+      - "uv.lock"
+      - "requirements-locked.txt"
+      - ".github/workflows/lockfile.yml"
+
+jobs:
+  lockfile-sync-check:
+    name: lockfile-sync-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.7"
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      # The lockfile lives at the repo root for visibility; uv discovers
+      # it via the symlink at python/uv.lock -> ../uv.lock. `uv lock
+      # --check` re-resolves against python/pyproject.toml and fails if
+      # the result diverges from the committed lockfile, catching
+      # pyproject.toml edits that forgot to refresh the lock.
+      - name: Verify uv.lock matches pyproject.toml
+        run: uv lock --check --project python
+
+      - name: Verify requirements-locked.txt matches uv.lock
+        run: |
+          uv export --format requirements-txt --no-hashes --all-extras \
+            --no-emit-project --project python 2>/dev/null \
+            > /tmp/requirements-locked.expected
+          diff -u requirements-locked.txt /tmp/requirements-locked.expected

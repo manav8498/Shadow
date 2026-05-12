@@ -5,6 +5,40 @@ Use :class:`ShadowAG2Adapter` to wrap one or more
 routed through those agents gets recorded to the shadow ``.agentlog``
 file.
 
+Compatibility
+-------------
+
+The Python "AutoGen" name covers two packages that share a name and
+nothing else:
+
+- **AG2** (``pip install ag2`` / ``import autogen``) — the
+  community-maintained continuation of the pre-v0.4 API: synchronous
+  ``ConversableAgent``, ``register_hook``, ``GroupChat``,
+  ``initiate_chat``. This adapter targets AG2. We test against
+  ``ag2>=0.7`` and the current ``0.12.x`` line; the hook surface
+  (``safeguard_llm_inputs`` / ``safeguard_llm_outputs``) has been
+  stable across that range.
+- **AutoGen v0.4+** (``pip install autogen-agentchat autogen-core``)
+  — Microsoft's late-2025 rewrite. Different package, different
+  import path (``autogen_agentchat``, ``autogen_core``), different
+  architecture: event-driven ``RoutedAgent`` on a
+  ``SingleThreadedAgentRuntime``, with an abstract
+  ``ChatCompletionClient.create()`` as the model surface. There is
+  no ``register_hook`` equivalent — instrumentation is OpenTelemetry
+  only (pass ``tracer_provider=`` to the runtime). Users on this
+  stack should configure their OTel exporter to write OTLP/JSON and
+  feed it through :mod:`shadow.importers.otel`, which already
+  understands the GenAI semconv emitted by ``autogen-core``'s
+  built-in spans. We deliberately do not ship a v0.4 in-process
+  adapter: the only correctness-preserving integration point is
+  subclassing every concrete ``ChatCompletionClient`` (OpenAI,
+  Anthropic, Azure, …), which is exactly what the OTel exporter
+  already does upstream.
+
+If you import this module and get an ``ImportError``, you almost
+certainly have ``autogen-agentchat`` installed instead of ``ag2``;
+install ``shadow-diff[ag2]`` or switch to the OTel importer.
+
 Design notes
 ------------
 
@@ -48,7 +82,10 @@ Design notes
 
 6. **Zero-import fallback.** If ``autogen`` / ``ag2`` is not
    installed, importing this module raises a clear ``ImportError``
-   pointing to the ``shadow-diff[ag2]`` extra.
+   pointing to the ``shadow-diff[ag2]`` extra. The error explicitly
+   distinguishes AG2 from ``autogen-agentchat`` so users on the v0.4
+   stack are routed to the OTel importer instead of being told to
+   install a package that won't help them.
 """
 
 from __future__ import annotations
@@ -61,8 +98,13 @@ try:
     from autogen.agentchat import ConversableAgent
 except ImportError as exc:  # pragma: no cover - hit only without the extra
     raise ImportError(
-        "shadow.adapters.ag2 requires ag2 (the former autogen package). "
-        "Install it via `pip install 'shadow-diff[ag2]'`."
+        "shadow.adapters.ag2 requires the AG2 package (community fork, "
+        "`pip install ag2`, imported as `autogen`). Install it via "
+        "`pip install 'shadow-diff[ag2]'`. NOTE: if you are on the "
+        "Microsoft AutoGen v0.4+ stack (`autogen-agentchat` + "
+        "`autogen-core`), this adapter does not apply — that stack has "
+        "no hook surface. Configure its OpenTelemetry exporter and "
+        "feed traces through `shadow.importers.otel` instead."
     ) from exc
 
 if TYPE_CHECKING:  # pragma: no cover

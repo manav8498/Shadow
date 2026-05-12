@@ -9,7 +9,7 @@ build-backend = "maturin"
 # the CLI stays `shadow`, and the repo stays Shadow — only the
 # `pip install` name is different.
 name = "shadow-diff"
-version = "3.1.3"
+version = "3.2.0"
 description = "Behavior contracts for AI agents — tested in your PR, enforced at runtime."
 license = "Apache-2.0"
 # Pin the license-files list explicitly so maturin's auto-detection
