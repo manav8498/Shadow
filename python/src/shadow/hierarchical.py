@@ -1537,11 +1537,11 @@ def _check_single_rule(
             return [_whole_trace_violation(rule, "missing `text` param")]
         if not responses:
             return []
-        out: list[PolicyViolation] = []
+        each_violations: list[PolicyViolation] = []
         for i, resp in enumerate(responses):
             text = _gather_response_text([resp])
             if needle not in text:
-                out.append(
+                each_violations.append(
                     PolicyViolation(
                         rule_id=rule.id,
                         kind=rule.kind,
@@ -1550,7 +1550,7 @@ def _check_single_rule(
                         detail=f"required text {needle!r} not found in response",
                     )
                 )
-        return out
+        return each_violations
 
     if rule.kind == "forbidden_text":
         needle = ps.get("text")
