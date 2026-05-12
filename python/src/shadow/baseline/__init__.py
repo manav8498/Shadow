@@ -145,7 +145,8 @@ def _iter_agentlogs(path: Path) -> list[Path]:
 
 
 def compute_baseline_hash(baseline_dir: Path) -> BaselineHash:
-    """Walk the directory, hash every record's content id, return a
+    """Walk the directory, recompute every record's content id from its
+    canonical payload bytes, verify the stored id matches, and return a
     `BaselineHash` covering the whole set.
 
     Two baselines with the same records (regardless of which file
@@ -154,6 +155,13 @@ def compute_baseline_hash(baseline_dir: Path) -> BaselineHash:
     was intentionally regenerated; a reviewer seeing the digest
     unchanged knows the baseline is the same set Shadow gated against
     last time.
+
+    Audit-chain integrity: the stored `id` on every record is verified
+    against `sha256(canonical_bytes(payload))`. A mismatch means the
+    payload was tampered with while the stored id was left stale, and
+    we raise `ValueError` immediately. The baseline hash itself is
+    computed over the recomputed ids so a tampered file cannot ride
+    through even if the verify step were ever skipped.
     """
     files = _iter_agentlogs(baseline_dir)
     if not files:
@@ -172,10 +180,26 @@ def compute_baseline_hash(baseline_dir: Path) -> BaselineHash:
         except Exception as exc:
             raise ValueError(f"could not parse {f} as .agentlog: {exc}") from exc
         for rec in records:
-            rid = rec.get("id")
-            if isinstance(rid, str) and rid:
-                record_ids.append(rid)
-                n_records += 1
+            stored = rec.get("id")
+            payload = rec.get("payload")
+            if payload is None:
+                raise ValueError(
+                    f"{f}: record is missing `payload` field; "
+                    "cannot verify content-address integrity"
+                )
+            expected = _core.content_id(payload)
+            if not isinstance(stored, str) or not stored:
+                raise ValueError(f"{f}: record has empty or non-string `id`; expected {expected}")
+            if stored != expected:
+                raise ValueError(
+                    f"{f}: baseline tamper detected. "
+                    f"Stored id {stored} does not match the content id of its "
+                    f"payload (expected {expected}). The record has been edited "
+                    "without re-deriving its content address. Re-record the "
+                    "trace or restore the original file."
+                )
+            record_ids.append(expected)
+            n_records += 1
     if n_records == 0:
         raise ValueError(f"{baseline_dir} has .agentlog files but no records inside")
 

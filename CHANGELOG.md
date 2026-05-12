@@ -4,6 +4,24 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.1.3] — 2026-05-06
+
+Patch release. Audit-chain integrity fix for `shadow baseline` surfaced
+during an external review.
+
+### Fixed
+
+* **Baseline payload tamper detection.** `compute_baseline_hash` and
+  `shadow baseline verify` previously hashed each record's stored `id`
+  field directly. An attacker (or a sloppy editor) could mutate a
+  baseline record's payload while leaving the stored `id` unchanged,
+  and the pinned baseline hash stayed identical, defeating the
+  content-addressing claim. The function now recomputes every record's
+  content id from canonical payload bytes via `_core.content_id`,
+  verifies it matches the stored id, and raises `ValueError` with the
+  offending file + stale-vs-expected ids on any mismatch. Regression
+  pinned at `python/tests/test_baseline.py::test_compute_baseline_hash_detects_payload_tamper_with_stale_id`.
+
 ## [3.1.2] — 2026-05-06
 
 Patch release. Two real-world adoption fixes surfaced during a

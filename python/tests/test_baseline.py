@@ -83,6 +83,40 @@ def test_compute_baseline_hash_empty_dir_raises(tmp_path: Path) -> None:
         compute_baseline_hash(empty)
 
 
+def test_compute_baseline_hash_detects_payload_tamper_with_stale_id(tmp_path: Path) -> None:
+    """Audit-chain regression test: editing a record's payload while
+    leaving the existing `id` field unchanged MUST fail. Otherwise an
+    attacker (or a sloppy editor) can mutate a baseline trace and the
+    stored hash stays identical, defeating the content-addressing
+    integrity claim.
+
+    Concrete scenario (the same one a reviewer reproduced): copy a
+    baseline trace, edit the first record's `payload` in place,
+    re-write the same `id`, run `compute_baseline_hash`. Before the
+    fix, the digest matched the untampered baseline. After the fix,
+    the call raises with the tampered id surfaced.
+    """
+    import json
+
+    target = tmp_path / "traces"
+    shutil.copytree(BASELINE_FIXTURE, target)
+
+    first = sorted(target.glob("*.agentlog"))[0]
+    lines = first.read_text(encoding="utf-8").splitlines()
+    rec = json.loads(lines[0])
+    stale_id = rec["id"]
+    # Tamper with payload bytes (a tag value) but keep the stored id.
+    tags = rec.get("payload", {}).get("tags") or {}
+    tags["scenario"] = "TAMPERED"
+    rec["payload"]["tags"] = tags
+    lines[0] = json.dumps(rec, separators=(",", ":"), sort_keys=True)
+    first.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError) as excinfo:
+        compute_baseline_hash(target)
+    assert stale_id in str(excinfo.value) or "tamper" in str(excinfo.value).lower()
+
+
 def test_compute_baseline_hash_dir_with_no_records_raises(tmp_path: Path) -> None:
     """A `.agentlog` file with no records is a degenerate state —
     pinning a hash over zero records would let any future trace
