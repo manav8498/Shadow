@@ -102,6 +102,12 @@ def test_to_json_round_trips_dataclass_field_set() -> None:
         "worst_policy_rule",
         "suggested_fix",
         "flags",
+        # v3.2.2 added two top-level booleans mirroring entries in
+        # `flags`. They're derivable from the dataclass but surfaced
+        # at the top level so CI pipelines / dashboards don't have to
+        # string-match the per-row flag list.
+        "is_synthetic",
+        "low_statistical_power",
     }
     assert set(parsed.keys()) == expected_keys
     assert parsed["affected_trace_ids"] == [f"sha256:{1:064d}"]

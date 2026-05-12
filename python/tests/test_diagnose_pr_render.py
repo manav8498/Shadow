@@ -277,3 +277,89 @@ def test_synthetic_mock_flag_surfaces_disclosure_block() -> None:
     md = render_pr_comment(r)
     assert "synthetic" in md.lower() or "mock backend" in md.lower()
     assert "--backend live" in md
+
+
+def test_synthetic_mock_warning_is_first_block_above_verdict() -> None:
+    """External-review-driven regression test: the synthetic-mock
+    disclosure must sit ABOVE the `## Shadow verdict:` heading and use
+    a warning-level emoji (not an info-level one), so a casual reader
+    can't skim past the verdict without seeing that the numbers below
+    are synthetic.
+    """
+    r = DiagnosePrReport(
+        schema_version=SCHEMA_VERSION,
+        verdict="stop",
+        total_traces=3,
+        affected_traces=3,
+        blast_radius=1.0,
+        dominant_cause=None,
+        top_causes=[],
+        trace_diagnoses=[],
+        affected_trace_ids=[],
+        new_policy_violations=0,
+        worst_policy_rule=None,
+        suggested_fix=None,
+        flags=["synthetic_mock"],
+    )
+    md = render_pr_comment(r)
+    # The synthetic banner must appear before the verdict header.
+    synthetic_idx = md.lower().find("synthetic")
+    verdict_idx = md.find("## Shadow verdict:")
+    assert synthetic_idx >= 0, "synthetic banner missing"
+    assert verdict_idx >= 0, "verdict header missing"
+    assert synthetic_idx < verdict_idx, (
+        "synthetic-mock disclosure must appear ABOVE the verdict so it's "
+        "impossible to miss; placement below the verdict was the v3.2.1 "
+        "regression that external review flagged."
+    )
+    # Must be a warning, not an info note.
+    assert ":warning:" in md or "⚠" in md
+    assert "DO NOT USE FOR DECISIONS" in md
+
+
+def test_to_json_surfaces_is_synthetic_top_level() -> None:
+    """Machine consumers (CI pipelines, dashboards) should be able to
+    detect synthetic runs without string-matching the `flags` list.
+    `to_json` must add a top-level `is_synthetic` boolean.
+    """
+    from shadow.diagnose_pr.report import to_json
+
+    r = DiagnosePrReport(
+        schema_version=SCHEMA_VERSION,
+        verdict="ship",
+        total_traces=10,
+        affected_traces=0,
+        blast_radius=0.0,
+        dominant_cause=None,
+        top_causes=[],
+        trace_diagnoses=[],
+        affected_trace_ids=[],
+        new_policy_violations=0,
+        worst_policy_rule=None,
+        suggested_fix=None,
+        flags=["synthetic_mock"],
+    )
+    import json as _json
+
+    payload = _json.loads(to_json(r))
+    assert payload["is_synthetic"] is True
+    assert payload["low_statistical_power"] is False
+
+    r_real = DiagnosePrReport(
+        schema_version=SCHEMA_VERSION,
+        verdict="ship",
+        total_traces=50,
+        affected_traces=0,
+        blast_radius=0.0,
+        dominant_cause=None,
+        top_causes=[],
+        trace_diagnoses=[],
+        affected_trace_ids=[],
+        new_policy_violations=0,
+        worst_policy_rule=None,
+        suggested_fix=None,
+        flags=[],
+    )
+    payload2 = _json.loads(to_json(r_real))
+    assert payload2["is_synthetic"] is False
+    assert payload2["low_statistical_power"] is False

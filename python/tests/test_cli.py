@@ -103,6 +103,34 @@ def test_diff_produces_a_nine_axis_report(tmp_path: Path) -> None:
     assert latency_row["delta"] > 0
 
 
+def test_diff_output_json_carries_low_statistical_power_flag(tmp_path: Path) -> None:
+    """External-review-driven regression test: diff --output-json should
+    carry a TOP-LEVEL `low_statistical_power` boolean when pair_count<5
+    so CI pipelines don't have to string-match per-row flag lists.
+
+    The reviewer's scenario: a 3-trace fixture produced a moderate
+    severity verdict; the low_power flag was on each row but easy to
+    skip in a CI script. Top-level flag makes the "treat as advisory"
+    signal first-class.
+    """
+    baseline = tmp_path / "b.agentlog"
+    candidate = tmp_path / "c.agentlog"
+    _make_trace(baseline, latency_ms=100, text="hello")
+    _make_trace(candidate, latency_ms=250, text="goodbye")
+    out_json = tmp_path / "report.json"
+    result = runner.invoke(
+        app,
+        ["diff", str(baseline), str(candidate), "--seed", "1", "--output-json", str(out_json)],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(out_json.read_text())
+    assert data["pair_count"] == 1
+    assert data["low_statistical_power"] is True, (
+        "single-pair diff must surface low_statistical_power=true at the "
+        "top level of the JSON report"
+    )
+
+
 def test_report_renders_markdown_and_github_pr(tmp_path: Path) -> None:
     fake_report = {
         "rows": [

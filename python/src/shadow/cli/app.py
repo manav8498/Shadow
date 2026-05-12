@@ -2398,8 +2398,24 @@ def diff_cmd(
                     console.print(narrative)
 
         if output_json is not None:
+            # Add machine-readable top-level flags so CI pipelines and
+            # dashboards don't have to string-match per-row flag lists
+            # to decide "do I treat this verdict as authoritative?".
+            # The two booleans mirror the most-consequential entries
+            # in per-row `flags`: low_power (n<5) drives a directional
+            # verdict; the diff JSON itself carries no synthetic flag
+            # because `shadow diff` doesn't use a causal backend.
+            #
+            # External-review-driven: a reviewer with a 3-trace fixture
+            # got a moderate-severity verdict that they treated as
+            # actionable; the low_power flag was present per-row but
+            # easy to skip past in a CI script. Top-level `low_statistical_power`
+            # is the right shape for "fail the gate vs treat as advisory."
+            pair_count = int(report.get("pair_count", 0))
+            report_to_write = dict(report)
+            report_to_write["low_statistical_power"] = 0 < pair_count < 5
             output_json.parent.mkdir(parents=True, exist_ok=True)
-            output_json.write_text(json.dumps(report, indent=2))
+            output_json.write_text(json.dumps(report_to_write, indent=2))
 
         # Merge-gate: exit non-zero when the worst signal exceeds the
         # caller's --fail-on threshold. The PR comment / output JSON

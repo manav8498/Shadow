@@ -31,6 +31,34 @@ Locked install **will fail** if your existing project pins packages that conflic
 
 The locked set pulls every optional extra (`[all]` plus `[dev]` test deps), which includes `sentence-transformers` (~2GB on first download). For a leaner locked install, run `uv export --extra <name>` against the lockfile yourself.
 
+### Known extras that perturb other deps
+
+Some optional extras have wide pins themselves and will downgrade
+packages already installed in your environment when added via
+`pip install 'shadow-diff[<extra>]'`. The non-locked install path
+is **permissive** by design — that's how Shadow coexists with older
+agent stacks — but it does mean these specific extras can shift the
+versions of packages they share with you.
+
+| Extra | Will commonly downgrade |
+|---|---|
+| `crewai` | `typer`, `pydantic`, `mcp`, `opentelemetry-*` (crewai pins narrower ranges than Shadow's other extras) |
+| `langgraph` | rarely; langchain-core 1.x is mostly compatible |
+| `ag2` | rarely |
+
+Recommended workarounds when you need both Shadow + a perturbing extra in the same env:
+
+1. **Use the locked install** above. `uv sync --frozen` resolves the
+   whole tree to one consistent set; nothing gets silently
+   downgraded.
+2. **Install the framework first, then Shadow.** Letting the framework
+   pin its narrower ranges first means `pip install shadow-diff`
+   later adapts to those pins, not the other way around.
+3. **Install Shadow in a separate venv** dedicated to the analysis
+   pipeline. Most teams run `shadow record` / `shadow diff` /
+   `shadow diagnose-pr` in CI from a clean venv, not from the agent's
+   production venv.
+
 ## When to regenerate
 
 The lockfile is regenerated on every Shadow release. Maintainers run `uv lock --upgrade` against `python/pyproject.toml` and re-export `requirements-locked.txt` before tagging. A GitHub Actions job (`lockfile-sync-check`) fails the build if `uv.lock` drifts from `pyproject.toml` on `main`.

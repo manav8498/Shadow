@@ -128,8 +128,20 @@ def build_report(
 def to_json(report: DiagnosePrReport, *, indent: int = 2) -> str:
     """Serialise a report with sorted keys (so PR-side diffs are
     minimal) and the requested indent.
+
+    Adds two top-level boolean fields that mirror the most-consequential
+    entries in `flags`: `is_synthetic` (true when the run used
+    `--backend mock`) and `low_statistical_power` (true when the sample
+    is too small for stable CIs). Both are derivable from `flags`, but
+    machine consumers (CI pipelines, dashboards) shouldn't have to
+    string-match a list — a top-level boolean is the right shape for
+    "do I treat this verdict as authoritative?" decisions.
     """
-    return json.dumps(asdict(report), sort_keys=True, indent=indent, ensure_ascii=False)
+    payload = asdict(report)
+    flags = payload.get("flags") or []
+    payload["is_synthetic"] = "synthetic_mock" in flags
+    payload["low_statistical_power"] = "low_power" in flags
+    return json.dumps(payload, sort_keys=True, indent=indent, ensure_ascii=False)
 
 
 def report_from_traces_and_deltas(

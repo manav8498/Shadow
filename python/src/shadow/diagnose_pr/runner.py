@@ -167,7 +167,11 @@ def run_diagnose_pr(opts: DiagnoseOptions) -> DiagnoseResult:
     suggested_fix = suggested_fix_for(dominant, deltas=deltas)
 
     backend_flags: list[str] = []
-    if opts.backend == "mock" and dominant is not None:
+    # Always disclose synthetic backend, not just when a dominant cause
+    # is crowned. A buyer reading the PR comment must see that the
+    # numbers below come from a deterministic heuristic before they
+    # read the verdict, regardless of whether any cause was picked.
+    if opts.backend == "mock":
         backend_flags.append("synthetic_mock")
 
     report = build_report(

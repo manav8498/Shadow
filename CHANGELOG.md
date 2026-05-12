@@ -4,6 +4,44 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.2.2] — 2026-05-12
+
+Patch release. Three disclosure-hardening items from a third external
+review pass. No breaking changes; output shapes are additive.
+
+### Changed
+
+* **Synthetic-backend disclosure hoisted to the top of the PR comment.**
+  When `shadow diagnose-pr --backend mock` runs, the PR comment now
+  opens with a `:warning:` banner reading
+  **"SYNTHETIC NUMBERS — DO NOT USE FOR DECISIONS"** *above* the
+  `## Shadow verdict:` heading. Previously the `:information_source:`
+  note was mid-comment and easy to skim past; an external reviewer
+  flagged that buyers could over-read the mock ATE / CI as evidence.
+  Also widened the flag to fire on every `--backend mock` run, not
+  just runs with a dominant cause. Regression test:
+  `test_synthetic_mock_warning_is_first_block_above_verdict`.
+
+### Added
+
+* **Top-level `is_synthetic` + `low_statistical_power` booleans in
+  diagnose-pr JSON.** `to_json` now emits two top-level booleans
+  alongside the existing `flags` list. CI pipelines and dashboards
+  can branch on `is_synthetic` / `low_statistical_power` directly
+  instead of string-matching the per-row flag set. Mirrored on
+  `shadow diff --output-json`: a `low_statistical_power` boolean is
+  emitted at the top of the report when `pair_count < 5`. Regression
+  tests: `test_to_json_surfaces_is_synthetic_top_level`,
+  `test_diff_output_json_carries_low_statistical_power_flag`.
+
+* **CrewAI dep-conflict workaround docs.** `docs/quickstart/locked-install.md`
+  now lists which optional extras can downgrade other packages
+  (`shadow-diff[crewai]` is the worst offender — it pins narrower
+  ranges for `typer`, `pydantic`, `mcp`, `opentelemetry-*` than
+  Shadow itself) and three recommended workarounds: locked install,
+  install-framework-first, or use a separate venv for the Shadow
+  analysis pipeline.
+
 ## [3.2.1] — 2026-05-12
 
 Patch release. Five hardening items from a second external review pass.

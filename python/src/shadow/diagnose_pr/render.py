@@ -134,6 +134,25 @@ def render_pr_comment(report: DiagnosePrReport) -> str:
     """Render a full PR-comment markdown body for a diagnose-pr
     report. Output ends in a newline."""
     out: list[str] = [_MARKER, ""]
+
+    # Synthetic-backend banner is the FIRST thing a reader sees. Mock
+    # numbers are deterministic per-delta heuristics, not real LLM
+    # behavior; an external reviewer flagged that the prior
+    # info-level mid-comment placement was easy to miss and buyers
+    # could overread the confidence intervals. Hoisting to the top +
+    # warning-level emoji makes the "not for decisions" framing
+    # impossible to skip.
+    if "synthetic_mock" in report.flags:
+        out.append(
+            "> :warning: **SYNTHETIC NUMBERS — DO NOT USE FOR DECISIONS.** "
+            "This run used `--backend mock`. Cause magnitudes, ATE values, "
+            "and confidence intervals below come from a deterministic "
+            "per-delta heuristic, not real LLM behavior. Re-run with "
+            "`--backend live` (real OpenAI replay, requires `OPENAI_API_KEY` "
+            "and `--max-cost`) before treating any number as authoritative."
+        )
+        out.append("")
+
     out.append(f"## Shadow verdict: {report.verdict.upper()}")
     out.append("")
 
@@ -153,14 +172,6 @@ def render_pr_comment(report: DiagnosePrReport) -> str:
         out.append(
             "> :warning: **Low statistical power** — fewer than 30 traces in the sample. "
             "Treat the verdict as advisory; widen `--max-traces` for more confidence."
-        )
-        out.append("")
-
-    if "synthetic_mock" in report.flags:
-        out.append(
-            "> :information_source: **Synthetic mock backend.** Cause magnitudes "
-            "below come from a deterministic per-delta heuristic (not real LLM "
-            "behavior). Re-run with `--backend live` for a grounded estimate."
         )
         out.append("")
 
