@@ -92,7 +92,7 @@ jobs:
           cyclonedx-py environment -o python/dist/sbom-python.cdx.json
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: python-wheel-${{ matrix.os }}
           path: |
@@ -124,7 +124,7 @@ jobs:
           cd python
           maturin sdist --out dist/
           ls -la dist/
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: python-sdist
           path: python/dist/*.tar.gz
@@ -192,7 +192,7 @@ jobs:
           cd typescript
           npx -y @cyclonedx/cyclonedx-npm --output-file sbom-typescript.cdx.json
       - name: Upload TS artifacts
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: ts-package
           path: |
@@ -228,7 +228,7 @@ jobs:
           cp crates/shadow-core/shadow-diff.cdx.json sbom-rust.cdx.json || \
             printf '%s' '{"bomFormat":"CycloneDX","specVersion":"1.5","version":1,"components":[],"metadata":{"component":{"type":"library","name":"shadow-diff"}}}' \
               > sbom-rust.cdx.json
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: rust-crate
           path: |
