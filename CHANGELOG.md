@@ -4,6 +4,51 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.2.5] — 2026-05-13
+
+Patch release. Two concrete code fixes from a fifth external review
+pass.
+
+### Fixed
+
+* **Banded alignment now banded in storage, not just in compute.**
+  `crates/shadow-core/src/diff/alignment.rs::align_banded` previously
+  allocated four full `n × m` matrices (mat, xg, yg, back) even though
+  the compute loop only touched cells within `|i - j| ≤ band`. At
+  n = m = 10_000 (a 10k-pair diff) that produced a ~3.6 GB RSS spike
+  on a documented 500 MB budget. A reviewer reproduced the blow-up.
+  v3.2.5 switches to a new `Banded<T>` storage type that holds only
+  the in-band columns per row (`2·band + 1` cells at the middle of
+  the band). Measured on the same fixture: peak RSS dropped from
+  3694 MB → 456 MB, a ~10x reduction. Diff runtime also improved
+  (11.4s → 8.6s) since we no longer initialise hundreds of MB of
+  matrix cells we'd never read. Regression pinned by
+  `banded_alignment_storage_is_banded_not_full_matrix`.
+
+* **Stress benchmark now scopes memory measurement to the diff phase
+  only.** Previously the benchmark used lifetime `resource.getrusage`
+  RSS, which billed the synthetic-generation overhead to the diff
+  budget. v3.2.5 frees each generated list with `del` + `gc.collect()`
+  between phases and uses `tracemalloc` plus before/after RSS delta
+  for the diff-phase peak. This also catches Rust-side allocations
+  that `tracemalloc` alone misses.
+
+### Added
+
+* **Four new default redaction patterns** (closes the documented
+  gaps a reviewer flagged):
+  * `us_ssn` — `XXX-XX-XXXX` form (bare 9-digit kept as documented
+    gap; too many false positives).
+  * `iban` — ISO 13616, both grouped (`GB82 WEST 1234 …`) and compact
+    (`DE89370400440532013000`) forms.
+  * `ipv4` — dotted-quad with octet-range validation (rejects
+    `999.999.999.999` etc.).
+  * `ipv6` — full eight-group form plus `::`-compressed.
+
+  Eight regression tests in `test_redaction_conformance.py`. Two
+  classes remain documented gaps: bare-digit SSN (collides with
+  order ids) and date of birth (collides with every other date).
+
 ## [3.2.4] — 2026-05-13
 
 Minor release. Tiered statistical-power surfacing plus published

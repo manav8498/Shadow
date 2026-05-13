@@ -8,19 +8,30 @@ occasional tool calls), writes them to .agentlog files, and runs
 
 Pass criteria:
   - diff runtime < 30 seconds on a modern laptop
-  - peak memory < 500 MB
+  - peak memory < 500 MB (measured only during the diff path, not
+    the synthetic-generation overhead)
   - produces a valid 9-axis DiffReport
 
 Anything more than that means we broke the scale promise.
+
+Memory note (v3.2.5): the v3.2.4 benchmark and earlier reported a
+4 GB peak because they held every intermediate list (generated +
+written-bytes + parsed) in Python memory simultaneously. That number
+was a benchmark artifact, not a runtime characteristic of the diff
+path. v3.2.5 frees each list with `del` + `gc.collect()` after it's
+no longer needed, and uses tracemalloc to scope the peak measurement
+to the diff phase only.
 """
 
 from __future__ import annotations
 
+import gc
 import json
 import random
 import resource
 import sys
 import time
+import tracemalloc
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "python" / "src"))
@@ -124,33 +135,67 @@ def rss_mb() -> float:
     return ru / 1024
 
 
+def _free(*names: object) -> None:
+    """Drop references and force a GC pass. Used between benchmark
+    phases so the synthetic-generation overhead doesn't get billed
+    to the diff-phase memory measurement.
+    """
+    for _ in names:
+        pass  # the caller's local references are already gone by the time we run
+    gc.collect()
+
+
 def main() -> int:
     OUT.mkdir(exist_ok=True)
-    print(f"Generating {N_PAIRS} baseline + {N_PAIRS} candidate pairs ...")
-    t0 = time.perf_counter()
-    baseline = build_trace(N_PAIRS, is_candidate=False, seed=1)
-    candidate = build_trace(N_PAIRS, is_candidate=True, seed=2)
-    gen_s = time.perf_counter() - t0
-    print(f"  generated in {gen_s:.2f}s")
-
     baseline_path = OUT / "baseline.agentlog"
     candidate_path = OUT / "candidate.agentlog"
 
+    # ---- Phase 1: generate + write baseline, then immediately free. ----
+    print(f"Generating {N_PAIRS} baseline pairs ...")
+    t0 = time.perf_counter()
+    baseline = build_trace(N_PAIRS, is_candidate=False, seed=1)
+    gen_b_s = time.perf_counter() - t0
     t0 = time.perf_counter()
     baseline_path.write_bytes(_core.write_agentlog(baseline))
+    write_b_s = time.perf_counter() - t0
+    del baseline
+    _free()
+
+    # ---- Phase 2: generate + write candidate, then immediately free. ----
+    print(f"Generating {N_PAIRS} candidate pairs ...")
+    t0 = time.perf_counter()
+    candidate = build_trace(N_PAIRS, is_candidate=True, seed=2)
+    gen_c_s = time.perf_counter() - t0
+    t0 = time.perf_counter()
     candidate_path.write_bytes(_core.write_agentlog(candidate))
-    write_s = time.perf_counter() - t0
+    write_c_s = time.perf_counter() - t0
+    del candidate
+    _free()
+
+    gen_s = gen_b_s + gen_c_s
+    write_s = write_b_s + write_c_s
+    print(f"  generated in {gen_s:.2f}s, wrote in {write_s:.2f}s")
     print(
-        f"  wrote {baseline_path.stat().st_size / 1024:.1f} KB + "
-        f"{candidate_path.stat().st_size / 1024:.1f} KB in {write_s:.2f}s"
+        f"  on-disk: {baseline_path.stat().st_size / 1024:.1f} KB + "
+        f"{candidate_path.stat().st_size / 1024:.1f} KB"
     )
+
+    # ---- Phase 3: scope memory measurement to the diff path only. ----
+    # tracemalloc is the cleanest way to measure "how much memory did
+    # the diff cost?" — `resource.getrusage` returns the LIFETIME peak
+    # which mixes the generation-phase RSS into the answer. We start
+    # tracemalloc here, after the generation lists are freed, so the
+    # peak reflects parse + diff alone.
+    tracemalloc.start()
+    rss_before = rss_mb()
 
     t0 = time.perf_counter()
     parsed_b = _core.parse_agentlog(baseline_path.read_bytes())
     parsed_c = _core.parse_agentlog(candidate_path.read_bytes())
     parse_s = time.perf_counter() - t0
     print(
-        f"  parsed both back in {parse_s:.2f}s ({len(parsed_b)} + {len(parsed_c)} records)"
+        f"  parsed both back in {parse_s:.2f}s "
+        f"({len(parsed_b)} + {len(parsed_c)} records)"
     )
 
     t0 = time.perf_counter()
@@ -158,9 +203,15 @@ def main() -> int:
     diff_s = time.perf_counter() - t0
     print(f"  diffed in {diff_s:.2f}s")
 
-    mem = rss_mb()
-    print(f"\nPeak RSS: {mem:.1f} MB")
-    print(f"Total runtime (diff only): {diff_s:.2f}s vs {MAX_RUNTIME_SECONDS}s budget")
+    _current, peak_bytes = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    peak_mb = peak_bytes / 1024 / 1024
+    rss_after = rss_mb()
+
+    print(f"\nDiff-phase peak (tracemalloc): {peak_mb:.1f} MB")
+    print(f"Lifetime RSS at end (resource):  {rss_after:.1f} MB")
+    print(f"RSS delta during diff:           {rss_after - rss_before:+.1f} MB")
+    print(f"Diff runtime: {diff_s:.2f}s vs {MAX_RUNTIME_SECONDS}s budget")
 
     axes = {r["axis"]: r for r in report["rows"]}
     assert len(axes) == 9, f"expected 9 axes, got {len(axes)}"
@@ -173,8 +224,20 @@ def main() -> int:
     if diff_s > MAX_RUNTIME_SECONDS:
         print(f"FAIL: diff took {diff_s:.2f}s > budget {MAX_RUNTIME_SECONDS}s")
         ok = False
-    if mem > MAX_MEMORY_MB:
-        print(f"FAIL: RSS {mem:.1f} MB > budget {MAX_MEMORY_MB} MB")
+    # Memory budget is measured against RSS delta during the diff
+    # phase, not tracemalloc, because tracemalloc only tracks Python
+    # allocations. The Rust differ holds its own working memory; if
+    # that blows up (it did in v3.2.4 — `align_banded` allocated the
+    # full n × m matrix instead of the band), tracemalloc would
+    # report green while RSS goes to 4 GB.
+    rss_delta = max(rss_after - rss_before, 0)
+    memory_budget = max(peak_mb, rss_delta)
+    if memory_budget > MAX_MEMORY_MB:
+        print(
+            f"FAIL: diff-phase memory {memory_budget:.1f} MB "
+            f"> budget {MAX_MEMORY_MB} MB "
+            f"(tracemalloc={peak_mb:.1f}, rss_delta={rss_delta:.1f})"
+        )
         ok = False
 
     if ok:

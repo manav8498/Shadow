@@ -367,26 +367,87 @@ fn align_full(baseline: &[&Record], candidate: &[&Record]) -> Alignment {
 /// Cells outside the band are clamped to INF on read and never written
 /// to (they stay INF), so the recurrence naturally refuses to route
 /// through them.
+/// Per-row column window for the banded matrix: `[j_lo, j_hi]`
+/// inclusive, capturing the in-band columns at row `i`.
+#[inline]
+fn band_window(i: usize, m: usize, band: usize) -> (usize, usize) {
+    (i.saturating_sub(band), (i + band).min(m))
+}
+
+/// Banded 2-D table: row `i` stores only the in-band columns
+/// `[j_lo(i), j_hi(i)]`. Column `j` lives at offset `j - j_lo(i)`.
+///
+/// Memory: O(n * band) instead of O(n * m). At n = m = 10_000 and
+/// band ≈ 200, this is ~30 MB per matrix vs ~800 MB for the full
+/// layout. v3.2.4 and earlier allocated the full matrix even though
+/// the compute only filled the band, defeating the whole point of
+/// the banded variant. v3.2.5 stores what the compute actually uses.
+struct Banded<T: Copy> {
+    rows: Vec<Vec<T>>,
+    band: usize,
+    m: usize,
+    default_val: T,
+}
+
+impl<T: Copy> Banded<T> {
+    fn new(n: usize, m: usize, band: usize, default_val: T) -> Self {
+        let mut rows = Vec::with_capacity(n + 1);
+        for i in 0..=n {
+            let (j_lo, j_hi) = band_window(i, m, band);
+            rows.push(vec![default_val; j_hi - j_lo + 1]);
+        }
+        Self {
+            rows,
+            band,
+            m,
+            default_val,
+        }
+    }
+
+    #[inline]
+    fn in_band(&self, i: usize, j: usize) -> bool {
+        let (j_lo, j_hi) = band_window(i, self.m, self.band);
+        j >= j_lo && j <= j_hi
+    }
+
+    #[inline]
+    fn get(&self, i: usize, j: usize) -> T {
+        if !self.in_band(i, j) {
+            return self.default_val;
+        }
+        let (j_lo, _) = band_window(i, self.m, self.band);
+        self.rows[i][j - j_lo]
+    }
+
+    #[inline]
+    fn set(&mut self, i: usize, j: usize, v: T) {
+        let (j_lo, _) = band_window(i, self.m, self.band);
+        self.rows[i][j - j_lo] = v;
+    }
+}
+
 fn align_banded(baseline: &[&Record], candidate: &[&Record], band: usize) -> Alignment {
     let n = baseline.len();
     let m = candidate.len();
     const INF: f64 = 1e18;
-    let mut mat = vec![vec![INF; m + 1]; n + 1];
-    let mut xg = vec![vec![INF; m + 1]; n + 1];
-    let mut yg = vec![vec![INF; m + 1]; n + 1];
-    let mut back = vec![vec![Step::Match(0, 0); m + 1]; n + 1];
+    let mut mat = Banded::new(n, m, band, INF);
+    let mut xg = Banded::new(n, m, band, INF);
+    let mut yg = Banded::new(n, m, band, INF);
+    let mut back = Banded::new(n, m, band, Step::Match(0, 0));
 
-    mat[0][0] = 0.0;
+    mat.set(0, 0, 0.0);
     // Boundary initialisation limited to the band.
     for i in 1..=n.min(band) {
-        yg[i][0] = GAP_OPEN + (i as f64 - 1.0) * GAP_EXTEND;
-        mat[i][0] = yg[i][0];
-        back[i][0] = Step::DeleteBaseline(i - 1);
+        let v = GAP_OPEN + (i as f64 - 1.0) * GAP_EXTEND;
+        yg.set(i, 0, v);
+        mat.set(i, 0, v);
+        back.set(i, 0, Step::DeleteBaseline(i - 1));
     }
     for j in 1..=m.min(band) {
-        xg[0][j] = GAP_OPEN + (j as f64 - 1.0) * GAP_EXTEND;
-        mat[0][j] = xg[0][j];
-        back[0][j] = Step::InsertCandidate(j - 1);
+        let v = GAP_OPEN + (j as f64 - 1.0) * GAP_EXTEND;
+        xg.set(0, j, v);
+        mat.set(0, j, v);
+        back.set(0, j, Step::InsertCandidate(j - 1));
     }
 
     for i in 1..=n {
@@ -394,23 +455,25 @@ fn align_banded(baseline: &[&Record], candidate: &[&Record], band: usize) -> Ali
         let j_hi = (i + band).min(m);
         for j in j_lo..=j_hi {
             let c = pair_cost(baseline[i - 1], candidate[j - 1]);
-            let m_cost = mat[i - 1][j - 1]
-                .min(xg[i - 1][j - 1])
-                .min(yg[i - 1][j - 1])
+            let m_cost = mat
+                .get(i - 1, j - 1)
+                .min(xg.get(i - 1, j - 1))
+                .min(yg.get(i - 1, j - 1))
                 + c;
-            let xg_cost = (mat[i][j - 1] + GAP_OPEN).min(xg[i][j - 1] + GAP_EXTEND);
-            let yg_cost = (mat[i - 1][j] + GAP_OPEN).min(yg[i - 1][j] + GAP_EXTEND);
-            mat[i][j] = m_cost;
-            xg[i][j] = xg_cost;
-            yg[i][j] = yg_cost;
+            let xg_cost = (mat.get(i, j - 1) + GAP_OPEN).min(xg.get(i, j - 1) + GAP_EXTEND);
+            let yg_cost = (mat.get(i - 1, j) + GAP_OPEN).min(yg.get(i - 1, j) + GAP_EXTEND);
+            mat.set(i, j, m_cost);
+            xg.set(i, j, xg_cost);
+            yg.set(i, j, yg_cost);
             let best = m_cost.min(xg_cost).min(yg_cost);
-            back[i][j] = if (best - m_cost).abs() < 1e-12 {
+            let step = if (best - m_cost).abs() < 1e-12 {
                 Step::Match(i - 1, j - 1)
             } else if (best - xg_cost).abs() < 1e-12 {
                 Step::InsertCandidate(j - 1)
             } else {
                 Step::DeleteBaseline(i - 1)
             };
+            back.set(i, j, step);
         }
     }
 
@@ -423,12 +486,15 @@ fn align_banded(baseline: &[&Record], candidate: &[&Record], band: usize) -> Ali
     while i > 0 || j > 0 {
         // If the recorded backpointer is the default Match(0, 0)
         // at an out-of-band cell, force a diagonal or edge step.
-        let s = if i > 0 && j > 0 {
-            back[i][j]
+        let s = if i > 0 && j > 0 && back.in_band(i, j) {
+            back.get(i, j)
         } else if j == 0 {
             Step::DeleteBaseline(i - 1)
-        } else {
+        } else if i == 0 {
             Step::InsertCandidate(j - 1)
+        } else {
+            // Out of band: force a diagonal step to converge to (0,0).
+            Step::Match(i - 1, j - 1)
         };
         steps.push(s);
         match s {
@@ -1262,6 +1328,49 @@ mod tests {
         assert_eq!(top.len(), 1);
         assert_eq!(top[0].kind, first.kind);
         assert_eq!(top[0].baseline_turn, first.baseline_turn);
+    }
+
+    #[test]
+    fn banded_alignment_storage_is_banded_not_full_matrix() {
+        // Regression test for an external-review finding: v3.2.4 and
+        // earlier `align_banded` ONLY banded the compute loop —
+        // storage was still `vec![vec![INF; m+1]; n+1]`, allocating
+        // the full n × m matrix four times. At n = m = 10_000 that
+        // produced a 3.6 GB RSS spike on a 500 MB budget.
+        //
+        // This test pins the contract: at n = m = 2_000, the total
+        // working memory of the four banded matrices stays well under
+        // what a full-matrix layout would cost. We measure structurally
+        // by counting cells in each row, which is more reliable than
+        // measuring RSS (RSS is noisy across platforms + allocators).
+        let n = 2_000usize;
+        let m = 2_000usize;
+        let band = band_half_width(n, m);
+        let banded: Banded<f64> = Banded::new(n, m, band, 0.0);
+        let total_cells: usize = banded.rows.iter().map(|r| r.len()).sum();
+        let full_cells = (n + 1) * (m + 1);
+        // The banded layout must use less than a quarter of the full
+        // layout. In practice it's much less (band ≈ √n + edge slack),
+        // but the quarter bound is a permissive regression gate.
+        assert!(
+            total_cells < full_cells / 4,
+            "banded storage size {total_cells} not meaningfully smaller than \
+             full-matrix size {full_cells}; the storage-is-banded fix has regressed"
+        );
+        // And spot-check: every row at the dense middle of the band
+        // must be exactly 2 * band + 1 cells, not m + 1.
+        let middle_row_len = banded.rows[n / 2].len();
+        assert!(
+            middle_row_len <= 2 * band + 1,
+            "middle row has {middle_row_len} cells; expected at most {} \
+             (2 * band + 1). align_banded is allocating wider than the band.",
+            2 * band + 1
+        );
+        assert!(
+            middle_row_len < m + 1,
+            "middle row has {middle_row_len} cells = m + 1; align_banded \
+             has regressed to full-matrix storage"
+        );
     }
 
     #[test]

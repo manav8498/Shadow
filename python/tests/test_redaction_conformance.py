@@ -10,16 +10,24 @@ Coverage categories (SOC 2 CC6.1 / CC6.7 / HIPAA §164.514 / GDPR Art.4):
   COVERED (redacted by default):
     - OpenAI API keys (sk-…)
     - Anthropic API keys (sk-ant-…)
+    - GitHub tokens (ghp_ / gho_ / ghu_ / ghs_ / ghr_)
+    - AWS access key ids (AKIA / ASIA / AIDA / AROA)
+    - JWT tokens
+    - PEM private keys
     - Email addresses (RFC 5321-ish)
     - Phone numbers in E.164 format
     - Credit-card PANs (Luhn-validated)
+    - US SSN in dashed `XXX-XX-XXXX` form (v3.2.5+)
+    - IBAN (v3.2.5+; grouped + compact forms)
+    - IPv4 addresses with valid octet ranges (v3.2.5+)
+    - IPv6 addresses, full and `::`-compressed forms (v3.2.5+)
 
   DOCUMENTED GAPS (not yet redacted — callers must provide custom rules):
-    - US SSN (9-digit)
-    - IBAN (bank accounts)
-    - IPv4 / IPv6 addresses
-    - Dates of birth in free text
-    - Arbitrary national IDs (driver's license, passport numbers)
+    - US SSN in bare 9-digit form (collides with order ids, hashes)
+    - Dates of birth in free text (collides with any date)
+    - Arbitrary national IDs (UK NI number, Canadian SIN, French INSEE,
+      Indian Aadhaar — each is country-specific; adopters provide
+      patterns matching the regulations they operate under)
     - Internal / proprietary identifiers (vary per enterprise)
 
 Every `test_redacts_*` asserts a class IS redacted. Every `test_documents_gap_*`
@@ -130,32 +138,21 @@ def test_redacts_jwt_token() -> None:
 
 
 # ---------------------------------------------------------------------------
-# DOCUMENTED GAPS — if these start passing, update the coverage matrix.
+# DOCUMENTED GAPS — coverage tests for the remaining gaps live alongside
+# the v3.2.5 positive tests at the bottom of this file. The classes
+# that ARE still gaps (DOB, bare-digit SSN, country-specific national
+# IDs, internal IDs) keep `test_documents_gap_*` tests so a future
+# coverage expansion has a single place to update.
 # ---------------------------------------------------------------------------
 
 
-def test_documents_gap_ssn_not_redacted() -> None:
-    r = Redactor()
-    out = r.redact_value("SSN 123-45-6789 on file")
-    # NOT redacted today. If this breaks, extend the coverage matrix.
-    assert "123-45-6789" in out
-
-
-def test_documents_gap_iban_not_redacted() -> None:
-    r = Redactor()
-    out = r.redact_value("IBAN DE89370400440532013000 for wire")
-    assert "DE89370400440532013000" in out
-
-
-def test_documents_gap_ipv4_not_redacted() -> None:
-    r = Redactor()
-    out = r.redact_value("from 192.168.1.42 accessed /admin")
-    assert "192.168.1.42" in out
-
-
 def test_documents_gap_date_of_birth_not_redacted() -> None:
-    r = Redactor()
-    out = r.redact_value("DOB: 1985-07-14, primary care: Kaiser")
+    """DOB collides with every other date in free text. A regex-based
+    redactor cannot tell `DOB: 1985-07-14` apart from
+    `policy effective 1985-07-14`. Adopters that handle PHI under
+    HIPAA / health-data regulation provide a domain-specific pattern
+    that uses surrounding context (e.g. the word `DOB` itself)."""
+    out = Redactor().redact_value("DOB: 1985-07-14, primary care: Kaiser")
     assert "1985-07-14" in out
 
 
@@ -200,3 +197,68 @@ def test_allowlist_bypasses_redaction() -> None:
     one_red = Redactor(allowlist_keys=frozenset({"internal_email"})).redact_value(payload)
     assert "ops@company.com" in str(one_red)
     assert "alice@x.com" not in str(one_red)
+
+
+# ---------------------------------------------------------------------------
+# v3.2.5 patterns added in response to external review: SSN, IBAN, IPv4, IPv6.
+# ---------------------------------------------------------------------------
+
+
+def test_redacts_us_ssn_dashed_form() -> None:
+    """`XXX-XX-XXXX` is the canonical US SSN format."""
+    out = Redactor().redact_value("user SSN: 123-45-6789 for the form")
+    assert "123-45-6789" not in out
+    assert "us_ssn" in out
+
+
+def test_documents_gap_bare_9_digit_ssn_is_not_redacted() -> None:
+    """Documented gap: bare 9-digit strings are ambiguous (order ids,
+    hash prefixes, zip+4 concatenations). Only the dashed form is
+    recognised. Adopters whose data carries bare-digit SSNs add a
+    domain-specific pattern. Changing this requires a CHANGELOG entry
+    + opt-in for backward compat."""
+    out = Redactor().redact_value("order 123456789 shipped")
+    assert "123456789" in out
+
+
+def test_redacts_iban_grouped_form() -> None:
+    """IBAN with the printed-on-statement spacing every 4 chars."""
+    out = Redactor().redact_value("wire to GB82 WEST 1234 5698 7654 32 today")
+    assert "GB82 WEST 1234 5698 7654 32" not in out
+    assert "iban" in out
+
+
+def test_redacts_iban_compact_form() -> None:
+    """Same IBAN with no spaces (API JSON form)."""
+    out = Redactor().redact_value("DE89370400440532013000 routed")
+    assert "DE89370400440532013000" not in out
+    assert "iban" in out
+
+
+def test_redacts_ipv4_address() -> None:
+    """Standard dotted-quad IPv4."""
+    out = Redactor().redact_value("connect from 203.0.113.42 at 09:00")
+    assert "203.0.113.42" not in out
+    assert "ipv4" in out
+
+
+def test_does_not_redact_invalid_ipv4_octets() -> None:
+    """Octets above 255 are not valid IPv4 addresses and must not match.
+    Regex bound, not a semantic check — guards against over-redaction
+    on free-form numbers."""
+    out = Redactor().redact_value("version 999.999.999.999 of fake.example")
+    assert "999.999.999.999" in out
+
+
+def test_redacts_ipv6_full_form() -> None:
+    """Full eight-group IPv6."""
+    out = Redactor().redact_value("client 2001:0db8:85a3:0000:0000:8a2e:0370:7334 connected")
+    assert "2001:0db8:85a3:0000:0000:8a2e:0370:7334" not in out
+    assert "ipv6" in out
+
+
+def test_redacts_ipv6_compressed_form() -> None:
+    """`::`-compressed IPv6."""
+    out = Redactor().redact_value("gateway 2001:db8::1 visible")
+    assert "2001:db8::1" not in out
+    assert "ipv6" in out

@@ -175,6 +175,10 @@ def test_scan_default_patterns_match_redactor(tmp_path: Path) -> None:
             "alice@acme.com",
             "+15551234567",
             "4111-1111-1111-1111",
+            "123-45-6789",  # us_ssn
+            "DE89370400440532013000",  # iban
+            "203.0.113.42",  # ipv4
+            "2001:db8::1",  # ipv6
         ]
     )
     _make_leaky_trace(tmp_path, sample_text)

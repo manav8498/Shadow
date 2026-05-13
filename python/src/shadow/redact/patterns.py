@@ -110,6 +110,55 @@ JWT_TOKEN = Pattern(
     replacement="[REDACTED:jwt]",
 )
 
+# US Social Security Number. Canonical form `123-45-6789`. We intentionally
+# require the dash form: bare 9-digit sequences are too ambiguous (order ids,
+# zip+4 concatenations, hashes) to redact without context, and would produce
+# too many false positives on production traces. Adopters whose data carries
+# bare-digit SSNs should add a domain-specific pattern.
+US_SSN = Pattern(
+    name="us_ssn",
+    regex=re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),
+    replacement="[REDACTED:us_ssn]",
+)
+
+# IBAN (International Bank Account Number). ISO 13616: country code (2
+# letters) + check digits (2 digits) + BBAN (up to 30 alphanumeric chars).
+# We allow optional spaces in groups of 4 (the printed form on bank
+# statements). The Luhn-style mod-97 check that fully validates an IBAN is
+# not run here — pattern is intentionally permissive so a partial paste is
+# still redacted.
+IBAN = Pattern(
+    name="iban",
+    regex=re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}[ ]?[A-Z0-9]{1,4}\b"),
+    replacement="[REDACTED:iban]",
+)
+
+# IPv4 address. Each octet is 0-255; we enforce that here so random number
+# triples don't get over-redacted. Adopters who want to keep internal RFC1918
+# addresses (10.x, 172.16-31.x, 192.168.x) visible should use a per-field
+# allowlist.
+IPV4 = Pattern(
+    name="ipv4",
+    regex=re.compile(
+        r"\b(?:25[0-5]|2[0-4]\d|[01]?\d?\d)" r"(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d?\d)){3}\b"
+    ),
+    replacement="[REDACTED:ipv4]",
+)
+
+# IPv6 address. Covers the full eight-group form `xxxx:xxxx:...:xxxx` and the
+# `::`-compressed form. Loose by design: we'd rather over-redact a malformed
+# IPv6 candidate than miss a real one. Pure-hex tokens (no colons) won't
+# match.
+IPV6 = Pattern(
+    name="ipv6",
+    regex=re.compile(
+        r"\b(?:[A-Fa-f0-9]{1,4}:){2,7}[A-Fa-f0-9]{1,4}\b"
+        r"|\b(?:[A-Fa-f0-9]{1,4}:){1,7}:\b"
+        r"|\b::(?:[A-Fa-f0-9]{1,4}:){0,6}[A-Fa-f0-9]{1,4}\b"
+    ),
+    replacement="[REDACTED:ipv6]",
+)
+
 DEFAULT_PATTERNS: tuple[Pattern, ...] = (
     # Order matters: longer / more specific prefixes first so partial
     # matches from shorter patterns don't win (e.g. sk-ant- vs sk-).
@@ -119,9 +168,13 @@ DEFAULT_PATTERNS: tuple[Pattern, ...] = (
     OPENAI_API_KEY,
     AWS_ACCESS_KEY_ID,
     GITHUB_TOKEN,
+    IBAN,
     EMAIL,
     PHONE_E164,
     CREDIT_CARD_CANDIDATE,
+    US_SSN,
+    IPV6,
+    IPV4,
 )
 
 
