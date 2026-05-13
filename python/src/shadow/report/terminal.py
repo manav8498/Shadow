@@ -20,12 +20,18 @@ def render_terminal(report: dict[str, Any], console: Console | None = None) -> N
     # Low-n banner: bootstrap CIs at n < 5 are unreliable, so signal
     # this before the user reads the severity column. Matches the
     # `LowPower` flag the Rust differ emits per-row.
-    if 0 < pair_count < 5:
-        con.print(
-            f"[yellow]⚠  Only {pair_count} paired response(s) — severities "
-            "below are directional, not definitive. Record 10+ turns for "
-            "stable confidence intervals.[/]"
-        )
+    # Tiered statistical-power banner (v3.2.4). Replaces the prior
+    # binary n<5 banner with three levels (low / moderate / adequate)
+    # and a concrete recommended sample size for the next tier.
+    if pair_count > 0:
+        from shadow.report.statistical_power import classify_power, power_blurb
+
+        tier = classify_power(pair_count)
+        if tier in {"low", "moderate"}:
+            style = "yellow" if tier == "low" else "bold yellow"
+            con.print(f"[{style}]⚠  {power_blurb(pair_count)}[/]")
+        elif tier == "adequate":
+            con.print(f"[dim]{power_blurb(pair_count)}[/]")
     # Long-form TF-IDF hint: BM25/TF-IDF semantic distance over-alarms
     # on long-form outputs where vocabularies legitimately diverge
     # (e.g. GPT-4.1 vs GPT-5 deep-research reports, multi-paragraph

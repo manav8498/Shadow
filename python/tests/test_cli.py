@@ -103,15 +103,15 @@ def test_diff_produces_a_nine_axis_report(tmp_path: Path) -> None:
     assert latency_row["delta"] > 0
 
 
-def test_diff_output_json_carries_low_statistical_power_flag(tmp_path: Path) -> None:
-    """External-review-driven regression test: diff --output-json should
-    carry a TOP-LEVEL `low_statistical_power` boolean when pair_count<5
-    so CI pipelines don't have to string-match per-row flag lists.
+def test_diff_output_json_carries_tiered_statistical_power(tmp_path: Path) -> None:
+    """External-review-driven regression test: diff --output-json must
+    carry the v3.2.4 tiered statistical-power signal at the top level
+    so CI pipelines can branch on power tier directly.
 
-    The reviewer's scenario: a 3-trace fixture produced a moderate
-    severity verdict; the low_power flag was on each row but easy to
-    skip in a CI script. Top-level flag makes the "treat as advisory"
-    signal first-class.
+    Pins three contract fields:
+    * ``statistical_power`` ∈ {"low","moderate","adequate","robust"}
+    * ``low_statistical_power`` (boolean back-compat, true at low+moderate)
+    * ``recommended_sample_size`` (next-tier target; absent at robust)
     """
     baseline = tmp_path / "b.agentlog"
     candidate = tmp_path / "c.agentlog"
@@ -125,10 +125,9 @@ def test_diff_output_json_carries_low_statistical_power_flag(tmp_path: Path) -> 
     assert result.exit_code == 0, result.output
     data = json.loads(out_json.read_text())
     assert data["pair_count"] == 1
-    assert data["low_statistical_power"] is True, (
-        "single-pair diff must surface low_statistical_power=true at the "
-        "top level of the JSON report"
-    )
+    assert data["statistical_power"] == "low"
+    assert data["low_statistical_power"] is True
+    assert data["recommended_sample_size"] == 30
 
 
 def test_report_renders_markdown_and_github_pr(tmp_path: Path) -> None:

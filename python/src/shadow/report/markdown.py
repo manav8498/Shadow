@@ -30,14 +30,19 @@ def render_markdown(report: dict[str, Any]) -> str:
             lines.append(f"> {s_line}")
         lines.append("")
 
-    # Low-n banner. Matches the terminal renderer and the `LowPower`
-    # flag the Rust differ emits per-row.
-    if 0 < pair_count < 5:
-        lines.append(
-            f"> ⚠  Only {pair_count} paired response(s) — severities below are "
-            "directional, not definitive. Record 10+ turns for stable CIs."
-        )
-        lines.append("")
+    # Tiered statistical-power banner (v3.2.4). Matches the terminal
+    # renderer; surfaces low / moderate / adequate guidance with a
+    # concrete recommended sample size for the next tier.
+    if pair_count > 0:
+        from shadow.report.statistical_power import classify_power, power_blurb
+
+        tier = classify_power(pair_count)
+        if tier in {"low", "moderate"}:
+            lines.append(f"> ⚠  {power_blurb(pair_count)}")
+            lines.append("")
+        elif tier == "adequate":
+            lines.append(f"> _{power_blurb(pair_count)}_")
+            lines.append("")
 
     # Long-form TF-IDF hint — see terminal.py for the rationale.
     if _should_hint_embeddings_md(report):

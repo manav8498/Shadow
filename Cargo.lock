@@ -745,14 +745,14 @@ dependencies = [
 
 [[package]]
 name = "shadow-align"
-version = "3.2.3"
+version = "3.2.4"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "shadow-diff"
-version = "3.2.3"
+version = "3.2.4"
 dependencies = [
  "async-trait",
  "insta",

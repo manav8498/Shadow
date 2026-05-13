@@ -2398,22 +2398,31 @@ def diff_cmd(
                     console.print(narrative)
 
         if output_json is not None:
-            # Add machine-readable top-level flags so CI pipelines and
-            # dashboards don't have to string-match per-row flag lists
-            # to decide "do I treat this verdict as authoritative?".
-            # The two booleans mirror the most-consequential entries
-            # in per-row `flags`: low_power (n<5) drives a directional
-            # verdict; the diff JSON itself carries no synthetic flag
-            # because `shadow diff` doesn't use a causal backend.
+            # Machine-readable top-level statistical-power signal. v3.2.2
+            # added a binary `low_statistical_power: bool` at the n<5
+            # cliff edge; v3.2.4 widens that to a tiered classification
+            # (low / moderate / adequate / robust) and adds a
+            # `recommended_sample_size` so CI pipelines and dashboards
+            # can present accurate guidance, not just a single warning.
             #
-            # External-review-driven: a reviewer with a 3-trace fixture
-            # got a moderate-severity verdict that they treated as
-            # actionable; the low_power flag was present per-row but
-            # easy to skip past in a CI script. Top-level `low_statistical_power`
-            # is the right shape for "fail the gate vs treat as advisory."
+            # `low_statistical_power` stays as a boolean for back-compat
+            # with consumers that already branch on it; the boolean now
+            # fires at the moderate threshold (n<30) instead of the low
+            # one (n<5) since the practitioner consensus is that n<30
+            # is the meaningful "advisory" boundary for bootstrap CIs.
+            from shadow.report.statistical_power import (
+                classify_power,
+                recommended_sample_size,
+            )
+
             pair_count = int(report.get("pair_count", 0))
             report_to_write = dict(report)
-            report_to_write["low_statistical_power"] = 0 < pair_count < 5
+            tier = classify_power(pair_count)
+            report_to_write["statistical_power"] = tier
+            report_to_write["low_statistical_power"] = tier in {"low", "moderate"}
+            rec = recommended_sample_size(pair_count)
+            if rec is not None:
+                report_to_write["recommended_sample_size"] = rec
             output_json.parent.mkdir(parents=True, exist_ok=True)
             output_json.write_text(json.dumps(report_to_write, indent=2))
 

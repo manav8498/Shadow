@@ -4,6 +4,48 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.2.4] — 2026-05-13
+
+Minor release. Tiered statistical-power surfacing plus published
+audit-prep and SOC 2 gap analysis. Honest framing for enterprise
+reviewers; no breaking changes.
+
+### Changed
+
+* **Tiered `statistical_power` signal replaces the binary
+  `low_statistical_power` cliff.** `shadow diff --output-json` now
+  carries:
+  * `statistical_power: "low" | "moderate" | "adequate" | "robust"`
+    at the top level, with thresholds at `n < 5` / `n < 30` / `n < 100`.
+  * `recommended_sample_size: <int>` pointing at the next-tier target.
+  * `low_statistical_power: bool` kept for back-compat; now true at
+    `tier in {"low", "moderate"}` (i.e. `n < 30`), the practitioner
+    consensus boundary for stable bootstrap CIs. v3.2.3 fired this
+    only at `n < 5`.
+
+  Terminal + markdown renderers print a one-line tiered banner naming
+  the current count, tier, and recommended next-tier sample size.
+  Pinned by `python/tests/test_statistical_power.py` (24 cases) and
+  `test_diff_output_json_carries_tiered_statistical_power`.
+
+### Added
+
+* **`docs/ROADMAP-TO-PRODUCTION.md`** — transparent criteria for
+  bumping the PyPI classifier from `4 - Beta` to `5 - Production/Stable`.
+  Adoption / stability / security / compliance / process signals listed
+  with explicit pass/fail boxes. Shadow stays Beta until the boxes
+  check.
+* **`docs/security/AUDIT-PREP.md`** — pre-audit dossier for a third-party
+  firm engaging with Shadow. Full STRIDE threat model, control inventory,
+  and a "what an auditor would still verify" section so the firm spends
+  their time on adversarial verification, not architecture
+  reverse-engineering.
+* **`docs/security/SOC2-ROADMAP.md`** — honest SOC 2 gap analysis against
+  the TSC Common Criteria. Documents when Shadow does and does not need
+  SOC 2 (CLI tool vs. hosted service), what gaps would close on the path
+  to v1.0, and three concrete paths for adopters who need attestation
+  sooner.
+
 ## [3.2.3] — 2026-05-13
 
 Patch release. Three concrete code bugs from a fourth external review
