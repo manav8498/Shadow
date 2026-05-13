@@ -182,11 +182,14 @@ def testload_policy_rejects_wrong_shape() -> None:
 
 
 def testload_policy_rejects_unknown_severity() -> None:
-    """`severity: critical` (or any non-{info,warning,error} value)
-    used to silently store as the raw string and then NEVER trip
+    """Any non-{info,warning,error,critical} severity value used to
+    silently store as the raw string and then NEVER trip
     `--fail-on severe` because the rank lookup fell through to a
     default. Now it errors at policy-load time so the misuse is
-    visible up front."""
+    visible up front. (v3.2.3 widened the allow-set to include
+    `critical`, matching the PolicyRule docstring and the downstream
+    risk classifier; the rejected-value test now uses a clearly
+    bogus value.)"""
     with pytest.raises(ShadowConfigError, match="invalid severity"):
         load_policy(
             [
@@ -194,15 +197,18 @@ def testload_policy_rejects_unknown_severity() -> None:
                     "id": "r",
                     "kind": "no_call",
                     "params": {"tool": "x"},
-                    "severity": "critical",
+                    "severity": "superduperhigh",
                 }
             ]
         )
 
 
 def testload_policy_accepts_each_valid_severity() -> None:
-    """The three documented severities all parse cleanly."""
-    for sev in ("info", "warning", "error"):
+    """The four documented severities (info, warning, error, critical)
+    all parse cleanly. v3.2.3 added `critical` to match the
+    PolicyRule docstring and downstream code (risk classifier, PR
+    renderer) which already handle it."""
+    for sev in ("info", "warning", "error", "critical"):
         rules = load_policy(
             [{"id": "r", "kind": "no_call", "params": {"tool": "x"}, "severity": sev}]
         )
@@ -330,6 +336,109 @@ def test_must_include_text_and_forbidden_text() -> None:
     assert check_policy(records_bad, must_rules)
     assert check_policy(records_good, must_rules) == []
     assert check_policy(records_pii, forbid_rules)
+
+
+def test_no_call_does_not_double_count_when_tool_use_and_tool_call_coexist() -> None:
+    """Regression test for an external review finding: when a session
+    emits BOTH a `tool_use` content block inside a `chat_response` AND
+    a standalone `tool_call` record for the same dispatch (the common
+    case when an agent uses `Session.record_tool_call` alongside the
+    LLM's tool_use output), `_extract_tool_calls` emitted the call
+    twice. `no_call` and `must_call_once` then fired twice for what
+    is logically one call.
+
+    The fix: dedup by `tool_call_id` when both records carry the same
+    id. Treat the `tool_call` record as the canonical entry (richer
+    args, post-dispatch) and drop the duplicate `tool_use` block.
+    """
+    forbidden = "delete_prod"
+    records = [
+        _response(
+            content=[
+                {
+                    "type": "tool_use",
+                    "id": "call_abc",
+                    "name": forbidden,
+                    "input": {"db": "prod"},
+                }
+            ],
+            stop_reason="tool_use",
+        ),
+        # The same dispatch logged explicitly via Session.record_tool_call
+        # with the SAME tool_call_id as the LLM-emitted tool_use block.
+        {
+            "kind": "tool_call",
+            "payload": {
+                "tool_name": forbidden,
+                "tool_call_id": "call_abc",
+                "arguments": {"db": "prod"},
+            },
+        },
+    ]
+    rules = load_policy(
+        [{"id": "no-prod-delete", "kind": "no_call", "params": {"tool": forbidden}}]
+    )
+    violations = check_policy(records, rules)
+    assert len(violations) == 1, (
+        f"expected exactly one violation (one logical call), got {len(violations)}; "
+        "shared tool_call_id must dedup tool_use + tool_call surfaces"
+    )
+
+
+def test_no_call_still_flags_two_distinct_calls_with_different_ids() -> None:
+    """Counter-test for the dedup fix: when two records describe
+    DIFFERENT calls (different tool_call_id, or one carries no id at
+    all and the other does), both must still flag.
+    """
+    forbidden = "delete_prod"
+    records = [
+        _response(
+            content=[
+                {
+                    "type": "tool_use",
+                    "id": "call_one",
+                    "name": forbidden,
+                    "input": {"db": "prod"},
+                }
+            ],
+            stop_reason="tool_use",
+        ),
+        {
+            "kind": "tool_call",
+            "payload": {
+                "tool_name": forbidden,
+                "tool_call_id": "call_two",  # different id → different call
+                "arguments": {"db": "staging"},
+            },
+        },
+    ]
+    rules = load_policy(
+        [{"id": "no-prod-delete", "kind": "no_call", "params": {"tool": forbidden}}]
+    )
+    violations = check_policy(records, rules)
+    assert len(violations) == 2
+
+
+def test_policy_validator_accepts_severity_critical() -> None:
+    """Regression test: PolicyRule's docstring promises severity may be
+    "warning" | "error" | "critical", and downstream code (risk
+    classifier, severity ordering, PR renderer) all handle "critical".
+    The validator must accept it. External reviewer caught the
+    mismatch: validator was `{info, warning, error}` and rejected
+    `critical` from user YAML even though the docstring documents it
+    as valid.
+    """
+    rules = load_policy(
+        [
+            {
+                "id": "no-prod-delete",
+                "kind": "no_call",
+                "params": {"tool": "delete_prod"},
+                "severity": "critical",
+            }
+        ]
+    )
+    assert rules[0].severity == "critical"
 
 
 def test_must_include_text_each_per_response_enforcement() -> None:

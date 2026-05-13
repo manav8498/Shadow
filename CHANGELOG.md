@@ -4,6 +4,48 @@ All notable changes to Shadow are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.2.3] — 2026-05-13
+
+Patch release. Three concrete code bugs from a fourth external review
+pass, all caught and pinned by regression tests.
+
+### Fixed
+
+* **Policy validator now accepts `severity: critical`.** The
+  `PolicyRule` docstring documents `critical` as a valid severity and
+  the downstream code (risk classifier in
+  `shadow.diagnose_pr.risk._DANGEROUS_SEVERITIES`, severity ordering
+  in `policy.py`, PR renderer in `report/github_pr.py`) all handle it.
+  But `_VALID_SEVERITIES` in `hierarchical.py` rejected it, so users
+  writing `severity: critical` in YAML got `ShadowConfigError` at
+  policy-load time. Widened the allow-set to
+  `{info, warning, error, critical}`. Regression test:
+  `test_policy_validator_accepts_severity_critical`.
+
+* **diagnose-pr PR comment no longer misattributes multi-rule
+  violations to a single rule.** The "Why it matters" section used to
+  read `"{N} traces violate the \`{worst_rule}\` policy rule."`,
+  which was wrong when `N` spanned violations from multiple rules
+  (the reviewer's example: 6 total violations across multiple rules
+  rendered as "6 traces violate `browser-inspect-before-click`").
+  New phrasing: `"This PR introduces {N} new policy violation(s).
+  Worst rule: \`{worst_rule}\`."` — accurate regardless of rule
+  count. Regression test:
+  `test_why_it_matters_does_not_misattribute_multi_rule_violations`.
+
+* **`no_call` and `must_call_once` no longer double-count when a
+  session emits both `tool_use` content blocks AND standalone
+  `tool_call` records for the same dispatch.** Common shape: an
+  agent uses `Session.record_tool_call` alongside the LLM's
+  `tool_use` output, and both surfaces carried the same
+  `tool_call_id`. `_extract_tool_calls` previously emitted each call
+  twice; `no_call` then fired two violations for one logical call.
+  Now deduped by `tool_call_id`: when a `tool_call` record's id
+  matches a `tool_use` block already seen in the most recent
+  `chat_response`, the duplicate is dropped. Two regression tests
+  cover both the dedup case (shared id → 1 violation) and the
+  distinct-calls case (different ids → 2 violations).
+
 ## [3.2.2] — 2026-05-12
 
 Patch release. Three disclosure-hardening items from a third external

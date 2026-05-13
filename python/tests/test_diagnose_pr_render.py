@@ -279,6 +279,46 @@ def test_synthetic_mock_flag_surfaces_disclosure_block() -> None:
     assert "--backend live" in md
 
 
+def test_why_it_matters_does_not_misattribute_multi_rule_violations() -> None:
+    """Regression test: when a diagnose-pr run has new_policy_violations
+    spanning multiple rules, the PR comment used to read
+    "N traces violate the `<worst_rule>` policy rule." That phrasing
+    is wrong when N includes violations from rules other than
+    worst_rule. The external reviewer's example: 6 total violations
+    across multiple rules, but the comment said all 6 violated
+    `browser-inspect-before-click`.
+
+    The fix: phrase the line so the count refers to violations (not
+    traces) and the rule is named as the WORST one, not the only one.
+    """
+    r = DiagnosePrReport(
+        schema_version=SCHEMA_VERSION,
+        verdict="stop",
+        total_traces=10,
+        affected_traces=10,
+        blast_radius=1.0,
+        dominant_cause=None,
+        top_causes=[],
+        trace_diagnoses=[],
+        affected_trace_ids=[],
+        new_policy_violations=6,
+        worst_policy_rule="browser-inspect-before-click",
+        suggested_fix=None,
+        flags=[],
+    )
+    md = render_pr_comment(r)
+    # The wrong phrasing — "6 traces violate the `<one_rule>`" — must
+    # not appear. The right phrasing must reference the worst rule
+    # without claiming all violations come from it.
+    assert "6 traces violate the `browser-inspect-before-click`" not in md
+    # The new phrasing must mention both the count and the worst rule.
+    assert "6" in md
+    assert "browser-inspect-before-click" in md
+    # And it must contain a phrase that hedges (worst-rule framing)
+    # rather than asserting all violations belong to that rule.
+    assert "worst" in md.lower() or "most-severe" in md.lower() or "violations" in md.lower()
+
+
 def test_synthetic_mock_warning_is_first_block_above_verdict() -> None:
     """External-review-driven regression test: the synthetic-mock
     disclosure must sit ABOVE the `## Shadow verdict:` heading and use

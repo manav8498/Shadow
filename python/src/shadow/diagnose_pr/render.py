@@ -195,9 +195,19 @@ def render_pr_comment(report: DiagnosePrReport) -> str:
     if report.worst_policy_rule is not None and report.new_policy_violations > 0:
         out.append("### Why it matters")
         out.append("")
+        # `new_policy_violations` is the TOTAL count across ALL new
+        # violations; `worst_policy_rule` is the highest-severity
+        # single rule. The prior phrasing
+        # "{n} traces violate the `{worst_rule}` policy rule" was
+        # misleading when n covered multiple rules — an external
+        # reviewer reproduced this: 6 violations across multiple
+        # rules rendered as "6 traces violate `browser-inspect-...`."
+        # Honest phrasing: count is violations, rule is worst-of.
+        v = report.new_policy_violations
+        violations_word = "new policy violation" if v == 1 else "new policy violations"
         out.append(
-            f"{report.new_policy_violations} traces violate the "
-            f"`{report.worst_policy_rule}` policy rule."
+            f"This PR introduces **{v}** {violations_word}. "
+            f"Worst rule: `{report.worst_policy_rule}`."
         )
         out.append("")
 

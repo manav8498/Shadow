@@ -21,7 +21,7 @@ This PR changes agent behavior on **3** / **3** production-like traces.
 
 ### Why it matters
 
-3 traces violate the `confirm-before-refund` policy rule.
+This PR introduces **3** new policy violations. Worst rule: `confirm-before-refund`.
 
 ### Suggested fix
 

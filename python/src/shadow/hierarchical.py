@@ -701,7 +701,7 @@ class PolicyRule:
     id: str  # e.g. "call-backup-before-migration"
     kind: str  # see _POLICY_KINDS
     params: dict[str, Any]
-    severity: str = "error"  # "warning" | "error" | "critical"
+    severity: str = "error"  # "info" | "warning" | "error" | "critical"
     description: str = ""
     scope: str = "trace"  # "trace" | "session"
     when: tuple[ConditionExpr, ...] = ()
@@ -951,7 +951,11 @@ def _validate_rule_params(index: int, kind: str, params: dict[str, Any]) -> None
             )
 
 
-_VALID_SEVERITIES = frozenset({"info", "warning", "error"})
+# `critical` outranks `error` in the diagnose-pr risk classifier and PR
+# renderer; users writing `severity: critical` in YAML used to get a
+# config error because the validator rejected it. v3.2.3 widened the
+# allow-set to match what downstream code already handles.
+_VALID_SEVERITIES = frozenset({"info", "warning", "error", "critical"})
 
 _VALID_OPS = frozenset(
     {"==", "!=", ">", ">=", "<", "<=", "in", "not_in", "contains", "not_contains"}
@@ -1230,7 +1234,22 @@ def _extract_tool_call_sequence(
     see standalone tool_calls without each rule needing its own
     extraction logic.
     """
+    # Two-pass extraction with dedup-by-id:
+    #   Pass 1 — gather tool_use blocks tagged with their pair_idx and
+    #            block-level id (when present).
+    #   Pass 2 — fold in tool_call records, dropping any whose
+    #            tool_call_id matches an already-seen tool_use id
+    #            (those are the same logical dispatch, just observed
+    #            on a second surface).
+    #
+    # External-review-driven: prior to v3.2.3, a session that emitted
+    # BOTH a `tool_use` content block AND a paired `tool_call` record
+    # for the same dispatch (the common shape when an agent uses
+    # `Session.record_tool_call` alongside the LLM's tool_use output)
+    # got each call counted twice — `no_call` and `must_call_once`
+    # then fired duplicate violations for one logical call.
     out: list[tuple[int, str, dict[str, Any]]] = []
+    seen_ids: set[str] = set()
     pair_idx = -1
     for rec in records:
         kind = rec.get("kind")
@@ -1239,11 +1258,22 @@ def _extract_tool_call_sequence(
             payload = rec.get("payload") or {}
             for block in payload.get("content") or []:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
+                    block_id = block.get("id")
+                    if isinstance(block_id, str) and block_id:
+                        seen_ids.add(block_id)
                     out.append(
                         (pair_idx, str(block.get("name") or ""), dict(block.get("input") or {}))
                     )
         elif kind == "tool_call":
             payload = rec.get("payload") or {}
+            tc_id = payload.get("tool_call_id")
+            # Dedup: if this tool_call's id matches a tool_use block
+            # we already emitted, this is the same dispatch viewed
+            # through a second surface. Skip.
+            if isinstance(tc_id, str) and tc_id and tc_id in seen_ids:
+                continue
+            if isinstance(tc_id, str) and tc_id:
+                seen_ids.add(tc_id)
             name = str(payload.get("tool_name") or "")
             args = dict(payload.get("arguments") or {})
             # Associate with the next pair (i.e. the response that

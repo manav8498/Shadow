@@ -7,7 +7,7 @@ members = ["crates/shadow-core", "crates/shadow-align"]
 exclude = ["typescript/native"]
 
 [workspace.package]
-version = "3.2.2"
+version = "3.2.3"
 edition = "2021"
 rust-version = "1.95"
 license = "Apache-2.0"
